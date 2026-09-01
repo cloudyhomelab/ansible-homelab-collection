@@ -56,6 +56,18 @@ a syntax check of a play that uses the role, once per supported ansible-core —
 (`.github/workflows/supported-versions.yml`). Raising the floor means changing
 `meta/runtime.yml`, `roles/systemd_app/meta/main.yml` and that matrix together.
 
+## Releasing
+
+A pushed `vX.Y.Z` tag runs `.github/workflows/release.yml`: it checks the tag against
+`galaxy.yml`'s `version`, that `CHANGELOG.md` has a `## X.Y.Z` section and that the version
+is not already on Galaxy, then calls the three gate workflows against the tagged commit and
+publishes. The publish waits behind the `release` environment, which needs a required
+reviewer configured to be a real stop — a Galaxy version cannot be replaced or deleted.
+
+So a release is: bump `version` in `galaxy.yml`, write the `CHANGELOG.md` section, commit,
+tag, push the tag. Needs the `GALAXY_API_KEY` secret. Prerelease tags (`v1.0.0-rc1`) do not
+match the trigger.
+
 ## Conventions
 
 - **Computation goes in `plugins/filter/`, with pytest cases** — not Jinja chains in YAML.

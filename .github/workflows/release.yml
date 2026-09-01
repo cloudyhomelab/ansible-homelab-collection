@@ -1,0 +1,155 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Release
+
+# A published Galaxy version is immutable: it cannot be overwritten and it cannot be
+# deleted. A mistake is not rolled back, it is superseded, and the wrong artefact stays
+# visible for good. So this workflow spends most of its length refusing to publish — the
+# upload itself is one command at the end.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  # For a release whose gates passed and whose upload then failed: the tag is already
+  # pushed, so there is nothing to re-tag.
+  workflow_dispatch:
+
+# Never two uploads of the same tag at once, and never cancel one in flight: a publish
+# interrupted between the upload and Galaxy's import is exactly the state with no clean
+# recovery.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Seconds, and before the half-hour of gates below: everything here is a way to ship the
+  # wrong version, and each is cheaper to catch now than to supersede later.
+  verify:
+    name: Verify the release is coherent
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout collection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The tag and galaxy.yml are edited at different moments, which is how a collection
+      # ends up published under a number nobody meant. Read from the file rather than
+      # derived from the tag, so the two have to agree rather than one being assumed.
+      - name: Check the tag matches galaxy.yml
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          declared="$(sed -n 's/^version:[[:space:]]*//p' galaxy.yml | head -1 | tr -d "\"' ")"
+          echo "tag=$tag declared=$declared"
+          if [ "$tag" != "$declared" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME says $tag, galaxy.yml says $declared." >&2
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+      # Also where the GitHub release body comes from, below: a version with nothing
+      # written about it would produce an empty release note.
+      - name: Check the changelog describes this version
+        run: |
+          if ! grep -qE "^## ${{ steps.version.outputs.version }}\$" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## ${{ steps.version.outputs.version }}' section." >&2
+            exit 1
+          fi
+
+      # The publish would fail on a duplicate anyway, but only after the gates have run
+      # for half an hour. A 200 here is conclusive; anything else is not, so only 200
+      # stops the release — a Galaxy outage should not read as "already published".
+      - name: Check the version is not already on Galaxy
+        run: |
+          url="https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/index"
+          url="$url/binarycodes/homelab/versions/${{ steps.version.outputs.version }}/"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$url" || echo 000)"
+          case "$code" in
+            404) echo "Not yet published." ;;
+            200) echo "::error::${{ steps.version.outputs.version }} is already on Galaxy, and a version cannot be replaced." >&2; exit 1 ;;
+            *)   echo "::warning::Galaxy answered $code; leaving it to the publish step to refuse a duplicate." ;;
+          esac
+
+  # The same definitions main runs, against the tagged commit. Called rather than trusted:
+  # a green tick on main is a statement about whatever main was then, and a tag can point
+  # anywhere.
+  ci:
+    name: Gate — unit tests and lint
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+
+  supported-versions:
+    name: Gate — supported versions
+    needs: verify
+    uses: ./.github/workflows/supported-versions.yml
+
+  molecule:
+    name: Gate — molecule
+    needs: verify
+    uses: ./.github/workflows/molecule.yml
+
+  # Build, upload and announce in one job so the file attached to the GitHub release is
+  # byte-for-byte the file that went to Galaxy, rather than a second build of the same
+  # source that merely ought to match.
+  publish:
+    name: Publish ${{ needs.verify.outputs.version }}
+    needs: [verify, ci, supported-versions, molecule]
+    runs-on: ubuntu-latest
+
+    # The stop button. Configure 'release' in the repository's environments with a required
+    # reviewer and this waits for a human between "every gate passed" and the one step that
+    # cannot be undone. Without that protection rule the job simply runs, so the guard is
+    # only as real as the environment.
+    environment: release
+
+    # Only this job writes anything: the release below needs it, and the gates above do not.
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout collection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the collection
+        run: ansible-galaxy collection build --output-path dist
+
+      # The token reaches the command through the environment, so the secret is never a
+      # literal in this file; GitHub masks it in the log either way. No --no-wait: Galaxy
+      # accepts the tarball and then imports it asynchronously, and the import is what
+      # actually validates the collection, so the run has to stay for the verdict.
+      - name: Publish to Galaxy
+        env:
+          GALAXY_API_KEY: ${{ secrets.GALAXY_API_KEY }}
+        run: |
+          if [ -z "$GALAXY_API_KEY" ]; then
+            echo "::error::Secret GALAXY_API_KEY is not set on this repository." >&2
+            exit 1
+          fi
+          ansible-galaxy collection publish \
+            "dist/binarycodes-homelab-${{ needs.verify.outputs.version }}.tar.gz" \
+            --api-key "$GALAXY_API_KEY"
+
+      # After the upload, so a failed publish leaves no release announcing a version that
+      # is not there. The body is this version's own changelog section, from the heading to
+      # the next one.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          awk -v v="## $VERSION" '
+            $0 == v {found = 1; next}
+            found && /^## / {exit}
+            found {print}
+          ' CHANGELOG.md > release-notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            "dist/binarycodes-homelab-$VERSION.tar.gz"

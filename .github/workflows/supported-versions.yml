@@ -18,6 +18,13 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Sunday, because this is the one workflow whose result can change without a commit: the
+  # latest row is unpinned, and every row resolves community.sops and ansible-test's own
+  # requirements afresh. A release that breaks the collection would otherwise sit unnoticed
+  # until someone next pushed, and then look like their fault. Off the hour, where GitHub's
+  # scheduler is least congested and a run is least likely to be dropped.
+  schedule:
+    - cron: '17 5 * * 0'
   workflow_dispatch:
 
 concurrency:

@@ -48,6 +48,12 @@ molecule test                         # the role on a systemd container; same la
 `ansible_collections/binarycodes/homelab/`: sanity imports plugins through that path, and
 the molecule converge calls the role by FQCN with nothing installing the collection for it.
 
+Locally these run against whatever ansible-core is installed. CI runs the first three, plus
+a syntax check of a play that uses the role, once per supported ansible-core — the floor
+`meta/runtime.yml` declares and the current release
+(`.github/workflows/supported-versions.yml`). Raising the floor means changing
+`meta/runtime.yml`, `roles/systemd_app/meta/main.yml` and that matrix together.
+
 ## Conventions
 
 - **Computation goes in `plugins/filter/`, with pytest cases** — not Jinja chains in YAML.

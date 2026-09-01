@@ -13,6 +13,8 @@ galaxy_info:
     single-container Quadlet from call-site params (kind=inline). Optionally registers
     a Caddy route.
   license: GPL-3.0-or-later
+  # Kept in step with meta/runtime.yml at the collection root, which carries the reason
+  # for the number and names the CI matrix that tests it.
   min_ansible_version: "2.15"
 
   # Nothing in the role is distribution-specific — it installs unit files, calls podman

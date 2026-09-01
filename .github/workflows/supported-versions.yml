@@ -1,0 +1,105 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Supported versions
+
+# What meta/runtime.yml claims, actually run. `requires_ansible: ">=2.15.0"` and the role's
+# min_ansible_version are a promise to a consumer, and CI would otherwise only ever see the
+# one ansible-core the runner image happens to ship — so the promise would be tested
+# nowhere and could rot silently.
+#
+# Its own workflow because it is also the one with a layout requirement: ansible-test
+# refuses to run unless the collection sits at ansible_collections/<namespace>/<name>/, and
+# aborts with "the current working directory must be within the source tree being tested"
+# anywhere else. Keeping it separate lets CI check out normally.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: supported-versions-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    name: ansible-core ${{ matrix.label }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      # Which versions fail is the result this workflow exists to produce, so one failing
+      # row must not cancel the others.
+      fail-fast: false
+      matrix:
+        include:
+          # The floor meta/runtime.yml declares. This row is what makes that declaration a
+          # tested claim rather than an assertion: if it ever fails, the fix is to raise
+          # the floor to what passes, not to drop the row.
+          - core: "==2.15.*"
+            python: "3.11"
+            label: "2.15 (declared floor)"
+          - core: "==2.19.*"
+            python: "3.11"
+            label: "2.19"
+          # Unpinned: a release that breaks the collection should fail here the week it
+          # lands, not whenever someone next thinks to bump a pin.
+          - core: ""
+            python: "3.13"
+            label: latest
+
+    # ansible-test derives the collection's package name from this layout — which is the
+    # point: the 'import' sanity test loads each plugin as ansible would, through
+    # binarycodes.homelab, rather than as a file the unit tests import by path. That is the
+    # coverage tests/unit/ cannot give, because its conftest.py loads plugins by file path.
+    defaults:
+      run:
+        working-directory: ansible_collections/binarycodes/homelab
+
+    steps:
+      - name: Checkout collection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ansible_collections/binarycodes/homelab
+
+      # Pinned per row, not once for the job: each ansible-core has its own controller
+      # Python floor, and 2.15 predates the interpreter the runner image ships.
+      - name: Install Python ${{ matrix.python }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install ansible-core ${{ matrix.label }}
+        run: pip install "ansible-core${{ matrix.core }}" pytest
+
+      # Resolved rather than pinned: ansible-galaxy honours each collection's own
+      # requires_ansible, so this lands the newest community.sops the row's core supports.
+      - name: Install the collection's dependencies
+        run: ansible-galaxy collection install community.sops
+
+      # The filters, loaded against this core: they import ansible.errors and raise
+      # AnsibleFilterError, so a change to either shows up here first.
+      - name: Unit-test the filter plugins
+        run: pytest tests/unit -q
+
+      # The role's own YAML against this core's parser and keyword set — every task, both
+      # kinds, through a play that calls the role the way a consumer does. The unit tests
+      # and ansible-test never parse a task file as a playbook, so nothing else covers a
+      # keyword that only a newer core understands. Both collection roots are named, and
+      # through the shell so $HOME expands: naming either alone replaces the search path
+      # rather than adding to it.
+      - name: Syntax-check a play that uses the role
+        run: |
+          ANSIBLE_COLLECTIONS_PATH="$GITHUB_WORKSPACE:$HOME/.ansible/collections" \
+            ansible-playbook --syntax-check extensions/molecule/default/converge.yml
+
+      # --local rather than --docker: ansible-test then uses the interpreter it is running
+      # under (the row's) and installs each test's own requirements into a venv, which
+      # skips pulling the multi-gigabyte test container for a collection this size.
+      - name: Sanity tests
+        run: ansible-test sanity --local

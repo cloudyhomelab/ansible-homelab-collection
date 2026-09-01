@@ -6,4 +6,9 @@
 # The floor a supported controller sets rather than one the role's syntax needs: nothing
 # here uses a keyword newer than 2.14, but ansible-core releases below 2.15 are end of
 # life, and Galaxy's tooling refuses to call them supported.
+#
+# Tested rather than merely declared: .github/workflows/supported-versions.yml runs the
+# unit tests, a syntax check of a play that uses the role, and ansible-test sanity against
+# this version as well as the current release. Raise this and the role's
+# min_ansible_version together with that matrix, never one without the others.
 requires_ansible: ">=2.15.0"

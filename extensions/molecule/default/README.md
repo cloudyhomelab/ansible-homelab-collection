@@ -54,6 +54,14 @@ While changing the role, `converge` is the loop to live in; `verify` and `side-e
 assert against what it left, `login` opens a shell in the target and `destroy` removes it.
 `test --destroy=never` keeps a failed container around to look at.
 
+The base image is pinned to a Fedora release that has actually shipped, not to `latest`
+or a higher number. Rawhide is on Python 3.15, which removed `dataclasses._is_type`;
+ansible-core patches that function unconditionally as module_utils is imported, so on such
+a target every module fails before it runs and reports only `Module result deserialization
+failed: No start of json char found`. `prepare.yml` records the target's release and
+interpreter through `raw` first thing, so that failure is one line into the log rather than
+an afternoon.
+
 Two things worth knowing: an edit to `Dockerfile.j2` needs
 `podman rmi molecule_local/systemd-app` first, the driver building the image only when it
 is missing; and the fixture apps tree is copied into molecule's ephemeral directory by

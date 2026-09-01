@@ -12,7 +12,15 @@ driver:
 
 platforms:
   - name: systemd-app
-    image: quay.io/fedora/fedora:45
+    # The newest released Fedora, and released is the load-bearing word: 44 is what
+    # `latest` currently points at and 45 is rawhide, neither of which carries a version
+    # label. Rawhide is already on Python 3.15, which dropped `dataclasses._is_type` — and
+    # ansible-core patches that function unconditionally when module_utils is imported
+    # (compat/typing.py, through an unguarded getattr, in 2.19 through 2.21 alike). On such
+    # a target every module dies before it runs, which surfaces as "Module result
+    # deserialization failed: No start of json char found" rather than as a version
+    # problem. Bump this only to a tag that has shipped.
+    image: quay.io/fedora/fedora:43
     # Built from Dockerfile.j2 rather than pulled ready-made: the base image ships
     # neither systemd nor podman nor python3, and all three are preconditions here.
     pre_build_image: false

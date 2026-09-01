@@ -1,0 +1,49 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Sanity
+
+# Its own workflow because it is the one check with a layout requirement: ansible-test
+# refuses to run unless the collection sits at ansible_collections/<namespace>/<name>/, and
+# aborts with "the current working directory must be within the source tree being tested"
+# anywhere else. Keeping it separate lets CI check out normally.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: sanity-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  sanity:
+    name: Sanity
+    runs-on: ubuntu-latest
+
+    # ansible-test derives the collection's package name from this layout — which is the
+    # point: the 'import' sanity test loads each plugin as ansible would, through
+    # binarycodes.homelab, rather than as a file the unit tests import by path. That is the
+    # coverage tests/unit/ cannot give, because its conftest.py loads plugins by file path.
+    defaults:
+      run:
+        working-directory: ansible_collections/binarycodes/homelab
+
+    steps:
+      - name: Checkout collection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ansible_collections/binarycodes/homelab
+
+      # --local rather than --docker: ansible-test then uses the interpreter it is running
+      # under (ansible-core is already on the runner, ansible-test with it) and installs
+      # each test's own requirements into a venv, which skips pulling the multi-gigabyte
+      # test container for a collection this size.
+      - name: Sanity tests
+        run: ansible-test sanity --local

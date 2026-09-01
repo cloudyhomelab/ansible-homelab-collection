@@ -50,8 +50,6 @@ jobs:
           pipx inject ansible-core molecule --include-apps
           pipx inject ansible-core 'molecule-plugins[podman]'
 
-      # Both podmans in one line of output, for when a failure below turns out to be the
-      # runner image moving rather than the role changing.
       - name: Record the podman version
         run: sudo podman version
 

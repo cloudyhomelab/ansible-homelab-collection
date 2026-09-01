@@ -7,20 +7,30 @@
 `plugins/filter/` is not a package -- ansible loads those files itself -- and the tests run
 as plain pytest rather than through `ansible-test units`, so there is no
 `ansible_collections.` import path to reach them by. Each file is therefore loaded from its
-path and registered under a prefixed module name: importing them by their own names would
-put a module called `secrets` ahead of the standard library's on `sys.path`.
+path and registered under a prefixed module name: importing `secrets` by its own name would
+put a module ahead of the standard library's on `sys.path`.
+
+Discovered rather than listed, so a filter added to the collection is picked up here
+without editing this file -- and so test_filter_docs.py can check the full set.
 """
 
 import importlib.util
 import pathlib
 import sys
 
-_FILTER_DIR = pathlib.Path(__file__).resolve().parents[2] / "plugins" / "filter"
+FILTER_DIR = pathlib.Path(__file__).resolve().parents[2] / "plugins" / "filter"
 
-for _name in ("secrets", "validation", "systemd"):
-    _spec = importlib.util.spec_from_file_location(
-        f"systemd_app_{_name}", _FILTER_DIR / f"{_name}.py"
-    )
-    _module = importlib.util.module_from_spec(_spec)
-    sys.modules[_spec.name] = _module
-    _spec.loader.exec_module(_module)
+
+def load_filter_module(path):
+    """Load one plugins/filter/*.py under a prefixed module name."""
+    spec = importlib.util.spec_from_file_location(f"systemd_app_{path.stem}", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+FILTER_FILES = sorted(p for p in FILTER_DIR.glob("*.py") if not p.name.startswith("_"))
+
+for _path in FILTER_FILES:
+    load_filter_module(_path)

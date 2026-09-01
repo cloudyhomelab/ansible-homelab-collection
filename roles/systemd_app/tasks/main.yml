@@ -42,7 +42,8 @@
 # failed run rather than a half-deployed app or a proxy that will not load.
 #
 # Both filters return one string per problem, so a run reports everything wrong at once
-# rather than the first thing. What each accepts, and why, is in plugins/filter/validation.py.
+# rather than the first thing. What each accepts, and why, is in the filter's own docs
+# (`ansible-doc -t filter binarycodes.homelab.route_problems`).
 - name: "Verify the route inputs of app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:

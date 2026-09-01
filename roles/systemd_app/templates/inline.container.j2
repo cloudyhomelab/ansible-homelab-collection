@@ -12,7 +12,7 @@ ContainerName={{ systemd_app_name }}
 AutoUpdate=registry
 Network={{ systemd_app_network }}
 {# Quoting and escaping live in systemd_env_lines, where they are tested; see
-   plugins/filter/systemd.py for the systemd rules they follow. #}
+   `ansible-doc -t filter binarycodes.homelab.systemd_env_lines` for the rules they follow. #}
 {% for line in systemd_app_env | binarycodes.homelab.systemd_env_lines %}
 {{ line }}
 {% endfor %}

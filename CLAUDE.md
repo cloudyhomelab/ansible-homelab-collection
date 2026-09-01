@@ -51,6 +51,12 @@ molecule test                         # the role on a systemd container; slow, i
 
 - **Computation goes in `plugins/filter/`, with pytest cases** — not Jinja chains in YAML.
   The five filters are public API, named for what they compute.
+- **One filter per file, named after the filter**, carrying its own `DOCUMENTATION`,
+  `RETURN` and `EXAMPLES`. `ansible-doc` addresses a filter by name, so a file holding two
+  could only document one of them. Rationale that spans filters is repeated in each one's
+  docs rather than kept in a shared module docstring, where `ansible-doc` cannot reach it.
+  `tests/unit/test_filter_docs.py` enforces all of this — nothing in `ansible-lint` or
+  `ansible-test sanity` checks filter docs, so an undocumented filter would ship silently.
 - **Comments explain why, not what.** The existing ones are the standard to match.
 - **Every role variable is prefixed `systemd_app_`** (ansible-lint's
   `var-naming[no-role-prefix]`); see `roles/systemd_app/meta/argument_specs.yml`.

@@ -544,7 +544,7 @@ and so on), so they resolve wherever the collection is installed:
 | `container_problems` | Checking what would be interpolated into a rendered Quadlet.      |
 | `systemd_env_lines`  | Quoting and escaping `systemd_app_env` into `Environment=` lines.  |
 
-They live in `plugins/filter/` — `secrets.py`, `validation.py`, `systemd.py` — and are
+They live in `plugins/filter/`, one file per filter, and are
 Python so they can be tested as Python: a table of cases in under a second, rather than a
 playbook run per case (`tests/unit/`). Both `*_problems` filters return a list of
 human-readable problems and never raise, so one run reports everything wrong at once. A

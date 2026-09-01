@@ -15,10 +15,13 @@ import json
 import pytest
 from ansible.errors import AnsibleFilterError
 
-# Registered by conftest.py, which loads them from plugins/filter/ by path.
-from systemd_app_secrets import reconcile_secrets, secret_digests
-from systemd_app_systemd import systemd_env_lines
-from systemd_app_validation import container_problems, route_problems
+# Registered by conftest.py, which loads them from plugins/filter/ by path -- one module
+# per filter, each named systemd_app_<filter name>.
+from systemd_app_container_problems import container_problems
+from systemd_app_reconcile_secrets import reconcile_secrets
+from systemd_app_route_problems import route_problems
+from systemd_app_secret_digests import secret_digests
+from systemd_app_systemd_env_lines import systemd_env_lines
 
 
 def digest(value):

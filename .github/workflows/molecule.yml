@@ -21,6 +21,9 @@ on:
       - 'plugins/filter/**'
       - 'extensions/molecule/**'
       - '.github/workflows/molecule.yml'
+  # Callable, so release.yml runs this gate against the tagged commit rather than
+  # trusting a tick from whenever main last ran. The triggers above never fire for a tag.
+  workflow_call:
   workflow_dispatch:
 
 # Everything happens inside the runner, so a superseded PR push is worth cancelling. Not

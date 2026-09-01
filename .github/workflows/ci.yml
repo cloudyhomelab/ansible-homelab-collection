@@ -8,6 +8,9 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Callable, so release.yml runs this gate against the tagged commit rather than
+  # trusting a tick from whenever main last ran. The triggers above never fire for a tag.
+  workflow_call:
   workflow_dispatch:
 
 concurrency:

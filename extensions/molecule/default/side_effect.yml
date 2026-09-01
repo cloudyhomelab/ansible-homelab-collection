@@ -71,7 +71,7 @@
           - molecule_pruned_unit.stdout == 'active'
         quiet: true
       vars:
-        molecule_recorded: "{{ (molecule_pruned_manifest.content | b64decode).split() }}"
+        molecule_recorded: "{{ (molecule_pruned_manifest.content | b64decode).splitlines() }}"
 
     # --- the same app, converted to the other kind -------------------------------------
     # The role prunes the unit file but cannot stop a unit the app no longer ships, which
@@ -136,7 +136,7 @@
         fail_msg: "Recorded after the flip: {{ molecule_flip_recorded }}."
         quiet: true
       vars:
-        molecule_flip_recorded: "{{ (molecule_flip_files.results[0].content | b64decode).split() }}"
+        molecule_flip_recorded: "{{ (molecule_flip_files.results[0].content | b64decode).splitlines() }}"
         molecule_flip_rendered: "{{ molecule_flip_files.results[1].content | b64decode }}"
 
     # --- decommission ------------------------------------------------------------------

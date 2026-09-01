@@ -31,6 +31,9 @@ description:
     because the value becomes a site that will try to get a public certificate for itself,
     and no CA issues one for a single label - so a bare name is a typo, caught here rather
     than in a certificate loop.
+  - Length limits are checked as well as shape - 253 characters overall and 63 per label, as
+    DNS requires. A name over either is not resolvable, so no certificate could be issued
+    for it.
 positional: upstream, port
 options:
   _input:
@@ -43,7 +46,12 @@ options:
         C(podman secret create) and C(ContainerName=) accept.
     type: str
   port:
-    description: The internal upstream port. Must be in the range 1-65535.
+    description:
+      - The internal upstream port. Must be a whole number in the range 1-65535, given as an
+        integer or a string of ASCII digits.
+      - A boolean, a float and a string with surrounding whitespace are all refused. Python's
+        C(int()) would otherwise read V(true) as port 1, truncate V(8080.9) to V(8080) and
+        accept V("8080\n") - and that last one composes a broken Caddy site block.
     type: int
 """
 
@@ -74,6 +82,29 @@ _HOSTNAME_RE = re.compile(
     r"[A-Za-z]([A-Za-z0-9-]*[A-Za-z0-9])?"           # final label, starting with a letter
 )
 _HOSTNAME_MAX = 253
+# DNS limits: 253 for the whole name, 63 for any one label. A name over either is not
+# resolvable, so no certificate could be issued for the site it composes.
+_LABEL_MAX = 63
+
+# A port given as a string. ASCII digits only, so no sign, no surrounding whitespace, and
+# none of the non-ASCII digits `str.isdigit` would accept.
+_PORT_RE = re.compile(r"[0-9]+")
+
+
+def _port_number(port):
+    """The port as an int, or None when the value is not one.
+
+    Not `int()`: bool is a subclass of int, so True would pass as port 1; a float would be
+    truncated rather than refused; and a string would be accepted with surrounding
+    whitespace, so "8080\\n" would compose a Caddy site block with a newline in it.
+    """
+    if isinstance(port, bool):
+        return None
+    if isinstance(port, int):
+        return port
+    if isinstance(port, str) and _PORT_RE.fullmatch(port):
+        return int(port)
+    return None
 
 
 def route_problems(domain, upstream=None, port=None):
@@ -90,6 +121,11 @@ def route_problems(domain, upstream=None, port=None):
         problems.append(
             f"systemd_app_domain is {len(domain)} characters, over the {_HOSTNAME_MAX} maximum"
         )
+    elif any(len(label) > _LABEL_MAX for label in domain.split(".")):
+        problems.append(
+            f"systemd_app_domain {domain!r} has a label over the {_LABEL_MAX}-character "
+            "maximum a DNS label allows"
+        )
 
     upstream = "" if upstream is None else str(upstream)
     if not _PODMAN_NAME_RE.fullmatch(upstream):
@@ -98,10 +134,7 @@ def route_problems(domain, upstream=None, port=None):
             "dot, dash or underscore, not starting with a dot)"
         )
 
-    try:
-        port_number = int(port)
-    except (TypeError, ValueError):
-        port_number = None
+    port_number = _port_number(port)
     if port_number is None or not 1 <= port_number <= 65535:
         problems.append(f"systemd_app_port {port!r} is not a port in 1-65535")
 

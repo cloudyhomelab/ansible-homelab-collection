@@ -72,8 +72,8 @@
           {{ molecule_inline_recorded }}.
         quiet: true
       vars:
-        molecule_source_recorded: "{{ (molecule_manifests.results[0].content | b64decode).split() }}"
-        molecule_inline_recorded: "{{ (molecule_manifests.results[1].content | b64decode).split() }}"
+        molecule_source_recorded: "{{ (molecule_manifests.results[0].content | b64decode).splitlines() }}"
+        molecule_inline_recorded: "{{ (molecule_manifests.results[1].content | b64decode).splitlines() }}"
 
     - name: Read the rendered Quadlet of the inline app
       ansible.builtin.slurp:

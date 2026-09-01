@@ -155,6 +155,11 @@ def test_good_domains_are_accepted(domain):
     assert route_problems(domain, "myapp", 8080) == []
 
 
+def test_a_label_at_exactly_the_dns_maximum_is_accepted():
+    # 63 is legal; the check must not be off by one.
+    assert route_problems("a" * 63 + ".example.com", "myapp", 8080) == []
+
+
 @pytest.mark.parametrize(
     "domain, why",
     [
@@ -172,6 +177,8 @@ def test_good_domains_are_accepted(domain):
         ("", "empty"),
         (None, "undefined"),
         (".".join(["a" * 60] * 5) + ".com", "over 253 characters"),
+        ("a" * 64 + ".example.com", "label over the 63-character DNS maximum"),
+        ("*." + "a" * 64 + ".example.com", "wildcarded, label still over 63 characters"),
     ],
 )
 def test_bad_domains_are_rejected(domain, why):
@@ -199,6 +206,32 @@ def test_good_ports_are_accepted(port):
 def test_bad_ports_are_rejected(port):
     problems = route_problems("x.example.com", "myapp", port)
     assert any("systemd_app_port" in p for p in problems)
+
+
+@pytest.mark.parametrize(
+    "port, why",
+    [
+        (True, "bool is an int subclass, so int() would read it as port 1"),
+        (False, "as above, port 0"),
+        (8080.9, "int() would truncate it rather than refuse it"),
+        (8080.0, "a port is a whole number, even when the float is integral"),
+        ("8080\n", "int() accepts a trailing newline, which would break the site block"),
+        (" 8080", "int() accepts leading whitespace"),
+        ("8080 ", "int() accepts trailing whitespace"),
+        ("+8080", "int() accepts a sign"),
+        ("\u0668\u0660\u0668\u0660", "str.isdigit accepts non-ASCII digits; int() converts them"),
+    ],
+)
+def test_ports_int_would_wrongly_accept_are_rejected(port, why):
+    # Each of these passes a bare int(), which is why the filter does not use one.
+    problems = route_problems("x.example.com", "myapp", port)
+    assert any("systemd_app_port" in p for p in problems), why
+
+
+@pytest.mark.parametrize("port", ["8080", "1", "65535"])
+def test_a_port_given_as_a_string_of_digits_is_accepted(port):
+    # YAML and a call site both hand ports over as strings often enough to allow it.
+    assert route_problems("x.example.com", "myapp", port) == []
 
 
 def test_every_problem_is_reported_at_once():

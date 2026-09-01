@@ -15,7 +15,9 @@ repository-specific parts removed.
   both kinds; SOPS-encrypted podman secrets with digest-based rotation; an optional Caddy
   route; pre-created bind-mount directories; healthcheck-gated `podman auto-update`
   rollback.
-- Filters `secret_digests`, `reconcile_secrets`, `route_problems`, `container_problems`
-  and `systemd_env_lines`, callable independently of the role.
-- Molecule scenario covering both kinds, idempotence, the manifest prune, a change of kind
-  and a repeated decommission.
+- Filters `secret_digests`, `reconcile_secrets`, `route_problems`, `container_problems`,
+  `systemd_env_lines` and `manifest_units`, callable independently of the role.
+- Molecule scenario covering both kinds, idempotence, the manifest prune, a change of kind,
+  the secrets path end to end — decrypted, stored, rotated, dropped and re-stored after
+  drift — and a repeated decommission that stops what an app is running whether or not the
+  call names its units.

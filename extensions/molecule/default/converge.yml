@@ -18,6 +18,7 @@
       - molsource.service
       - molsource-extra.service
       - molinline.service
+      - molsecret.service
 
   roles:
     # First, so the network unit exists before anything that might reference it.
@@ -50,6 +51,17 @@
           owner: "10001"
           group: "10001"
           mode: "0700"
+
+    # Its own app rather than secrets bolted onto the one above: the secrets path is the
+    # most stateful thing the role does — rotate, drop, re-store after drift — and each of
+    # those is a further deploy in side_effect.yml. Kept apart, those deploys carry two
+    # parameters instead of the eight the app above needs to stay identical across them.
+    - role: binarycodes.homelab.systemd_app
+      systemd_app_kind: inline
+      systemd_app_name: molsecret
+      systemd_app_image: "{{ molecule_image }}"
+      systemd_app_container_options:
+        - Exec=sleep 86400
 
   post_tasks:
     # An idempotence failure names only the task that reported 'changed', and for the

@@ -75,6 +75,9 @@ ansible-lint             # roles, playbooks and the molecule scenario
 molecule test            # the role against a systemd container (see extensions/molecule/default/)
 ```
 
+`molecule test` also needs `sops` on PATH and a checkout laid out as
+`ansible_collections/binarycodes/homelab/`; the scenario's README says why.
+
 ## Licence
 
 GPL-3.0-or-later — see [LICENSE](LICENSE).

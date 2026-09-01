@@ -60,6 +60,20 @@ jobs:
           pipx inject ansible-core molecule --include-apps
           pipx inject ansible-core 'molecule-plugins[podman]'
 
+      # The role decrypts an app's secrets through community.sops, which shells out to the
+      # sops binary; the scenario ships an age identity and a fixture app that needs one.
+      # Not from a package repository, which carries sops on no runner image: a pinned
+      # release binary, with its checksum, so a replaced asset fails here rather than
+      # running.
+      - name: Install sops
+        run: |
+          curl -fsSL -o /tmp/sops \
+            https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.linux.amd64
+          echo 'e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b  /tmp/sops' \
+            | sha256sum --check --strict
+          sudo install -m 0755 /tmp/sops /usr/local/bin/sops
+          sops --version
+
       - name: Record the podman version
         run: sudo podman version
 

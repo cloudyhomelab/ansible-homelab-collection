@@ -18,6 +18,7 @@
       - {name: molinline, kind: inline}
       - {name: molsource, kind: inline}
       - {name: molnet, kind: source}
+      - {name: molsecret, kind: inline}
 
   tasks:
     # --- a file dropped from the app's source tree -------------------------------------
@@ -139,6 +140,77 @@
         molecule_flip_recorded: "{{ (molecule_flip_files.results[0].content | b64decode).splitlines() }}"
         molecule_flip_rendered: "{{ molecule_flip_files.results[1].content | b64decode }}"
 
+    # --- secrets: rotated, dropped, and re-stored after drift ----------------------------
+    # Storing is create-only and podman cannot update a secret in place, so a changed value
+    # is a remove followed by a create — worked out from three inputs (what the app
+    # declares, what it last stored, what the host still holds) by reconcile_secrets. The
+    # unit tests cover that arithmetic; what is covered here is the task chain around it.
+    - name: Re-encrypt the fixture secrets with one value changed and one name gone
+      community.sops.sops_encrypt:
+        path: "{{ molecule_apps_dir }}/molsecret/secrets.sops.yaml"
+        age: ["{{ molecule_sops_recipient }}"]
+        content_yaml: "{{ molecule_secrets_rotated }}"
+        force: true
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    - name: Re-deploy the secrets app over the rotated file
+      ansible.builtin.include_role:
+        name: binarycodes.homelab.systemd_app
+      vars:
+        systemd_app_kind: inline
+        systemd_app_name: molsecret
+        systemd_app_image: "{{ molecule_image }}"
+        systemd_app_container_options:
+          - Exec=sleep 86400
+
+    - name: Read back the store and the record after the rotation
+      ansible.builtin.include_tasks: tasks/read-secret-state.yml
+
+    - name: Assert the changed value was re-stored and the dropped name removed
+      ansible.builtin.assert:
+        that:
+          - molecule_stored_names == molecule_secrets_rotated | list | sort
+          # The value podman holds is the new one, so the rm-then-create ran rather than
+          # the create being refused for a name that already existed.
+          - molecule_stored_values == molecule_secrets_rotated
+          # Dropped from the record too: its key set is what a later deploy — and the
+          # decommission below — works from to know which secrets this app owns.
+          - molecule_recorded_digests | list | sort == molecule_secrets_rotated | list | sort
+        fail_msg: >-
+          Stored {{ molecule_stored_names }}, recorded
+          {{ molecule_recorded_digests | list | sort }}.
+        quiet: true
+
+    # The record says what this app last stored, not what podman still holds. A secret
+    # removed by hand — or lost with a store reset — leaves the record matching, so nothing
+    # would re-store it, and the app then references a name podman does not know.
+    - name: Remove a stored secret behind the role's back
+      ansible.builtin.command:
+        argv: [podman, secret, rm, molsecret-token]
+      changed_when: true
+
+    - name: Re-deploy the secrets app over the unchanged file
+      ansible.builtin.include_role:
+        name: binarycodes.homelab.systemd_app
+      vars:
+        systemd_app_kind: inline
+        systemd_app_name: molsecret
+        systemd_app_image: "{{ molecule_image }}"
+        systemd_app_container_options:
+          - Exec=sleep 86400
+
+    - name: Read back the store and the record after the drift
+      ansible.builtin.include_tasks: tasks/read-secret-state.yml
+
+    - name: Assert the secret the host had lost was stored again
+      ansible.builtin.assert:
+        that:
+          - molecule_stored_values == molecule_secrets_rotated
+        fail_msg: "After re-deploying over a hand-removed secret: {{ molecule_stored_names }}."
+        quiet: true
+
     # --- decommission ------------------------------------------------------------------
     - name: Decommission every fixture app
       ansible.builtin.include_role:
@@ -158,8 +230,10 @@
       loop:
         - /var/app/molsource
         - /var/app/molinline
+        - /var/app/molsecret
         - /etc/containers/systemd/molsource.container
         - /etc/containers/systemd/molinline.container
+        - /etc/containers/systemd/molsecret.container
         - /etc/containers/systemd/molecule.network
         - /var/app/molproxy/config/conf.d/molsource.caddy
         - /var/app/molproxy/config/conf.d/molinline.caddy
@@ -171,15 +245,26 @@
       loop:
         - molsource.service
         - molinline.service
+        - molsecret.service
       changed_when: false
       failed_when: false
       register: molecule_absent_units
+
+    # Podman secrets are host-global, so they are not part of the app tree removed above:
+    # nothing else would have taken them with it.
+    - name: Ask podman what secrets it still holds
+      ansible.builtin.command:
+        argv: [podman, secret, ls, --format, "{{ '{{' }}.Name{{ '}}' }}"]
+      changed_when: false
+      register: molecule_absent_secrets
 
     - name: Assert nothing the apps owned is left on the host
       ansible.builtin.assert:
         that:
           - molecule_after_absent.results | selectattr('stat.exists') | list | length == 0
           - molecule_absent_units.results | selectattr('stdout', 'equalto', 'active')
+            | list | length == 0
+          - molecule_absent_secrets.stdout_lines | select('match', '^molsecret-')
             | list | length == 0
         fail_msg: >-
           Left behind:

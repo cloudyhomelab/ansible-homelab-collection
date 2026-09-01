@@ -1,0 +1,14 @@
+# A throwaway age identity, generated for this molecule scenario and committed on purpose.
+#
+# It is not a leaked key and it protects nothing: the only ciphertext it can open is the
+# secrets file prepare.yml encrypts, from fixture values written in plain sight in
+# molecule.yml. It never leaves the repository either — galaxy.yml's build_ignore drops
+# `extensions` wholesale, so it is not in the built collection.
+#
+# The scenario needs a real key because the role's secrets path is real: it calls
+# community.sops.load_vars, which shells out to sops, which will not decrypt without an
+# identity. Nothing else here can stand in for one.
+#
+# created: 2026-09-01T13:03:20Z
+# public key: age17svute832444rnpteey2lapzwac3k80efzwcxlm0ypu29c0tvcuq43g9uw
+AGE-SECRET-KEY-1T7AZRYVXN2RURWMH58J7F3H49QM4RP5QD8VLDHRQDM6R0X8MAG6Q3WMTV9

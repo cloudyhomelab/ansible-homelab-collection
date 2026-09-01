@@ -23,6 +23,8 @@
       - /var/app/molinline/.install-manifest
       - /var/app/molproxy/config/conf.d/molsource.caddy
       - /var/app/molproxy/config/conf.d/molinline.caddy
+      - /etc/containers/systemd/molsecret.container
+      - /var/app/molsecret/.secret-digests
     # Every path the 'source' app installed, and nothing else: this set is what a later
     # deploy reconciles against, so an entry missing here is a file that would survive
     # forever and an extra one is a file that would be deleted from under another app.
@@ -35,6 +37,7 @@
       - molsource.service
       - molsource-extra.service
       - molinline.service
+      - molsecret.service
 
   tasks:
     - name: Stat every path the converge should have installed
@@ -134,6 +137,90 @@
           - molecule_data_dir.stat.gid == 10001
           - molecule_data_dir.stat.mode == '0700'
         quiet: true
+
+    # --- secrets ------------------------------------------------------------------------
+    - name: Ask podman what secrets it holds
+      ansible.builtin.command:
+        argv: [podman, secret, ls, --format, "{{ '{{' }}.Name{{ '}}' }}"]
+      changed_when: false
+      register: molecule_secret_names
+
+    # --showsecret rather than the digest record alone: the record says what the last
+    # deploy meant to store, and the point of this assertion is that the store agrees.
+    - name: Read back every stored secret value
+      ansible.builtin.command:
+        argv:
+          - podman
+          - secret
+          - inspect
+          - --showsecret
+          - --format
+          - "{{ '{{' }}.SecretData{{ '}}' }}"
+          - "{{ item }}"
+      loop: "{{ molecule_secrets | dict2items | map(attribute='key') | list }}"
+      changed_when: false
+      register: molecule_secret_data
+
+    - name: Read the recorded secret digests
+      ansible.builtin.slurp:
+        src: /var/app/molsecret/.secret-digests
+      register: molecule_digest_file
+
+    - name: Stat the recorded secret digests
+      ansible.builtin.stat:
+        path: /var/app/molsecret/.secret-digests
+      register: molecule_digest_stat
+
+    - name: Assert every declared secret was decrypted and stored under its own name
+      ansible.builtin.assert:
+        that:
+          - molecule_secret_names.stdout_lines | sort == molecule_secrets | list | sort
+          # The values sops decrypted, as podman now holds them: this is the whole path
+          # end to end, from the encrypted file to the store.
+          - molecule_stored_values == molecule_secrets
+          # A digest of a secret is not a secret, but it is close enough to warrant the
+          # same permissions as the store itself.
+          - molecule_digest_stat.stat.mode == '0600'
+          - molecule_recorded_digests == molecule_expected_digests
+        fail_msg: >-
+          Stored {{ molecule_secret_names.stdout_lines | sort }}, recorded
+          {{ molecule_recorded_digests.keys() | list | sort }}.
+        quiet: true
+      vars:
+        molecule_stored_values: >-
+          {{ dict(molecule_secret_data.results | map(attribute='item')
+             | zip(molecule_secret_data.results | map(attribute='stdout'))) }}
+        molecule_recorded_digests: "{{ molecule_digest_file.content | b64decode | from_json }}"
+        molecule_expected_digests: >-
+          {{ dict(molecule_secrets | list
+             | zip(molecule_secrets.values() | list | map('hash', 'sha256') | list)) }}
+
+    - name: Read the rendered Quadlet of the secrets app
+      ansible.builtin.slurp:
+        src: /etc/containers/systemd/molsecret.container
+      register: molecule_secret_quadlet
+
+    - name: Ask the running container what it was given
+      ansible.builtin.command:
+        argv: [podman, exec, molsecret, printenv, MOLSECRET_TOKEN]
+      changed_when: false
+      register: molecule_container_env
+
+    - name: Assert the container references its secrets and receives them as variables
+      ansible.builtin.assert:
+        that:
+          # The name upper-cased with dashes as underscores, which is the contract the
+          # role's own key check enforces for an 'inline' app.
+          - "'Secret=molsecret-token,type=env,target=MOLSECRET_TOKEN' in molecule_secret_rendered"
+          - "'Secret=molsecret-extra,type=env,target=MOLSECRET_EXTRA' in molecule_secret_rendered"
+          # No value is written into the unit file: the Quadlet names the secret and
+          # podman injects it, which is the reason to use a secret rather than an
+          # Environment= line at all.
+          - molecule_secrets['molsecret-token'] not in molecule_secret_rendered
+          - molecule_container_env.stdout == molecule_secrets['molsecret-token']
+        quiet: true
+      vars:
+        molecule_secret_rendered: "{{ molecule_secret_quadlet.content | b64decode }}"
 
     - name: Ask systemd for the state of the managed units
       ansible.builtin.command:

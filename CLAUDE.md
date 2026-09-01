@@ -30,7 +30,9 @@ Every source file carries this header — `.py`, `.yml`, and `.j2`:
   as comments.
 
 Molecule fixture data under `extensions/molecule/default/apps/` carries no header: those
-files are copied verbatim onto a test host.
+files are copied verbatim onto a test host. Nor does
+`extensions/molecule/default/sops/age-key.txt`, which is a key rather than source — a
+throwaway age identity, committed on purpose and explained in the file itself.
 
 ## Gates
 

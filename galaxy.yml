@@ -28,10 +28,11 @@ tags:
 dependencies:
   community.sops: ">=2.3.0"
 
-repository: https://github.com/binarycodes/ansible-homelab
-documentation: https://github.com/binarycodes/ansible-homelab/blob/main/README.md
-homepage: https://github.com/binarycodes/ansible-homelab
-issues: https://github.com/binarycodes/ansible-homelab/issues
+# Galaxy publishes these as links on the collection's page, and does not check them.
+repository: https://github.com/cloudyhomelab/ansible-homelab-collection
+documentation: https://github.com/cloudyhomelab/ansible-homelab-collection/blob/main/README.md
+homepage: https://github.com/cloudyhomelab/ansible-homelab-collection
+issues: https://github.com/cloudyhomelab/ansible-homelab-collection/issues
 
 # Not part of an installed collection
 build_ignore:

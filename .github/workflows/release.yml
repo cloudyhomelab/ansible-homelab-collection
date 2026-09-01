@@ -12,8 +12,11 @@ name: Release
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
-  # For a release whose gates passed and whose upload then failed: the tag is already
-  # pushed, so there is nothing to re-tag.
+  # Two uses. Dispatched from a tag: a release whose gates passed and whose upload then
+  # failed, where the tag is already pushed and there is nothing to re-tag. Dispatched from
+  # a branch: a rehearsal — every check and every gate runs, the collection is built, and
+  # nothing is published. Which one it is comes from the ref, not from an input, so a
+  # rehearsal cannot be turned into a release by filling in a form.
   workflow_dispatch:
 
 # Never two uploads of the same tag at once, and never cancel one in flight: a publish
@@ -34,25 +37,42 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
 
     steps:
       - name: Checkout collection
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The tag and galaxy.yml are edited at different moments, which is how a collection
-      # ends up published under a number nobody meant. Read from the file rather than
-      # derived from the tag, so the two have to agree rather than one being assumed.
-      - name: Check the tag matches galaxy.yml
+      # ends up published under a number nobody meant. The version is read from the file
+      # either way, so the tag has to agree with it rather than be believed.
+      #
+      # This is also where a rehearsal is told apart from a release, and the ref is what
+      # tells them apart: a branch has no version to agree with, and everything downstream
+      # keys off this rather than off anything a caller can set.
+      - name: Resolve the version and check the tag against galaxy.yml
         id: version
         run: |
-          tag="${GITHUB_REF_NAME#v}"
           declared="$(sed -n 's/^version:[[:space:]]*//p' galaxy.yml | head -1 | tr -d "\"' ")"
-          echo "tag=$tag declared=$declared"
-          if [ "$tag" != "$declared" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME says $tag, galaxy.yml says $declared." >&2
+          if [ -z "$declared" ]; then
+            echo "::error::No version found in galaxy.yml." >&2
             exit 1
           fi
-          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$declared" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME says $tag, galaxy.yml says $declared." >&2
+              exit 1
+            fi
+            echo "Releasing $declared from tag $GITHUB_REF_NAME."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Rehearsal from branch $GITHUB_REF_NAME. Version $declared" \
+                 "taken from galaxy.yml, with no tag to check it against. Nothing is published."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$declared" >> "$GITHUB_OUTPUT"
 
       # Also where the GitHub release body comes from, below: a version with nothing
       # written about it would produce an empty release note.
@@ -65,7 +85,9 @@ jobs:
 
       # The publish would fail on a duplicate anyway, but only after the gates have run
       # for half an hour. A 200 here is conclusive; anything else is not, so only 200
-      # stops the release — a Galaxy outage should not read as "already published".
+      # stops the release — a Galaxy outage should not read as "already published". Worth
+      # running in a rehearsal too: it answers whether the number in galaxy.yml is still
+      # free, which is the question a rehearsal is usually asked to settle.
       - name: Check the version is not already on Galaxy
         run: |
           url="https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/index"
@@ -97,9 +119,12 @@ jobs:
 
   # Build, upload and announce in one job so the file attached to the GitHub release is
   # byte-for-byte the file that went to Galaxy, rather than a second build of the same
-  # source that merely ought to match.
+  # source that merely ought to match. On a rehearsal the build still runs and the two
+  # steps that change something outside this runner do not.
   publish:
-    name: Publish ${{ needs.verify.outputs.version }}
+    name: >-
+      ${{ needs.verify.outputs.release == 'true' && 'Publish' || 'Rehearse' }}
+      ${{ needs.verify.outputs.version }}
     needs: [verify, ci, supported-versions, molecule]
     runs-on: ubuntu-latest
 
@@ -117,14 +142,21 @@ jobs:
       - name: Checkout collection
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The filename is asserted rather than assumed: it is composed from galaxy.yml's
+      # namespace, name and version, and the publish and release steps below both name it.
+      # A mismatch here is a build that would not be found a step later, or worse, found
+      # and published under a name nobody checked.
       - name: Build the collection
-        run: ansible-galaxy collection build --output-path dist
+        run: |
+          ansible-galaxy collection build --output-path dist
+          ls -l "dist/binarycodes-homelab-${{ needs.verify.outputs.version }}.tar.gz"
 
       # The token reaches the command through the environment, so the secret is never a
       # literal in this file; GitHub masks it in the log either way. No --no-wait: Galaxy
       # accepts the tarball and then imports it asynchronously, and the import is what
       # actually validates the collection, so the run has to stay for the verdict.
       - name: Publish to Galaxy
+        if: needs.verify.outputs.release == 'true'
         env:
           GALAXY_API_KEY: ${{ secrets.GALAXY_API_KEY }}
         run: |
@@ -140,6 +172,7 @@ jobs:
       # is not there. The body is this version's own changelog section, from the heading to
       # the next one.
       - name: Create the GitHub release
+        if: needs.verify.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.verify.outputs.version }}
@@ -153,3 +186,31 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --notes-file release-notes.md \
             "dist/binarycodes-homelab-$VERSION.tar.gz"
+
+      # A rehearsal is only useful if it says what it did not do. The release notes are
+      # rendered here as well, since an empty or wrong-looking body is the one thing the
+      # checks above cannot judge for you.
+      - name: Report what a release would have done
+        if: needs.verify.outputs.release != 'true'
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          {
+            echo "## Rehearsal of $VERSION"
+            echo
+            echo "Ran from \`$GITHUB_REF_NAME\`, which is a branch, so nothing was published."
+            echo "Every check and every gate ran, and the collection built:"
+            echo
+            echo '```'
+            tar tzf "dist/binarycodes-homelab-$VERSION.tar.gz" | head -20
+            echo '```'
+            echo
+            echo "A \`v$VERSION\` tag would additionally have uploaded that file to Galaxy"
+            echo "and opened a GitHub release with these notes:"
+            echo
+            awk -v v="## $VERSION" '
+              $0 == v {found = 1; next}
+              found && /^## / {exit}
+              found {print}
+            ' CHANGELOG.md
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -68,6 +68,11 @@ So a release is: bump `version` in `galaxy.yml`, write the `CHANGELOG.md` sectio
 tag, push the tag. Needs the `GALAXY_API_KEY` secret. Prerelease tags (`v1.0.0-rc1`) do not
 match the trigger.
 
+Running the workflow by hand **from a branch** is a rehearsal: the version comes from
+`galaxy.yml`, every check and every gate still runs, the collection is built, and the two
+steps that reach outside the runner are skipped. What separates a rehearsal from a release
+is `github.ref_type`, not an input, so nothing published can come from a branch.
+
 ## Conventions
 
 - **Computation goes in `plugins/filter/`, with pytest cases** — not Jinja chains in YAML.

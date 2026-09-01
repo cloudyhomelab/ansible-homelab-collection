@@ -1,0 +1,8 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# No rules are skipped. Every role variable is role-prefixed
+# (var-naming[no-role-prefix]); see each role's argument_specs.yml.
+profile: production

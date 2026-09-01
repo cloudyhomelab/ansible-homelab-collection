@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+# Built collection artifacts and whatever ansible-lint or molecule leave behind.
+*.tar.gz
+.ansible/
+.cache/
+
+.idea/
+docs/

@@ -1,0 +1,89 @@
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: CI
+
+# The cheap checks: the filters as Python, the collection's own metadata and plugins as
+# ansible-test sees them, and the roles and playbooks as Ansible content. All gate every
+# change; the molecule converge is a separate workflow because it takes minutes.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests and lint
+    runs-on: ubuntu-latest
+
+    # Checked out where a collection has to live for ansible-test to run at all (see the
+    # sanity job). pytest, ansible-lint and the build are indifferent to the path, so both
+    # jobs use the same one rather than carrying two conventions.
+    defaults:
+      run:
+        working-directory: ansible_collections/binarycodes/homelab
+
+    steps:
+      - name: Checkout collection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ansible_collections/binarycodes/homelab
+
+      # Injected into the runner image's own ansible-core venv rather than pip-installed
+      # beside it, so the lint runs against the very ansible-core a consumer would use
+      # instead of the second, collection-less one pip drags in as a dependency.
+      # --include-apps is what puts the ansible-lint and pytest entry points on PATH.
+      - name: Install ansible-lint and pytest
+        run: pipx inject ansible-core ansible-lint pytest --include-apps
+
+      # The role calls community.sops.load_vars, so the lint's own syntax check needs the
+      # collection present to resolve it.
+      - name: Install the collection's dependencies
+        run: ansible-galaxy collection install community.sops
+
+      # Run first: the cheapest of the checks and the one that says exactly what broke.
+      - name: Unit-test the filter plugins
+        run: pytest tests/unit -q
+
+      - name: Lint
+        run: ansible-lint
+
+      # Catches what neither of the above does: metadata that would fail at publish time,
+      # a galaxy.yml the schema refuses, or a file the build cannot resolve.
+      - name: Build the collection
+        run: ansible-galaxy collection build --output-path /tmp/collection-build
+
+  sanity:
+    name: Sanity
+    runs-on: ubuntu-latest
+
+    # ansible-test refuses to run unless the collection sits at
+    # ansible_collections/<namespace>/<name>/, because that is the path its plugins are
+    # imported through — which is the point: the sanity 'import' test loads each filter as
+    # ansible would, through binarycodes.homelab, rather than as a file the tests import
+    # by path. That is the coverage pytest here cannot give.
+    defaults:
+      run:
+        working-directory: ansible_collections/binarycodes/homelab
+
+    steps:
+      - name: Checkout collection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ansible_collections/binarycodes/homelab
+
+      # --local rather than --docker: ansible-test then uses the interpreter it is running
+      # under (ansible-core is already on the runner, ansible-test with it) and installs
+      # each test's own requirements into a venv, which skips pulling the multi-gigabyte
+      # test container for a collection this size.
+      - name: Sanity tests
+        run: ansible-test sanity --local

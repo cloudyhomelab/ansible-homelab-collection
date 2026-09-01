@@ -1,0 +1,71 @@
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Molecule
+
+# The systemd_app role's behaviour on a host: what the filters' unit tests cannot cover and
+# a syntax check never runs. A converge takes minutes, so it is its own workflow rather
+# than part of CI.
+on:
+  pull_request:
+    paths:
+      - 'roles/systemd_app/**'
+      - 'plugins/filter/**'
+      - 'extensions/molecule/**'
+      - '.github/workflows/molecule.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'roles/systemd_app/**'
+      - 'plugins/filter/**'
+      - 'extensions/molecule/**'
+      - '.github/workflows/molecule.yml'
+  workflow_dispatch:
+
+# Everything happens inside the runner, so a superseded PR push is worth cancelling. Not
+# for a push to main, where the run is the record of whether that commit converges.
+concurrency:
+  group: molecule-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  molecule:
+    name: Converge the systemd_app role
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout collection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Same seam as ci.yml. Two calls, because --include-apps is what puts `molecule` on
+      # PATH and pipx fails outright on an injected package with no entry point at all —
+      # which the driver, a plugin package, does not have.
+      - name: Install molecule and its podman driver
+        run: |
+          pipx inject ansible-core molecule --include-apps
+          pipx inject ansible-core 'molecule-plugins[podman]'
+
+      # Both podmans in one line of output, for when a failure below turns out to be the
+      # runner image moving rather than the role changing.
+      - name: Record the podman version
+        run: sudo podman version
+
+      # sudo, so the container molecule creates belongs to a rootful podman: the scenario
+      # runs a second, rootful podman inside it, and rootful-in-rootless would need
+      # concessions (/dev/fuse, subuid ranges) that rootful-in-rootful does not.
+      #
+      # PATH goes through `env` rather than sudo's own flag because sudoers' secure_path
+      # would replace it, and molecule lives in the runner user's pipx venv.
+      # ANSIBLE_COLLECTIONS_PATH likewise: root would otherwise look under /root for the
+      # community.sops that molecule's prerun installs as the runner user.
+      - name: Test the default scenario
+        run: |
+          ansible-galaxy collection install community.sops
+          sudo env "PATH=$PATH" \
+            "ANSIBLE_COLLECTIONS_PATH=$HOME/.ansible/collections" \
+            molecule test

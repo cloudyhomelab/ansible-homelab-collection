@@ -1,0 +1,51 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+namespace: binarycodes
+name: homelab
+version: 1.0.0
+readme: README.md
+authors:
+  - binarycodes
+description: >-
+  Deploy Podman Quadlet apps and systemd units on a host, with an optional Caddy route,
+  install-manifest reconciliation and SOPS-encrypted podman secrets.
+license:
+  - GPL-3.0-or-later
+# 'infrastructure' and 'linux' are there because Galaxy requires at least one tag from its
+# own fixed list; the rest are what someone would actually search for.
+tags:
+  - infrastructure
+  - linux
+  - podman
+  - quadlet
+  - systemd
+  - containers
+  - caddy
+
+dependencies:
+  community.sops: ">=2.3.0"
+
+repository: https://github.com/binarycodes/ansible-homelab
+documentation: https://github.com/binarycodes/ansible-homelab/blob/main/README.md
+homepage: https://github.com/binarycodes/ansible-homelab
+issues: https://github.com/binarycodes/ansible-homelab/issues
+
+# Not part of an installed collection
+build_ignore:
+  - .github
+  - .githooks
+  - .gitignore
+  - .ansible-lint
+  - .idea
+  - CLAUDE.md
+  - docs
+  - .ansible
+  - .cache
+  - .pytest_cache
+  - __pycache__
+  - "*.pyc"
+  - "*.tar.gz"
+  - extensions

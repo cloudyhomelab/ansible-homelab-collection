@@ -1,0 +1,40 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+galaxy_info:
+  role_name: systemd_app
+  namespace: binarycodes
+  author: binarycodes
+  description: >-
+    Deploy or decommission one app: either install its Podman Quadlet files, systemd
+    units, and config from a source directory (kind=source), or render a
+    single-container Quadlet from call-site params (kind=inline). Optionally registers
+    a Caddy route.
+  license: GPL-3.0-or-later
+  min_ansible_version: "2.15"
+
+  # Nothing in the role is distribution-specific — it installs unit files, calls podman
+  # and drives systemd — so the list is every platform that ships systemd and a podman
+  # new enough for Quadlet (4.4). Rootful podman is a requirement; see the role README.
+  platforms:
+    - name: Fedora
+      versions: [all]
+    - name: EL
+      versions: ["9", "10"]
+    - name: Debian
+      versions: [all]
+    - name: Ubuntu
+      versions: [all]
+
+  galaxy_tags:
+    - podman
+    - quadlet
+    - systemd
+    - containers
+    - caddy
+
+# The collection declares community.sops in galaxy.yml, which is what installs it for a
+# consumer; a role-level dependency would install nothing here and duplicate the pin.
+dependencies: []

@@ -1,0 +1,58 @@
+# binarycodes.homelab
+
+An Ansible collection: the `systemd_app` role deploys Podman Quadlet apps and systemd
+units, with an optional Caddy route, install-manifest reconciliation and SOPS-encrypted
+podman secrets.
+
+## Licensing
+
+The collection is **GPL-3.0-or-later**. `LICENSE` is the verbatim GPLv3 text and is not
+edited.
+
+Every source file carries this header — `.py`, `.yml`, and `.j2`:
+
+```
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+```
+
+**Add it to every new source file.** Placement rules, which are not cosmetic:
+
+- **YAML** — after the `---` document marker, then a blank line before the file's own
+  comments, so the licence block and the file's explanation stay distinct.
+- **Python** — at the very top, before the module docstring. Comments precede the
+  docstring without displacing it.
+- **Jinja templates** — as a `{# ... #}` block with **no blank line after it**. Ansible
+  renders templates with `trim_blocks=True`, which eats the newline after `#}`; an extra
+  blank line becomes a leading newline in the rendered Quadlet, Caddy snippet or manifest.
+- **`Dockerfile.j2`** — plain `#` lines, which pass through Jinja into the built Dockerfile
+  as comments.
+
+Molecule fixture data under `extensions/molecule/default/apps/` carries no header: those
+files are copied verbatim onto a test host.
+
+## Gates
+
+All four must pass before a change lands. They are what CI runs.
+
+```sh
+pytest tests/unit -q                  # the filter plugins, as plain Python
+ansible-lint                          # profile: production, no rules skipped
+ansible-test sanity --local           # needs the collection at ansible_collections/binarycodes/homelab/
+ansible-galaxy collection build       # catches metadata Galaxy would refuse
+molecule test                         # the role on a systemd container; slow, its own workflow
+```
+
+`ansible-test sanity` only runs when the checkout sits at
+`ansible_collections/binarycodes/homelab/` — it imports plugins through that path.
+
+## Conventions
+
+- **Computation goes in `plugins/filter/`, with pytest cases** — not Jinja chains in YAML.
+  The five filters are public API, named for what they compute.
+- **Comments explain why, not what.** The existing ones are the standard to match.
+- **Every role variable is prefixed `systemd_app_`** (ansible-lint's
+  `var-naming[no-role-prefix]`); see `roles/systemd_app/meta/argument_specs.yml`.
+- **Outstanding known issues live in `docs/fixme.md`**, a burn-down list: delete each item
+  as it is fixed, and delete the file once it is empty.

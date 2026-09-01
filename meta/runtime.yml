@@ -1,0 +1,9 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The floor a supported controller sets rather than one the role's syntax needs: nothing
+# here uses a keyword newer than 2.14, but ansible-core releases below 2.15 are end of
+# life, and Galaxy's tooling refuses to call them supported.
+requires_ansible: ">=2.15.0"

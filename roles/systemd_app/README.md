@@ -153,9 +153,10 @@ rate-limit.
 `"` or a `%` needs nothing special at the call site (systemd splits `Environment=` on
 whitespace and reads `%` as a specifier, so a bare value would otherwise be truncated or
 mangled). Keys have to spell legal variable names — letters, digits and underscore, no
-leading digit. A control character in a value, a description, or one of the raw-line lists
-is refused rather than written: a newline ends the line and turns whatever follows into
-another unit directive, and no quoting fixes that. The raw-line parameters are one Quadlet
+leading digit. A control character is refused rather than written, in any value the unit
+is rendered from — the env values, the description, the raw-line lists, the image, the
+network and the health settings alike: a newline ends the line and turns whatever follows
+into another unit directive, and no quoting fixes that. The raw-line parameters are one Quadlet
 line per list entry, which is why an entry may not contain a newline of its own.
 
 ## Tunables (defaults)

@@ -69,10 +69,22 @@
       {{ systemd_app_container_problems | join('; ') }}.
     quiet: true
   vars:
+    # Named rather than positional: every value inline.container.j2 interpolates is here,
+    # and which one is missing has to be visible at a glance when the template gains a line.
     systemd_app_container_problems: >-
-      {{ systemd_app_env | binarycodes.homelab.container_problems(systemd_app_description | default(''),
-         systemd_app_volumes, systemd_app_publish_ports,
-         systemd_app_container_options, systemd_app_service_options) }}
+      {{ systemd_app_env | binarycodes.homelab.container_problems(
+           description=systemd_app_description | default(''),
+           volumes=systemd_app_volumes,
+           publish_ports=systemd_app_publish_ports,
+           container_options=systemd_app_container_options,
+           service_options=systemd_app_service_options,
+           image=systemd_app_image | default(''),
+           network=systemd_app_network,
+           health_cmd=systemd_app_health_cmd,
+           health_interval=systemd_app_health_interval,
+           health_retries=systemd_app_health_retries,
+           health_start_period=systemd_app_health_start_period,
+           start_timeout=systemd_app_start_timeout) }}
   when:
     - systemd_app_state == 'present'
     - systemd_app_kind == 'inline'

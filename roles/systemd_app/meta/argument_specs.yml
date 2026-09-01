@@ -46,7 +46,8 @@ argument_specs:
         description: >-
           inline kind only. Full image reference, e.g. docker.io/org/app:latest.
           Required when systemd_app_kind is inline and state is present (enforced
-          in the role); not needed for source apps or for absent.
+          in the role); not needed for source apps or for absent. May not contain a
+          control character.
       systemd_app_description:
         type: str
         required: false
@@ -58,7 +59,9 @@ argument_specs:
         type: str
         required: false
         default: web.network
-        description: inline kind only. Podman network the rendered container joins.
+        description: >-
+          inline kind only. Podman network the rendered container joins. May not contain
+          a control character.
       systemd_app_env:
         type: dict
         required: false
@@ -140,7 +143,8 @@ argument_specs:
           inline kind only. Healthcheck command run inside the container — an HTTP
           request, pg_isready, whatever fits the app. Setting it emits the whole health
           block plus Notify=healthy, so a bad image fails to start and podman
-          auto-update rolls it back. Empty means no healthcheck.
+          auto-update rolls it back. Empty means no healthcheck. May not contain a
+          control character — nor may the four settings below, once this is set.
       systemd_app_health_interval:
         type: str
         required: false

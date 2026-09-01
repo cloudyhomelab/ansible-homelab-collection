@@ -10,7 +10,10 @@ playbook and an ansible-playbook run to check.
 
 import base64
 import hashlib
+import inspect
 import json
+import pathlib
+import re
 
 import pytest
 from ansible.errors import AnsibleFilterError
@@ -308,6 +311,78 @@ def test_clean_raw_entries_are_accepted():
 def test_nothing_configured_is_no_problem():
     assert container_problems(None) == []
     assert container_problems({}) == []
+
+
+@pytest.mark.parametrize(
+    "kwargs, param",
+    [
+        ({"image": "img:latest\nPodmanArgs=--privileged"}, "systemd_app_image"),
+        ({"network": "web.network\nUser=0"}, "systemd_app_network"),
+        ({"health_cmd": "true\nNotify=healthy"}, "systemd_app_health_cmd"),
+        ({"health_cmd": "true", "health_interval": "15s\nUser=0"},
+         "systemd_app_health_interval"),
+        ({"health_cmd": "true", "health_retries": "3\nUser=0"},
+         "systemd_app_health_retries"),
+        ({"health_cmd": "true", "health_start_period": "60s\nUser=0"},
+         "systemd_app_health_start_period"),
+        ({"health_cmd": "true", "start_timeout": "180\nUser=0"},
+         "systemd_app_start_timeout"),
+    ],
+)
+def test_control_characters_in_rendered_scalars_are_rejected(kwargs, param):
+    """Each of these is one directive, so a newline in it writes a further directive."""
+    problems = container_problems({}, **kwargs)
+    assert problems == [f"{param} holds a control character"]
+
+
+def test_health_values_are_not_checked_without_a_probe():
+    """No health command means no health block, so nothing to break — and nothing to fix."""
+    assert container_problems(
+        {},
+        health_interval="15s\nUser=0",
+        health_retries="3\nUser=0",
+        health_start_period="60s\nUser=0",
+        start_timeout="180\nUser=0",
+    ) == []
+
+
+def test_the_role_defaults_of_every_rendered_scalar_are_accepted():
+    assert container_problems(
+        {},
+        image="docker.io/org/app:latest",
+        network="web.network",
+        health_cmd="wget -qO /dev/null http://127.0.0.1:8080/ || exit 1",
+        health_interval="15s",
+        health_retries=3,
+        health_start_period="60s",
+        start_timeout=180,
+    ) == []
+
+
+def test_every_scalar_the_inline_template_interpolates_reaches_the_filter():
+    """The filter's contract: a new interpolation in the template without a check here.
+
+    Matches ``{{ systemd_app_* }}`` outside a Jinja statement, which is what lands in the
+    unit verbatim. Loop variables and anything the template computes are not interpolated
+    call-site input, so they are not the filter's to guard.
+    """
+    template = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "roles" / "systemd_app" / "templates" / "inline.container.j2"
+    ).read_text()
+    interpolated = set(re.findall(r"\{\{\s*(systemd_app_[a-z_]+)", template))
+
+    checked = {f"systemd_app_{name}" for name in inspect.signature(
+        container_problems).parameters} | {
+        # Also a filename and a container name, so it is checked by the role's name rule
+        # before any of this runs.
+        "systemd_app_name",
+        # Their own filter, called by the template itself.
+        "systemd_app_env",
+        # Read from the app's SOPS file after this assert has run, so it cannot be here.
+        "systemd_app_secret_values",
+    }
+    assert interpolated - checked == set()
 
 
 # --- the fleet as it actually stands ---------------------------------------------------

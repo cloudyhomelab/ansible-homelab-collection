@@ -17,6 +17,9 @@ author:
   - binarycodes (@binarycodes)
 description:
   - Checks what would be interpolated into a rendered Quadlet unit file.
+  - Every value the role's C(inline.container.j2) writes into the unit passes through here,
+    the app's own name excepted - that one is checked by the name rule the role asserts
+    first, because it is also a filename.
   - What this guards is interpolation. These values are written into a unit file rather than
     passed to a module, so a stray character does not fail the task that writes them. A
     newline ends the line and turns whatever follows into a further directive, which quoting
@@ -30,7 +33,9 @@ description:
     legal input. Only what cannot survive a unit file at all is refused.
   - Problems name the offending key, never the value, so a failure message cannot carry a
     secret into a log.
-positional: description, volumes, publish_ports, container_options, service_options
+positional: description, volumes, publish_ports, container_options, service_options,
+  image, network, health_cmd, health_interval, health_retries, health_start_period,
+  start_timeout
 options:
   _input:
     description:
@@ -62,6 +67,38 @@ options:
     type: list
     elements: str
     default: []
+  image:
+    description: The image reference, for the C(Image=) line.
+    type: str
+    default: ''
+  network:
+    description: The podman network the container joins, for the C(Network=) line.
+    type: str
+    default: ''
+  health_cmd:
+    description:
+      - The probe command, for the C(HealthCmd=) line. Empty means no healthcheck, and the
+        four values below are then not checked - a unit that emits no health block cannot
+        be broken by them, so an unused interval is not a problem a caller has to fix
+        before the app can deploy.
+    type: str
+    default: ''
+  health_interval:
+    description: Time between probes, for the C(HealthInterval=) line.
+    type: str
+    default: ''
+  health_retries:
+    description: Failures before the container is unhealthy, for the C(HealthRetries=) line.
+    type: raw
+    default: ''
+  health_start_period:
+    description: The grace window, for the C(HealthStartPeriod=) line.
+    type: str
+    default: ''
+  start_timeout:
+    description: The unit's C(TimeoutStartSec=), emitted alongside the health block.
+    type: raw
+    default: ''
 """
 
 RETURN = r"""
@@ -90,7 +127,9 @@ _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def container_problems(env, description="", volumes=None, publish_ports=None,
-                       container_options=None, service_options=None):
+                       container_options=None, service_options=None, image="",
+                       network="", health_cmd="", health_interval="", health_retries="",
+                       health_start_period="", start_timeout=""):
     """Why this app's Quadlet cannot be rendered, one string per problem."""
     problems = []
 
@@ -107,8 +146,28 @@ def container_problems(env, description="", volumes=None, publish_ports=None,
                 f"the value of systemd_app_env key {str(key)!r} holds a control character"
             )
 
-    if description is not None and _CONTROL_RE.search(str(description)):
-        problems.append("systemd_app_description holds a control character")
+    # One directive each, so a control character in any of them ends its line and makes
+    # the remainder a further directive.
+    scalars = [
+        ("systemd_app_description", description),
+        ("systemd_app_image", image),
+        ("systemd_app_network", network),
+    ]
+    # The template emits the health block, and the start timeout beside it, only for a
+    # non-empty command. Checking the rest unconditionally would fail a deploy over a value
+    # that is never written.
+    if health_cmd:
+        scalars += [
+            ("systemd_app_health_cmd", health_cmd),
+            ("systemd_app_health_interval", health_interval),
+            ("systemd_app_health_retries", health_retries),
+            ("systemd_app_health_start_period", health_start_period),
+            ("systemd_app_start_timeout", start_timeout),
+        ]
+
+    for name, value in scalars:
+        if value is not None and _CONTROL_RE.search(str(value)):
+            problems.append(f"{name} holds a control character")
 
     raw = (
         ("systemd_app_volumes", volumes),

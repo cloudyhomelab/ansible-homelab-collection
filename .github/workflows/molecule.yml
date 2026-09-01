@@ -38,9 +38,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
+    # converge.yml calls the role by FQCN, as a consuming play does, so the role has to be
+    # reachable as a collection and not merely as the directory it is checked out into.
+    # Laying the checkout out this way makes the working tree itself the collection, which
+    # keeps the run testing the commit rather than a copy installed beside it.
+    defaults:
+      run:
+        working-directory: ansible_collections/binarycodes/homelab
+
     steps:
       - name: Checkout collection
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ansible_collections/binarycodes/homelab
 
       # Same seam as ci.yml. Two calls, because --include-apps is what puts `molecule` on
       # PATH and pipx fails outright on an injected package with no entry point at all —
@@ -59,11 +69,13 @@ jobs:
       #
       # PATH goes through `env` rather than sudo's own flag because sudoers' secure_path
       # would replace it, and molecule lives in the runner user's pipx venv.
-      # ANSIBLE_COLLECTIONS_PATH likewise: root would otherwise look under /root for the
-      # community.sops that molecule's prerun installs as the runner user.
+      #
+      # Both collection roots are named because they hold different halves of what the
+      # converge needs: the workspace holds this collection, $HOME the community.sops
+      # installed above, and root would otherwise search neither.
       - name: Test the default scenario
         run: |
           ansible-galaxy collection install community.sops
           sudo env "PATH=$PATH" \
-            "ANSIBLE_COLLECTIONS_PATH=$HOME/.ansible/collections" \
+            "ANSIBLE_COLLECTIONS_PATH=$GITHUB_WORKSPACE:$HOME/.ansible/collections" \
             molecule test

@@ -41,11 +41,12 @@ pytest tests/unit -q                  # the filter plugins, as plain Python
 ansible-lint                          # profile: production, no rules skipped
 ansible-test sanity --local           # needs the collection at ansible_collections/binarycodes/homelab/
 ansible-galaxy collection build       # catches metadata Galaxy would refuse
-molecule test                         # the role on a systemd container; slow, its own workflow
+molecule test                         # the role on a systemd container; same layout, its own workflow
 ```
 
-`ansible-test sanity` only runs when the checkout sits at
-`ansible_collections/binarycodes/homelab/` — it imports plugins through that path.
+`ansible-test sanity` and `molecule test` both only run when the checkout sits at
+`ansible_collections/binarycodes/homelab/`: sanity imports plugins through that path, and
+the molecule converge calls the role by FQCN with nothing installing the collection for it.
 
 ## Conventions
 

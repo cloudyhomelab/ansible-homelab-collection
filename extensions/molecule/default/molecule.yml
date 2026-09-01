@@ -23,8 +23,10 @@ platforms:
     # that no capability set short of privileged allows. The container is throwaway.
     privileged: true
 
-# No roles_path or filter_plugins to set: molecule detects the collection from galaxy.yml,
-# installs it before the converge, and the role and its filters resolve by FQCN from there.
+# No roles_path or filter_plugins to set: converge.yml names the role by FQCN and lets
+# ANSIBLE_COLLECTIONS_PATH resolve it, which is what a consuming play does. Molecule does
+# not install the collection under test, so the checkout has to be laid out as one — see
+# this scenario's README.
 provisioner:
   name: ansible
   inventory:

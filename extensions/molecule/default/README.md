@@ -24,13 +24,27 @@ pipx inject ansible-core 'molecule-plugins[podman]'   # molecule on PATH, and on
 molecule test
 ```
 
-Run it from the collection root: molecule finds `extensions/molecule/` by itself once
-`galaxy.yml` is there, and installs the collection before the converge, which is how the
-role and its filters resolve by FQCN.
+Run it from the collection root, and that root has to sit at
+`ansible_collections/binarycodes/homelab/` with the directory above `ansible_collections`
+on `ANSIBLE_COLLECTIONS_PATH`. Molecule finds `extensions/molecule/` by itself once
+`galaxy.yml` is there, but it does not install the collection under test: `converge.yml`
+calls the role by FQCN, as a consuming play does, so the layout is the only thing that
+makes `binarycodes.homelab.systemd_app` resolve. The same requirement `ansible-test
+sanity` has, for the same reason.
 
-If `create` fails on the privileged container, the outer podman needs to be rootful —
-`sudo env "PATH=$PATH" ANSIBLE_COLLECTIONS_PATH="$HOME/.ansible/collections" molecule test`,
-the collection path being what a plain `sudo` would otherwise look for under `/root`.
+```sh
+ANSIBLE_COLLECTIONS_PATH=/path/above/ansible_collections molecule test
+```
+
+If `create` fails on the privileged container, the outer podman needs to be rootful. Both
+collection roots have to be named across the `sudo`, root's own search path holding
+neither this collection nor the `community.sops` installed under `$HOME`:
+
+```sh
+sudo env "PATH=$PATH" \
+  ANSIBLE_COLLECTIONS_PATH="/path/above/ansible_collections:$HOME/.ansible/collections" \
+  molecule test
+```
 
 While changing the role, `converge` is the loop to live in; `verify` and `side-effect`
 assert against what it left, `login` opens a shell in the target and `destroy` removes it.

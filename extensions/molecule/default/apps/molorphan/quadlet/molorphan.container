@@ -1,0 +1,22 @@
+# Fixture: a 'source' app that is nothing but a container, deployed with
+# systemd_app_enable_units and decommissioned without it. That asymmetry is the point —
+# it is how a real teardown is written, and it is what leaves an orphan when a
+# decommission works only from the unit names the call happens to repeat.
+[Unit]
+Description=Molecule fixture orphan-check container
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=quay.io/libpod/alpine:latest
+ContainerName=molorphan
+Network=none
+# A number, not GNU coreutils' 'infinity': this image's sleep is busybox, which
+# rejects that and would exit at once, leaving Restart=always to cycle the unit.
+Exec=sleep 86400
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target default.target

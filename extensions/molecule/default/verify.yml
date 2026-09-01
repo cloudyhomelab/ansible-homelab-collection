@@ -25,6 +25,7 @@
       - /var/app/molproxy/config/conf.d/molinline.caddy
       - /etc/containers/systemd/molsecret.container
       - /var/app/molsecret/.secret-digests
+      - /etc/containers/systemd/molorphan.container
     # Every path the 'source' app installed, and nothing else: this set is what a later
     # deploy reconciles against, so an entry missing here is a file that would survive
     # forever and an extra one is a file that would be deleted from under another app.
@@ -38,6 +39,7 @@
       - molsource-extra.service
       - molinline.service
       - molsecret.service
+      - molorphan.service
 
   tasks:
     - name: Stat every path the converge should have installed

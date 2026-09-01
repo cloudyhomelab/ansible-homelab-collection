@@ -15,14 +15,33 @@
 # are NOT removed — they outlive the units that created them, and Caddy's TLS
 # certificates live in one. Remove those by hand (`podman volume rm`) once you are sure.
 
+# Read before anything is stopped or removed, because what it lists is also what has to
+# be stopped. Reading changes nothing on the host, so nothing is lost by doing it first.
+- name: "Read recorded install manifest for app {{ systemd_app_name }}"
+  ansible.builtin.include_tasks: read-manifest.yml
+
 # Stop while the generated units still exist; stopping a Quadlet service also
 # removes its container (ExecStopPost). Tolerate a unit that was never deployed
 # (or already removed) so a repeat decommission stays green.
+#
+# The manifest is consulted as well as systemd_app_managed_units, and this is the
+# difference between a decommission and an orphan. Unit names are an input to the role,
+# and a caller who deployed a 'source' app with systemd_app_enable_units but does not
+# repeat it here would otherwise have every unit file deleted while the containers keep
+# running: the generated service vanishes from systemd's view, its ExecStopPost never
+# fires, and nothing is left that names the container. The manifest is on the host and
+# needs no input, so it answers what the call did not. What it maps, and what it
+# deliberately does not, is in the filter's own docs
+# (`ansible-doc -t filter binarycodes.homelab.manifest_units`).
 - name: "Stop units for app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: stopped
-  loop: "{{ systemd_app_managed_units }}"
+  loop: >-
+    {{ (systemd_app_managed_units
+        + (systemd_app_manifest_paths
+           | binarycodes.homelab.manifest_units(systemd_app_system_dir, systemd_app_unit_dir)))
+       | unique | sort }}
   register: systemd_app_stop_result
   failed_when:
     - systemd_app_stop_result is failed
@@ -39,9 +58,6 @@
     state: absent
   when: systemd_app_kind == 'inline'
   notify: systemd_app reload systemd
-
-- name: "Read recorded install manifest for app {{ systemd_app_name }}"
-  ansible.builtin.include_tasks: read-manifest.yml
 
 - name: "Remove installed files for app {{ systemd_app_name }}"
   ansible.builtin.file:

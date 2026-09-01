@@ -21,6 +21,7 @@ from ansible.errors import AnsibleFilterError
 # Registered by conftest.py, which loads them from plugins/filter/ by path -- one module
 # per filter, each named systemd_app_<filter name>.
 from systemd_app_container_problems import container_problems
+from systemd_app_manifest_units import manifest_units
 from systemd_app_reconcile_secrets import reconcile_secrets
 from systemd_app_route_problems import route_problems
 from systemd_app_secret_digests import secret_digests
@@ -383,6 +384,93 @@ def test_every_scalar_the_inline_template_interpolates_reaches_the_filter():
         "systemd_app_secret_values",
     }
     assert interpolated - checked == set()
+
+
+# --- manifest_units --------------------------------------------------------------------
+
+SYSTEM_DIR = "/etc/containers/systemd"
+UNIT_DIR = "/etc/systemd/system"
+
+
+def units(paths):
+    return manifest_units(paths, SYSTEM_DIR, UNIT_DIR)
+
+
+@pytest.mark.parametrize(
+    "name, unit",
+    [
+        ("app.container", "app.service"),
+        ("app.kube", "app.service"),
+        ("app.pod", "app-pod.service"),
+    ],
+)
+def test_quadlet_files_map_to_the_unit_its_generator_makes(name, unit):
+    assert units([f"{SYSTEM_DIR}/{name}"]) == [unit]
+
+
+@pytest.mark.parametrize("name", ["app.volume", "app.network", "app.image", "app.build"])
+def test_quadlet_kinds_that_run_nothing_are_left_alone(name):
+    """Their resources outlive the app by design, so naming their units would mislead."""
+    assert units([f"{SYSTEM_DIR}/{name}"]) == []
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["app.service", "app.socket", "app.timer", "app.path", "app.mount", "app.automount"],
+)
+def test_plain_unit_files_are_their_own_unit(name):
+    assert units([f"{UNIT_DIR}/{name}"]) == [name]
+
+
+@pytest.mark.parametrize("name", ["app.target", "app.slice", "app.scope", "app.conf", "app"])
+def test_plain_files_that_are_not_a_stoppable_unit_are_ignored(name):
+    assert units([f"{UNIT_DIR}/{name}"]) == []
+
+
+def test_a_config_path_names_no_unit():
+    assert units(["/var/app/myapp/config/app.conf", "/var/app/myapp/config/n/deep.conf"]) == []
+
+
+def test_a_path_outside_both_install_dirs_is_ignored():
+    """The manifest is validated where it is read; this filter is only asked what to stop."""
+    assert units(["/etc/passwd", "/etc/containers/systemd/nested/app.container"]) == []
+
+
+def test_a_suffix_with_no_name_before_it_is_not_a_unit():
+    assert units([f"{SYSTEM_DIR}/.container", f"{UNIT_DIR}/.service"]) == []
+
+
+def test_the_result_is_sorted_and_deduplicated():
+    # A '.container' and a plain '.service' of the same name compose one unit, not two.
+    assert units([
+        f"{UNIT_DIR}/zz-extra.service",
+        f"{SYSTEM_DIR}/app.container",
+        f"{UNIT_DIR}/app.service",
+        f"{SYSTEM_DIR}/app.container",
+    ]) == ["app.service", "zz-extra.service"]
+
+
+def test_nothing_recorded_names_no_unit():
+    assert units([]) == []
+    assert units(None) == []
+
+
+def test_the_manifest_a_source_app_records():
+    """What item 7's orphan actually is: the app's container service, unnamed by the call."""
+    assert units([
+        f"{SYSTEM_DIR}/molsource.container",
+        f"{UNIT_DIR}/molsource-extra.service",
+        "/var/app/molsource/config/app.conf",
+    ]) == ["molsource-extra.service", "molsource.service"]
+
+
+def test_the_install_dirs_are_taken_from_the_caller():
+    """Both are role variables, so a fleet that moved them must still tear down."""
+    assert manifest_units(
+        ["/srv/quadlet/app.container", "/srv/units/app-extra.service"],
+        "/srv/quadlet",
+        "/srv/units",
+    ) == ["app-extra.service", "app.service"]
 
 
 # --- the fleet as it actually stands ---------------------------------------------------

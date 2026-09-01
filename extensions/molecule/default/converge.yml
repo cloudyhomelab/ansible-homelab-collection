@@ -19,6 +19,7 @@
       - molsource-extra.service
       - molinline.service
       - molsecret.service
+      - molorphan.service
 
   roles:
     # First, so the network unit exists before anything that might reference it.
@@ -33,6 +34,15 @@
         - molsource.service
         - molsource-extra.service
       systemd_app_domain: molsource.molecule.test
+
+    # Deployed with its unit named, and torn down in side_effect.yml without: a 'source'
+    # app defaults to managing no units, so this is the app whose container survives a
+    # decommission that works only from what the call repeats.
+    - role: binarycodes.homelab.systemd_app
+      systemd_app_kind: source
+      systemd_app_name: molorphan
+      systemd_app_enable_units:
+        - molorphan.service
 
     - role: binarycodes.homelab.systemd_app
       systemd_app_kind: inline

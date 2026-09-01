@@ -10,10 +10,10 @@ decommissioning.
 
 | Stage | Covers |
 | --- | --- |
-| `converge.yml` | both kinds side by side: a `source` app shipping a Quadlet, a plain unit and a nested config tree, and an `inline` app rendered from call-site parameters |
+| `converge.yml` | both kinds side by side: a `source` app shipping a Quadlet, a plain unit and a nested config tree, an `inline` app rendered from call-site parameters, an `inline` app whose whole directory is one encrypted secrets file, and a `source` app deployed with a unit name it is torn down without |
 | `idempotence` | a second converge changes nothing |
 | `verify.yml` | installed paths, the recorded manifest of each kind, the rendered Quadlet (including `systemd_env_lines`' quoting), both route snippets, the pre-created data directory's ownership, unit state, and the secrets path end to end — decrypted, stored under their own names, digests recorded `0600`, referenced by the Quadlet and reaching the running container as variables |
-| `side_effect.yml` | a file dropped from the app's source tree is pruned and unrecorded; the same app converted `source` → `inline` prunes what the other kind installed; a secret rotated, one dropped, and one re-stored after being removed behind the role's back; `absent` removes everything the apps owned, secrets included, and stays green when repeated |
+| `side_effect.yml` | a file dropped from the app's source tree is pruned and unrecorded; the same app converted `source` → `inline` prunes what the other kind installed; a secret rotated, one dropped, and one re-stored after being removed behind the role's back; `absent` removes everything the apps owned, secrets included, stops a `source` app's container without being told its unit name, and stays green when repeated |
 
 ## Running it
 

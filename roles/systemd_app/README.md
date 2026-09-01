@@ -98,8 +98,10 @@ it an image (and usually a domain). The container is named
 
 ### `absent`
 
-1. Stops the managed units (a Quadlet service's `ExecStopPost` also removes its
-   container).
+1. Stops the managed units, and every unit its [install manifest](#install-manifest)
+   implies (a Quadlet service's `ExecStopPost` also removes its container). You do **not**
+   have to repeat `systemd_app_enable_units` at teardown: the manifest is on the host, so
+   the role can work out what the app is running without being told.
 2. Removes exactly the paths in the app's [install manifest](#install-manifest) — its
    Quadlet files, plain systemd units and config tree — and the `<name>.caddy` route
    snippet.
@@ -481,6 +483,17 @@ suffix is optional):
 | `foo.pod`         | `foo-pod.service`      |
 | `foo.network`     | `foo-network.service`  |
 | `foo.volume`      | `foo-volume.service`   |
+
+At teardown the role does not depend on this list. `absent` stops the managed units
+*and* whatever the recorded manifest implies: a `.container` or `.kube` file is stopped as
+`<name>.service`, a `.pod` as `<name>-pod.service`, and a plain unit file as itself. So a
+`source` app deployed with `systemd_app_enable_units` is stopped by an `absent` call that
+omits it — otherwise its unit files would be deleted while its containers kept running,
+the generated service gone from systemd's view and its `ExecStopPost` never fired.
+
+`.network` and `.volume` units are deliberately not stopped: they create a resource rather
+than run a container, and the role leaves those resources behind on purpose (see the note
+in the `absent` list above).
 
 Quadlet-generated services live under `/run` and cannot be `systemctl enable`d
 directly. The role tolerates that specific failure and relies on an `[Install]`

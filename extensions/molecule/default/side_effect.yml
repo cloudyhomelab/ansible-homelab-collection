@@ -19,6 +19,9 @@
       - {name: molsource, kind: inline}
       - {name: molnet, kind: source}
       - {name: molsecret, kind: inline}
+      # Deployed with systemd_app_enable_units, decommissioned without it — the case a
+      # teardown that works only from the caller's unit names cannot stop.
+      - {name: molorphan, kind: source}
 
   tasks:
     # --- a file dropped from the app's source tree -------------------------------------
@@ -231,9 +234,11 @@
         - /var/app/molsource
         - /var/app/molinline
         - /var/app/molsecret
+        - /var/app/molorphan
         - /etc/containers/systemd/molsource.container
         - /etc/containers/systemd/molinline.container
         - /etc/containers/systemd/molsecret.container
+        - /etc/containers/systemd/molorphan.container
         - /etc/containers/systemd/molecule.network
         - /var/app/molproxy/config/conf.d/molsource.caddy
         - /var/app/molproxy/config/conf.d/molinline.caddy
@@ -246,9 +251,20 @@
         - molsource.service
         - molinline.service
         - molsecret.service
+        - molorphan.service
       changed_when: false
       failed_when: false
       register: molecule_absent_units
+
+    # systemctl alone cannot answer this. Once a Quadlet file is deleted and systemd
+    # reloaded, its generated service is gone from systemd's view and is-active reports
+    # 'inactive' — whether the container stopped or is still running unsupervised. Podman
+    # is the only witness that a decommission actually decommissioned.
+    - name: Ask podman what containers still exist
+      ansible.builtin.command:
+        argv: [podman, ps, --all, --format, "{{ '{{' }}.Names{{ '}}' }}"]
+      changed_when: false
+      register: molecule_absent_containers
 
     # Podman secrets are host-global, so they are not part of the app tree removed above:
     # nothing else would have taken them with it.
@@ -266,12 +282,16 @@
             | list | length == 0
           - molecule_absent_secrets.stdout_lines | select('match', '^molsecret-')
             | list | length == 0
+          - molecule_absent_containers.stdout_lines
+            | intersect(molecule_fixture_apps | map(attribute='name') | list) | length == 0
         fail_msg: >-
           Left behind:
           {{ molecule_after_absent.results | selectattr('stat.exists')
              | map(attribute='item') | list }}; still active:
           {{ molecule_absent_units.results | selectattr('stdout', 'equalto', 'active')
-             | map(attribute='item') | list }}.
+             | map(attribute='item') | list }}; containers still on the host:
+          {{ molecule_absent_containers.stdout_lines
+             | intersect(molecule_fixture_apps | map(attribute='name') | list) }}.
         quiet: true
 
     # A decommission works from the manifest on the host, which the first pass took with

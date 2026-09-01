@@ -18,6 +18,7 @@ secrets.
 | `route_problems` | Check a domain, upstream and port before they are written into a Caddy site block. |
 | `container_problems` | Check what would be interpolated into a rendered Quadlet. |
 | `systemd_env_lines` | Quote and escape a dict into `Environment=` lines. |
+| `manifest_units` | The systemd units a recorded install manifest implies, so a teardown need not be told them. |
 
 The filters are public API, not role internals: they are named for what they compute, and
 callable by anyone who installs the collection.

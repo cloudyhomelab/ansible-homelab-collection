@@ -59,7 +59,7 @@ a syntax check of a play that uses the role, once per supported ansible-core —
 ## Conventions
 
 - **Computation goes in `plugins/filter/`, with pytest cases** — not Jinja chains in YAML.
-  The five filters are public API, named for what they compute.
+  The six filters are public API, named for what they compute.
 - **One filter per file, named after the filter**, carrying its own `DOCUMENTATION`,
   `RETURN` and `EXAMPLES`. `ansible-doc` addresses a filter by name, so a file holding two
   could only document one of them. Rationale that spans filters is repeated in each one's

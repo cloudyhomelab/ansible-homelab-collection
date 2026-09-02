@@ -42,6 +42,7 @@ build_ignore:
   - .ansible-lint
   - .idea
   - CLAUDE.md
+  - RELEASE.md
   - docs
   - .ansible
   - .cache

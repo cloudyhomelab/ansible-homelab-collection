@@ -85,7 +85,8 @@ molecule test            # the role against a systemd container (see extensions/
 [Semantic versioning](https://semver.org): the role's variables and the filters' names and
 return shapes are the collection's public API. What changed in each release is in
 [CHANGELOG.md](CHANGELOG.md), which is generated from changelog fragments — see
-[`changelogs/README.md`](changelogs/README.md) before editing either.
+[`changelogs/README.md`](changelogs/README.md) before editing either, and
+[RELEASE.md](RELEASE.md) for how a release is cut.
 
 ## Licence
 

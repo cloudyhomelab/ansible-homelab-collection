@@ -1,0 +1,4 @@
+trivial:
+  - Added ``RELEASE.md``, the release procedure - prerequisites, the step-by-step checklist,
+    what each check in the release workflow catches, and what to do when a step fails.
+    Repository documentation only; excluded from the built collection.

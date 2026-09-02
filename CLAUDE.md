@@ -82,14 +82,11 @@ already on Galaxy — then calls the three gate workflows against the tagged com
 publishes. The publish waits behind the `release` environment, which needs a required
 reviewer configured to be a real stop — a Galaxy version cannot be replaced or deleted.
 
-So a release is:
-
-```sh
-antsibull-changelog release --version X.Y.Z   # folds the fragments in, regenerates CHANGELOG.md
-# bump `version` in galaxy.yml to match
-git commit ...                                # galaxy.yml, changelogs/, CHANGELOG.md together
-git tag vX.Y.Z && git push origin vX.Y.Z
-```
+So a release is, in outline: `antsibull-changelog release --version X.Y.Z`, bump `version`
+in `galaxy.yml` to match, commit those together with the regenerated `CHANGELOG.md`, tag,
+push the tag. **`RELEASE.md` is the procedure** — prerequisites, the checklist, what each
+check catches and what to do when a step fails. Keep the steps there and not here, so the
+two cannot drift.
 
 Needs the `GALAXY_API_KEY` secret. Prerelease tags (`v1.0.0-rc1`) do not match the trigger.
 The GitHub release body is rendered from `changelog.yaml` by the same command that writes

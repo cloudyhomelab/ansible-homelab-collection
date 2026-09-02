@@ -262,11 +262,18 @@
 # The Go template is escaped into the argument rather than written literally, so Jinja
 # leaves it for podman; `.Name` is a documented field of `podman secret ls`, unlike the
 # shape of its JSON, which has differed between versions.
+#
+# Asked under `--check` too. Ansible skips a `command` task in check mode because it
+# cannot know whether an arbitrary command writes; this one only reads, and skipping it
+# would leave the register empty, which reconcile_secrets below cannot tell apart from a
+# store holding nothing — so a dry run would report re-storing every secret the host
+# already has.
 - name: "List stored podman secrets for app {{ systemd_app_name }}"
   ansible.builtin.command:
     argv: [podman, secret, ls, --format, "{{ '{{' }}.Name{{ '}}' }}"]
   register: systemd_app_secret_store_list
   changed_when: false
+  check_mode: false
   when: systemd_app_secret_values | length > 0
 
 # Storing is create-only, so what changed has to be worked out first — from three inputs:

@@ -301,6 +301,32 @@ Generated route snippets are not part of any app's config tree, so they are outs
 entirely; your play applies those centrally once every app has converged (see
 [Caddy routing](#caddy-routing)).
 
+## Dry runs (`--check`)
+
+A dry run reports what a deploy would change without touching the host. Most of what this
+role does is `file`, `copy`, `template` and `systemd`, all of which answer that honestly,
+so `--check` is a fair preview of the files it would install, the ones the manifest would
+prune, and the units it would touch.
+
+Secrets are the exception, because they are driven by `podman` rather than by a module.
+Ansible skips a `command` task in check mode — it cannot know whether an arbitrary command
+writes — so:
+
+- **The store listing runs anyway** (`check_mode: false`). It only reads, and skipping it
+  would leave the role reconciling against an empty view of the store, unable to tell
+  "podman holds nothing" from "we did not ask" — a dry run would then claim it was about
+  to re-store every secret the host already has.
+- **Storing and removing a secret are skipped**, and cannot be previewed. Whether
+  `podman secret create` would succeed is only knowable by running it.
+- **A deploy whose only change is a secret reports no restart.** The restart decision keys
+  off the store task having changed something, and a skipped task changes nothing. So a
+  dry run can under-report a restart here, in the one case where it is caused by a secret
+  alone.
+
+Nothing in the gates runs the role under `--check`; the molecule scenario converges for
+real. Treat a dry run as a good preview of the filesystem and unit state, and as silent
+about the secret store.
+
 ## Rendered container policy
 
 Beyond the parameters above, an `inline` container is rendered with four directives no

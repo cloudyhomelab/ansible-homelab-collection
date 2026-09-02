@@ -34,8 +34,8 @@ jobs:
       # beside it, so the lint runs against the very ansible-core a consumer would use
       # instead of the second, collection-less one pip drags in as a dependency.
       # --include-apps is what puts the ansible-lint and pytest entry points on PATH.
-      - name: Install ansible-lint and pytest
-        run: pipx inject ansible-core ansible-lint pytest --include-apps
+      - name: Install ansible-lint, pytest and antsibull-changelog
+        run: pipx inject ansible-core ansible-lint pytest antsibull-changelog --include-apps
 
       # The role calls community.sops.load_vars, so the lint's own syntax check needs the
       # collection present to resolve it.
@@ -47,6 +47,23 @@ jobs:
 
       - name: Lint
         run: ansible-lint
+
+      # CHANGELOG.md is generated from changelogs/changelog.yaml. A fragment that will not
+      # parse only fails at release time otherwise, which is the worst moment to find out,
+      # and an edit to the generated file would be silently reverted by the next release.
+      - name: Lint the changelog
+        run: |
+          antsibull-changelog lint
+          antsibull-changelog lint-changelog-yaml changelogs/changelog.yaml
+
+      - name: Check CHANGELOG.md is in sync with changelog.yaml
+        run: |
+          antsibull-changelog generate
+          if ! git diff --exit-code -- CHANGELOG.md; then
+            echo "::error::CHANGELOG.md does not match changelogs/changelog.yaml." \
+                 "Run 'antsibull-changelog generate' and commit the result." >&2
+            exit 1
+          fi
 
       - name: Build the collection
         run: ansible-galaxy collection build --output-path /tmp/collection-build

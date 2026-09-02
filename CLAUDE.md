@@ -34,6 +34,12 @@ files are copied verbatim onto a test host. Nor does
 `extensions/molecule/default/sops/age-key.txt`, which is a key rather than source — a
 throwaway age identity, committed on purpose and explained in the file itself.
 
+Nor do the changelog's generated files or its fragments. `changelogs/changelog.yaml` and
+`CHANGELOG.md` are rewritten by `antsibull-changelog`, which would drop a header on the next
+release; a fragment in `changelogs/fragments/` is deleted by that same release, so a
+three-line header on a two-line file buys nothing. `changelogs/config.yaml` is hand-written
+and carries one.
+
 ## Gates
 
 All four must pass before a change lands. They are what CI runs.
@@ -50,6 +56,10 @@ molecule test                         # the role on a systemd container; same la
 `ansible_collections/binarycodes/homelab/`: sanity imports plugins through that path, and
 the molecule converge calls the role by FQCN with nothing installing the collection for it.
 
+CI additionally lints the changelog and checks that the generated `CHANGELOG.md` still
+matches `changelogs/changelog.yaml` (see Releasing); `ansible-test sanity` validates
+`changelog.yaml` on its own account.
+
 Locally these run against whatever ansible-core is installed. CI runs the first three, plus
 a syntax check of a play that uses the role, once per supported ansible-core — the floor
 `meta/runtime.yml` declares and the current release
@@ -58,15 +68,32 @@ a syntax check of a play that uses the role, once per supported ansible-core —
 
 ## Releasing
 
+`CHANGELOG.md` is **generated** by `antsibull-changelog` from `changelogs/changelog.yaml`,
+which is in turn built from the fragments in `changelogs/fragments/`. A change that a
+consumer would notice ships a fragment in the same commit; `changelogs/README.md` covers the
+sections and the markup (reStructuredText, even though the output is Markdown). Never edit
+`CHANGELOG.md` — CI fails when it stops matching `changelog.yaml`.
+
 A pushed `vX.Y.Z` tag runs `.github/workflows/release.yml`: it checks the tag against
-`galaxy.yml`'s `version`, that `CHANGELOG.md` has a `## X.Y.Z` section and that the version
-is not already on Galaxy, then calls the three gate workflows against the tagged commit and
+`galaxy.yml`'s `version`, lints the changelog, renders this version's notes out of
+`changelog.yaml` (which fails outright on a version it has no entry for), checks the
+committed `CHANGELOG.md` matches what that file renders to, and checks the version is not
+already on Galaxy — then calls the three gate workflows against the tagged commit and
 publishes. The publish waits behind the `release` environment, which needs a required
 reviewer configured to be a real stop — a Galaxy version cannot be replaced or deleted.
 
-So a release is: bump `version` in `galaxy.yml`, write the `CHANGELOG.md` section, commit,
-tag, push the tag. Needs the `GALAXY_API_KEY` secret. Prerelease tags (`v1.0.0-rc1`) do not
-match the trigger.
+So a release is:
+
+```sh
+antsibull-changelog release --version X.Y.Z   # folds the fragments in, regenerates CHANGELOG.md
+# bump `version` in galaxy.yml to match
+git commit ...                                # galaxy.yml, changelogs/, CHANGELOG.md together
+git tag vX.Y.Z && git push origin vX.Y.Z
+```
+
+Needs the `GALAXY_API_KEY` secret. Prerelease tags (`v1.0.0-rc1`) do not match the trigger.
+The GitHub release body is rendered from `changelog.yaml` by the same command that writes
+the changelog, so the two cannot disagree about where a version's notes end.
 
 Running the workflow by hand **from a branch** is a rehearsal: the version comes from
 `galaxy.yml`, every check and every gate still runs, the collection is built, and the two

@@ -1,0 +1,61 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# antsibull-changelog's configuration. What it buys over editing CHANGELOG.md by hand is
+# that a fragment lands in the same commit as the change it describes, so nothing has to be
+# remembered at release time, and that `ansible-test sanity` validates the result — which a
+# hand-written file never gets. See changelogs/README.md for the workflow.
+#
+# Only the keys that differ from `antsibull-changelog init` carry a comment; the rest are
+# that command's own defaults, written out so an upgrade cannot change them under us.
+title: binarycodes.homelab
+changes_file: changelog.yaml
+changes_format: combined
+
+# Markdown, not the default CHANGELOG.rst: CHANGELOG.md is what README.md links to and what
+# release.yml slices a GitHub release body out of. The path is relative to the repository
+# root, so this is the same file the repository has always published.
+output:
+  - file: CHANGELOG.md
+    format: md
+
+keep_fragments: false
+notesdir: fragments
+prelude_section_name: release_summary
+prelude_section_title: Release Summary
+# 'trivial' is a section that renders nowhere, so a change needing no changelog line can
+# still ship a fragment and answer a reviewer asking where it is.
+trivial_section_name: trivial
+new_plugins_after_name: removed_features
+
+# The collection is not part of the ansible package and has no flatmapped plugin namespace,
+# so a plugin is listed under its own short name.
+flatmap: false
+use_fqcn: true
+add_plugin_period: true
+changelog_nice_yaml: false
+changelog_sort: alphanumerical
+ignore_other_fragment_extensions: true
+mention_ancestor: true
+sanitize_changelog: true
+vcs: auto
+
+sections:
+  - - major_changes
+    - Major Changes
+  - - minor_changes
+    - Minor Changes
+  - - breaking_changes
+    - Breaking Changes / Porting Guide
+  - - deprecated_features
+    - Deprecated Features
+  - - removed_features
+    - Removed Features (previously deprecated)
+  - - security_fixes
+    - Security Fixes
+  - - bugfixes
+    - Bugfixes
+  - - known_issues
+    - Known Issues

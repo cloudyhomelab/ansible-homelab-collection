@@ -74,12 +74,42 @@ jobs:
           fi
           echo "version=$declared" >> "$GITHUB_OUTPUT"
 
-      # Also where the GitHub release body comes from, below: a version with nothing
-      # written about it would produce an empty release note.
+      # CHANGELOG.md is generated from changelogs/changelog.yaml, so the checks below ask
+      # the source of truth rather than the rendered file.
+      - name: Install antsibull-changelog
+        run: pipx inject ansible-core antsibull-changelog --include-apps
+
+      # Both halves of the record: the fragments still waiting for a release (there should
+      # be none by now, but an unparseable one would fail the release step itself) and the
+      # changelog they have been folded into.
+      - name: Lint the changelog
+        run: |
+          antsibull-changelog lint
+          antsibull-changelog lint-changelog-yaml changelogs/changelog.yaml
+
+      # A version with nothing written about it would publish with an empty release note.
+      # Rendering its section is the check: `generate <version>` exits non-zero on a version
+      # changelog.yaml does not know, and an entry that renders to nothing is caught here
+      # too. The file this produces is thrown away — the publish job renders its own, from
+      # the tagged commit.
       - name: Check the changelog describes this version
         run: |
-          if ! grep -qE "^## ${{ steps.version.outputs.version }}\$" CHANGELOG.md; then
-            echo "::error::CHANGELOG.md has no '## ${{ steps.version.outputs.version }}' section." >&2
+          antsibull-changelog generate "${{ steps.version.outputs.version }}" \
+            --only-latest --output /tmp/release-notes-check.md
+          if [ ! -s /tmp/release-notes-check.md ]; then
+            echo "::error::changelogs/changelog.yaml has no entry for ${{ steps.version.outputs.version }}." >&2
+            exit 1
+          fi
+
+      # The committed CHANGELOG.md must be the one changelog.yaml renders to. Out of sync
+      # means someone edited the generated file, or ran `release` without committing what it
+      # regenerated — either way the published changelog would not be the recorded one.
+      - name: Check CHANGELOG.md is in sync with changelog.yaml
+        run: |
+          antsibull-changelog generate
+          if ! git diff --exit-code -- CHANGELOG.md; then
+            echo "::error::CHANGELOG.md does not match changelogs/changelog.yaml." \
+                 "Run 'antsibull-changelog generate' and commit the result." >&2
             exit 1
           fi
 
@@ -168,20 +198,23 @@ jobs:
             "dist/binarycodes-homelab-${{ needs.verify.outputs.version }}.tar.gz" \
             --api-key "$GALAXY_API_KEY"
 
+      # Rendered from changelogs/changelog.yaml rather than sliced out of CHANGELOG.md:
+      # the same command that writes the changelog writes the release body, so the two
+      # cannot disagree about where a version's notes end. verify has already established
+      # that this version has an entry.
+      - name: Install antsibull-changelog
+        if: needs.verify.outputs.release == 'true'
+        run: pipx inject ansible-core antsibull-changelog --include-apps
+
       # After the upload, so a failed publish leaves no release announcing a version that
-      # is not there. The body is this version's own changelog section, from the heading to
-      # the next one.
+      # is not there.
       - name: Create the GitHub release
         if: needs.verify.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          awk -v v="## $VERSION" '
-            $0 == v {found = 1; next}
-            found && /^## / {exit}
-            found {print}
-          ' CHANGELOG.md > release-notes.md
+          antsibull-changelog generate "$VERSION" --only-latest --output release-notes.md
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes-file release-notes.md \
@@ -190,11 +223,16 @@ jobs:
       # A rehearsal is only useful if it says what it did not do. The release notes are
       # rendered here as well, since an empty or wrong-looking body is the one thing the
       # checks above cannot judge for you.
+      - name: Install antsibull-changelog for the rehearsal notes
+        if: needs.verify.outputs.release != 'true'
+        run: pipx inject ansible-core antsibull-changelog --include-apps
+
       - name: Report what a release would have done
         if: needs.verify.outputs.release != 'true'
         env:
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
+          antsibull-changelog generate "$VERSION" --only-latest --output release-notes.md
           {
             echo "## Rehearsal of $VERSION"
             echo
@@ -208,9 +246,5 @@ jobs:
             echo "A \`v$VERSION\` tag would additionally have uploaded that file to Galaxy"
             echo "and opened a GitHub release with these notes:"
             echo
-            awk -v v="## $VERSION" '
-              $0 == v {found = 1; next}
-              found && /^## / {exit}
-              found {print}
-            ' CHANGELOG.md
+            cat release-notes.md
           } >> "$GITHUB_STEP_SUMMARY"

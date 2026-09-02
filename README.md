@@ -73,11 +73,19 @@ effect: [`roles/systemd_app/README.md`](roles/systemd_app/README.md).
 ```sh
 pytest tests/unit -q     # the filters, as Python
 ansible-lint             # roles, playbooks and the molecule scenario
+antsibull-changelog lint # the changelog fragments
 molecule test            # the role against a systemd container (see extensions/molecule/default/)
 ```
 
 `molecule test` also needs `sops` on PATH and a checkout laid out as
 `ansible_collections/binarycodes/homelab/`; the scenario's README says why.
+
+## Versioning and changes
+
+[Semantic versioning](https://semver.org): the role's variables and the filters' names and
+return shapes are the collection's public API. What changed in each release is in
+[CHANGELOG.md](CHANGELOG.md), which is generated from changelog fragments — see
+[`changelogs/README.md`](changelogs/README.md) before editing either.
 
 ## Licence
 

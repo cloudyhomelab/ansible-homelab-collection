@@ -1,0 +1,7 @@
+minor_changes:
+  - >-
+    The ``systemd_app`` role now refuses to deploy an app whose ``systemd_app_domain`` is
+    already the address of a site block in another app's route snippet under
+    ``systemd_app_caddy_confd``, naming that file. Two site blocks with one address make
+    Caddy refuse the whole imported config, taking every app's route down; the refusal
+    happens before anything is installed on the host.

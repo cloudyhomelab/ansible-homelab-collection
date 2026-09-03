@@ -60,6 +60,48 @@
     - systemd_app_domain is defined
     - systemd_app_domain | string | length > 0
 
+# The one route problem the filter cannot see: two apps naming one domain write two site
+# blocks with one address, which Caddy refuses as an ambiguous site definition — and since
+# the Caddyfile imports every snippet, that takes every other app's route down with it. The
+# role sees one app at a time, so the question is put to the host instead: is this domain
+# already the address of a site block in any other app's snippet. Asked here, with the rest
+# of the input, so the answer is a failed run before anything is installed rather than an
+# app deployed without its route.
+#
+# `contains` is matched per line from the line's start, which is where this role writes the
+# address, so a hand-written snippet that lists several addresses on one line is outside
+# what this catches; `caddy validate` in the consuming play is the backstop for that. A
+# conf.d directory that does not exist yet has no snippets in it, and find says so rather
+# than failing.
+- name: "Look for another app's route on the domain of {{ systemd_app_name }}"
+  ansible.builtin.find:
+    paths: "{{ systemd_app_caddy_confd }}"
+    patterns: '*.caddy'
+    excludes: "{{ systemd_app_name }}.caddy"
+    contains: '^\s*{{ systemd_app_domain | regex_escape }}\s*\{'
+    file_type: file
+  register: systemd_app_route_clash
+  when:
+    - systemd_app_state == 'present'
+    - systemd_app_domain is defined
+    - systemd_app_domain | string | length > 0
+
+- name: "Refuse a domain another app already routes: {{ systemd_app_name }}"
+  ansible.builtin.assert:
+    that:
+      - systemd_app_route_clash.files | default([]) | length == 0
+    fail_msg: >-
+      App {{ systemd_app_name }} cannot take {{ systemd_app_domain }}: it is already the
+      address of a site block in
+      {{ systemd_app_route_clash.files | default([]) | map(attribute='path') | join(', ') }}.
+      Two site blocks with one address make Caddy refuse the whole imported config, taking
+      every app's route down. Change one domain, or decommission the other app first.
+    quiet: true
+  when:
+    - systemd_app_state == 'present'
+    - systemd_app_domain is defined
+    - systemd_app_domain | string | length > 0
+
 - name: "Verify the rendered container inputs of app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
@@ -130,8 +172,9 @@
 # another app's paths from an earlier invocation in the same run, least of all into a
 # task that deletes them. systemd_app_config_found is included because its `find` is
 # skipped for apps with no config tree, which would otherwise leave the previous app's
-# file list standing. systemd_app_source_dir_stat has already been consumed by the assert
-# above, and is cleared all the same, so nothing added later can read another app's result.
+# file list standing. systemd_app_source_dir_stat and systemd_app_route_clash have already
+# been consumed by the asserts above, and are cleared all the same, so nothing added later
+# can read another app's result.
 #
 # The secret facts are here for the same reason and matter as much: the decrypted values
 # of one app must never be visible to the next, the digest read is skipped for an app with
@@ -145,6 +188,7 @@
     systemd_app_manifest_paths: []
     systemd_app_installed_paths: []
     systemd_app_source_dir_stat: {}
+    systemd_app_route_clash: {}
     systemd_app_config_found: {}
     systemd_app_secrets_stat: {}
     systemd_app_secret_load: {}

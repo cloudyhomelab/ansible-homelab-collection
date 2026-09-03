@@ -266,6 +266,16 @@ site block, and the Caddyfile imports *every* app's snippet, so one value carryi
 a comment character or a newline stops Caddy loading any route at all. A typo at the call
 site is a failed run instead.
 
+One route problem no check on the values can see: two apps given the same
+`systemd_app_domain`. Their snippets would hold two site blocks with one address, which
+Caddy refuses as an ambiguous site definition — again for the whole imported config. The
+role sees one app at a time, so before it writes a route it looks through
+`systemd_app_caddy_confd` for any *other* `.caddy` file whose site block opens with this
+domain, and fails the run naming that file if it finds one, before anything is installed.
+The match is the shape this role writes — the domain alone at the start of a line — so a
+hand-written snippet listing several addresses on one line is outside it. `caddy validate`
+before the reload in your play is the backstop for that, and worth having anyway.
+
 ## Making changes take effect
 
 Installing a file is not the same as the app running from it, and the two kinds of change

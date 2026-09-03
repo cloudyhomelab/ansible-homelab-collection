@@ -214,6 +214,57 @@
         fail_msg: "After re-deploying over a hand-removed secret: {{ molecule_stored_names }}."
         quiet: true
 
+    # --- a domain another app already routes --------------------------------------------
+    # The role sees one app at a time, so this is the one route problem it has to ask the
+    # host about, and the answer has to arrive before anything is installed: a second site
+    # block on molinline's domain would make Caddy refuse the whole imported config on the
+    # next reload. The unit tests cannot reach this — it is a task, not a filter.
+    - name: Deploy an app on a domain another app already routes
+      block:
+        - name: Deploy the clashing app
+          ansible.builtin.include_role:
+            name: binarycodes.homelab.systemd_app
+          vars:
+            systemd_app_kind: inline
+            systemd_app_name: molclash
+            systemd_app_image: "{{ molecule_image }}"
+            systemd_app_domain: molinline.molecule.test
+            systemd_app_container_options:
+              - Exec=sleep 86400
+
+        # Reached only if the role let the clash through; the assertion below reads it.
+        - name: Record that the clashing app was deployed
+          ansible.builtin.set_fact:
+            molecule_clash_deployed: true
+      rescue:
+        - name: Record why the clashing app was refused
+          ansible.builtin.set_fact:
+            molecule_clash_refusal: "{{ ansible_failed_result.msg | default('') }}"
+
+    - name: Stat what the clashing app would have installed
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/containers/systemd/molclash.container
+        - /var/app/molclash
+        - /var/app/molproxy/config/conf.d/molclash.caddy
+      register: molecule_clash_paths
+
+    - name: Assert the clash was refused before anything reached the host
+      ansible.builtin.assert:
+        that:
+          - molecule_clash_deployed is not defined
+          # The refusal names the snippet that already holds the domain, so the operator
+          # knows which app to look at.
+          - "'molinline.caddy' in molecule_clash_refusal | default('')"
+          - molecule_clash_paths.results | selectattr('stat.exists') | list | length == 0
+        fail_msg: >-
+          Deployed: {{ molecule_clash_deployed | default(false) }}; refusal:
+          {{ molecule_clash_refusal | default('(none)') }}; on the host:
+          {{ molecule_clash_paths.results | selectattr('stat.exists')
+             | map(attribute='item') | list }}.
+        quiet: true
+
     # --- decommission ------------------------------------------------------------------
     - name: Decommission every fixture app
       ansible.builtin.include_role:

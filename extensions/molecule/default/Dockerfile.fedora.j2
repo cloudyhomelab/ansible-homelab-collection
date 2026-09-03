@@ -22,8 +22,12 @@ RUN systemctl mask systemd-udevd.service systemd-udev-trigger.service \
       getty.target console-getty.service systemd-remount-fs.service
 
 # Overlay on top of the outer container's overlay would need fuse-overlayfs and
-# /dev/fuse; vfs needs neither and the images this pulls are a few megabytes.
-RUN printf '[storage]\ndriver = "vfs"\n' > /etc/containers/storage.conf
+# /dev/fuse; vfs needs neither and the images this pulls are a few megabytes. The roots are
+# spelled out because this file replaces the distribution's: once /etc/containers/storage.conf
+# exists it is the only one read, and Debian's podman has no built-in fallback for a
+# missing runroot ("Failed to obtain podman configuration: runroot must be set").
+RUN printf '[storage]\ndriver = "vfs"\nrunroot = "/run/containers/storage"\ngraphroot = "/var/lib/containers/storage"\n' \
+      > /etc/containers/storage.conf
 
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]

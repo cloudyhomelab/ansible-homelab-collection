@@ -10,8 +10,12 @@
 driver:
   name: podman
 
+# One platform, chosen by environment: every family the role's meta/main.yml claims gets a
+# row in .github/workflows/molecule.yml, which sets MOLECULE_DISTRO and MOLECULE_IMAGE, and
+# a local run without either gets Fedora. One scenario rather than one per family, so the
+# converge, verify and side-effect plays cannot drift apart between platforms.
 platforms:
-  - name: systemd-app
+  - name: systemd-app-${MOLECULE_DISTRO:-fedora}
     # The newest released Fedora, and released is the load-bearing word: 44 is what
     # `latest` currently points at and 45 is rawhide, neither of which carries a version
     # label. Rawhide is already on Python 3.15, which dropped `dataclasses._is_type` — and
@@ -19,10 +23,13 @@ platforms:
     # (compat/typing.py, through an unguarded getattr, in 2.19 through 2.21 alike). On such
     # a target every module dies before it runs, which surfaces as "Module result
     # deserialization failed: No start of json char found" rather than as a version
-    # problem. Bump this only to a tag that has shipped.
-    image: quay.io/fedora/fedora:43
-    # Built from Dockerfile.j2 rather than pulled ready-made: the base image ships
-    # neither systemd nor podman nor python3, and all three are preconditions here.
+    # problem. Bump this only to a tag that has shipped. The Debian image is pinned in the
+    # workflow's matrix, next to this one's row.
+    image: ${MOLECULE_IMAGE:-quay.io/fedora/fedora:43}
+    # Built from a per-family Dockerfile rather than pulled ready-made: the base images ship
+    # neither systemd nor podman nor python3, and all three are preconditions here. The
+    # driver tags the result molecule_local/<image>, so two families never share a build.
+    dockerfile: Dockerfile.${MOLECULE_DISTRO:-fedora}.j2
     pre_build_image: false
     # Podman turns on its systemd mode when the command is an init, which is what mounts
     # /run and sets up the cgroup hierarchy the units below need.

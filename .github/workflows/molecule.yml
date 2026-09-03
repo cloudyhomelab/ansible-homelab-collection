@@ -38,9 +38,24 @@ permissions:
 
 jobs:
   molecule:
-    name: Converge the systemd_app role
+    name: Converge the systemd_app role on ${{ matrix.distro }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
+
+    # One row per platform family roles/systemd_app/meta/main.yml claims, so the claim is a
+    # tested one. The scenario reads both values from the environment (see its
+    # molecule.yml); the distro picks the Dockerfile, the image is what it builds from.
+    # Both images are pinned to a released tag. Which rows fail is the result this matrix
+    # exists to produce, so one failing row must not cancel the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: fedora
+            image: quay.io/fedora/fedora:43
+          # Debian 13 is the first Debian whose podman (5.x) has Quadlet; 12 ships 4.3.
+          - distro: debian
+            image: docker.io/library/debian:13
 
     # converge.yml calls the role by FQCN, as a consuming play does, so the role has to be
     # reachable as a collection and not merely as the directory it is checked out into.
@@ -91,9 +106,11 @@ jobs:
       # Both collection roots are named because they hold different halves of what the
       # converge needs: the workspace holds this collection, $HOME the community.sops
       # installed above, and root would otherwise search neither.
-      - name: Test the default scenario
+      - name: Test the default scenario on ${{ matrix.distro }}
         run: |
           ansible-galaxy collection install community.sops
           sudo env "PATH=$PATH" \
             "ANSIBLE_COLLECTIONS_PATH=$GITHUB_WORKSPACE:$HOME/.ansible/collections" \
+            "MOLECULE_DISTRO=${{ matrix.distro }}" \
+            "MOLECULE_IMAGE=${{ matrix.image }}" \
             molecule test

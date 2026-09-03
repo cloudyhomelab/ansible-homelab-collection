@@ -1,0 +1,38 @@
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The scenario's target host on Debian: systemd as PID 1, podman inside it, python3 for
+# Ansible. The Debian counterpart of Dockerfile.fedora.j2 — same masks, same storage
+# driver, same sudo stance — so a converge that passes on one and fails on the other is
+# telling us about the role, not about the image.
+FROM {{ item.image }}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# systemd-sysv is what provides /sbin/init, which the base image lacks. Recommends are
+# installed on purpose: podman's network stack (netavark, aardvark-dns) and its OCI
+# runtime arrive that way on Debian, and a podman that cannot set up a network fails at
+# container creation with nothing to say about packaging.
+RUN apt-get update \
+ && apt-get install -y systemd systemd-sysv podman python3 sudo procps ca-certificates \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+# Same override as the Fedora image, for the same reason it is harmless: the connection
+# already lands as root, so the sudo a consuming play's become: true goes through is pure
+# ceremony, and one PAM stack that is known to complete keeps the two images alike.
+RUN printf 'auth sufficient pam_permit.so\naccount sufficient pam_permit.so\nsession sufficient pam_permit.so\n' \
+      > /etc/pam.d/sudo
+
+# Units that have nothing to manage in a container and only fail loudly if left enabled.
+# Masking a unit the image does not ship (udev is not installed here) is a no-op.
+RUN systemctl mask systemd-udevd.service systemd-udev-trigger.service \
+      getty.target console-getty.service systemd-remount-fs.service
+
+# Overlay on top of the outer container's overlay would need fuse-overlayfs and
+# /dev/fuse; vfs needs neither and the images this pulls are a few megabytes.
+RUN printf '[storage]\ndriver = "vfs"\n' > /etc/containers/storage.conf
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

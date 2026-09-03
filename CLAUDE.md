@@ -66,6 +66,13 @@ a syntax check of a play that uses the role, once per supported ansible-core —
 (`.github/workflows/supported-versions.yml`). Raising the floor means changing
 `meta/runtime.yml`, `roles/systemd_app/meta/main.yml` and that matrix together.
 
+`molecule test` runs once per platform family `roles/systemd_app/meta/main.yml` claims
+(Fedora and Debian), through `MOLECULE_DISTRO` and `MOLECULE_IMAGE` set by the matrix in
+`.github/workflows/molecule.yml`; a local run without them converges Fedora. Claiming a
+platform means an entry in `meta/main.yml`, a `Dockerfile.<distro>.j2` in the scenario and a
+matrix row, together. The Fedora entry names the release the image is pinned to, so bumping
+the image tag means bumping it in `meta/main.yml` and the matrix row as well.
+
 ## Releasing
 
 `CHANGELOG.md` is **generated** by `antsibull-changelog` from `changelogs/changelog.yaml`,

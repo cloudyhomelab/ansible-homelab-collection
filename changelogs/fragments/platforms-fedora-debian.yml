@@ -1,0 +1,7 @@
+known_issues:
+  - >-
+    The ``systemd_app`` role's platform list now names only what its molecule scenario
+    converges: Fedora 43 and Debian 13 (trixie). EL and Ubuntu are no longer listed;
+    they were never tested, and Debian 12 is out because its podman (4.3) predates Quadlet.
+    The role is not distribution-specific and other platforms will likely work, but they
+    are not claimed until something tests them.

@@ -21,8 +21,17 @@ decommissioning.
 pipx inject ansible-core molecule --include-apps      # once; --include-apps is what puts
 pipx inject ansible-core 'molecule-plugins[podman]'   # molecule on PATH, and only
                                                       # molecule has an entry point
-molecule test
+molecule test                                         # Fedora
+MOLECULE_DISTRO=debian MOLECULE_IMAGE=docker.io/library/debian:13 molecule test
 ```
+
+One scenario, one platform per run, chosen by environment: `MOLECULE_DISTRO` picks the
+`Dockerfile.<distro>.j2` the target is built from and `MOLECULE_IMAGE` the base image, and
+CI runs one row per family the role's `meta/main.yml` claims (see
+`.github/workflows/molecule.yml`, which is also where the Debian tag is pinned). Unset,
+both fall back to Fedora. Switch families with `molecule test` or a `destroy` in between:
+the scenario's state is per scenario, not per platform, so a bare `converge` after a switch
+would target the container the previous family left running.
 
 `sops` has to be on PATH as well. The scenario's fixture app ships encrypted secrets, and
 `community.sops` shells out to the binary to decrypt them; without it the converge fails in
@@ -62,10 +71,11 @@ failed: No start of json char found`. `prepare.yml` records the target's release
 interpreter through `raw` first thing, so that failure is one line into the log rather than
 an afternoon.
 
-Two things worth knowing: an edit to `Dockerfile.j2` needs
-`podman rmi molecule_local/systemd-app` first, the driver building the image only when it
-is missing; and the fixture apps tree is copied into molecule's ephemeral directory by
-`prepare.yml`, so a hand-edit under `apps/` takes a `prepare` to reach the target.
+Two things worth knowing: the driver rebuilds `molecule_local/<image>` from the family's
+Dockerfile on every `create`, so an edit to one is picked up by the next run and the layer
+cache is what keeps that quick (`podman rmi` it only when that cache is what you distrust);
+and the fixture apps tree is copied into molecule's ephemeral directory by `prepare.yml`,
+so a hand-edit under `apps/` takes a `prepare` to reach the target.
 
 ### The secrets fixture
 

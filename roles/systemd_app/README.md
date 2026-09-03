@@ -35,11 +35,15 @@ rootless variant is a different role, not a different set of paths.
 **On the target host:** systemd, and podman 4.4 or newer, the release Quadlet arrived in.
 An `inline` app that sets `systemd_app_health_cmd` needs podman 5.0, where Quadlet learned
 `Notify=healthy` — the directive that makes a failing probe a failed start (see
-[healthchecks](#healthchecks-and-auto-update-rollback)). Both install directories have to
-exist already: the role installs into `systemd_app_system_dir` and `systemd_app_unit_dir`
-but creates neither, one being podman's own directory and the other systemd's. What it
-does create is what it owns — `systemd_app_root` and each app's home below it, and
-`systemd_app_caddy_confd` for a routed app.
+[healthchecks](#healthchecks-and-auto-update-rollback)). In distribution terms that is any
+current Fedora, or Debian 13 and later — Debian 12's podman is 4.3 and has no Quadlet.
+Fedora 43 and Debian 13 are the two the molecule scenario converges, and the platform list
+in `meta/main.yml` names exactly those. Nothing in the role is distribution-specific, so
+others will likely work, but they are not claimed until something tests them. Both install
+directories have to exist already: the role installs into `systemd_app_system_dir` and
+`systemd_app_unit_dir` but creates neither, one being podman's own directory and the other
+systemd's. What it does create is what it owns — `systemd_app_root` and each app's home
+below it, and `systemd_app_caddy_confd` for a routed app.
 
 **On the controller:** no privilege, and nothing beyond ansible-core — unless an app ships
 encrypted secrets, which need the `community.sops` collection, the `sops` binary, and a key

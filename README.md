@@ -44,7 +44,8 @@ the controller.
 
 The role runs once per app, in a play that is privileged: it writes root-owned files,
 calls `podman` against the root store and drives system units. Rootful podman 4.4 or newer
-(5.0 for an app with a healthcheck), and systemd, are the host's side of the contract.
+(5.0 for an app with a healthcheck), and systemd, are the host's side of the contract —
+in practice Fedora, or Debian 13 and later, which are the platforms it is tested on.
 
 ```yaml
 - hosts: all

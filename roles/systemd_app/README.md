@@ -32,7 +32,8 @@ are started, enabled and reloaded at system scope. Repointing `systemd_app_syste
 that rootless — the `podman secret` and `systemctl` calls would still be the root ones. A
 rootless variant is a different role, not a different set of paths.
 
-**On the target host:** systemd, and podman 4.4 or newer, the release Quadlet arrived in.
+**On the target host:** systemd, and podman 4.5 or newer — Quadlet arrived in 4.4, and
+4.5 added the labels on secrets this role records ownership with (see [secrets](#secrets)).
 An `inline` app that sets `systemd_app_health_cmd` needs podman 5.0, where Quadlet learned
 `Notify=healthy` — the directive that makes a failing probe a failed start (see
 [healthchecks](#healthchecks-and-auto-update-rollback)). In distribution terms that is any
@@ -111,8 +112,8 @@ it an image (and usually a domain). The container is named
    snippet.
 3. Removes `/var/app/<app>` entirely: its deployed config and any data a Quadlet
    bind-mounts under it.
-4. Removes the app's podman secrets, by the names recorded in
-   `/var/app/<app>/.secret-digests` — read before that directory goes.
+4. Removes the app's podman secrets — the ones labelled as its own, so nothing on the
+   controller is needed and another app's are never touched.
 5. Runs `systemctl daemon-reload`.
 
 > **`absent` is destructive and not reversible. Back the app up before setting it.**
@@ -448,23 +449,29 @@ the running container. What it avoids is a copy sitting in a `0644` file under
 the store in a root-only file, unencrypted — treat "root on the host" as the trust
 boundary either way.
 
-**Rotation and renames.** Podman reads a secret when it *creates* a container, and cannot
-update a stored one in place on every version this runs on, so the role records a SHA-256
-per secret in `/var/app/<app>/.secret-digests` (`0600`, root). A converge where nothing
-changed touches nothing. A changed value is removed and re-created, and the app's units are
-**restarted** rather than started, since a running container would otherwise keep serving
-with the old value. A name dropped from the file — renamed, or deleted — is removed from
-the host, the same reconciliation the [install manifest](#install-manifest) does for files.
+**Rotation, renames and ownership.** Every secret the role stores carries two labels: the
+app that owns it (`io.binarycodes.homelab.app`) and a digest of its value
+(`io.binarycodes.homelab.digest`, as `sha256:<hex>` — the algorithm is named so it can
+change later without every secret being rotated once). The store is the only record. Podman reads a secret when
+it *creates* a container and cannot update a stored one in place, so on each deploy the
+`podman_secrets` module compares the declared values against those labels: a converge where
+nothing changed touches nothing; a changed value is removed and re-created, and the app's
+units are **restarted** rather than started, since a running container would otherwise keep
+serving with the old value; a name dropped from the file — renamed, or deleted — is removed
+from the host, the same reconciliation the [install manifest](#install-manifest) does for
+files. A secret removed by hand, or lost with a store reset, is simply missing and comes
+back on the next deploy.
 
-That record says what was *stored*, not what *is* stored, so a deploy reads the store as
-well and re-stores any recorded name podman no longer holds — a secret dropped by hand, or
-lost with a store reset. Without that check the digest would still match, nothing would be
-re-created, and the app would go on failing to start on a name that is gone, with nothing
-to suggest a deploy could fix it.
+The owner label is also what `absent` removes by, so a decommission needs nothing from the
+controller — the encrypted file may be gone by then — and what keeps two apps apart: a
+deploy that declares a name another app owns is refused, naming that app, and the other
+app's secret is left as it was. A secret with no owner label at all — stored by hand, or by
+a release of this role before 1.1.0 — is taken to be the declaring app's with an unknown
+value, and is re-created with labels; that is the one restart the upgrade costs.
 
-That record is also how `absent` knows what to remove: secrets are host-global and not part
-of `/var/app/<app>`, so they are dropped by name, read from the host rather than from the
-encrypted file, which by then may be gone.
+A failed `podman secret create` is reported with the secret's name, podman's exit code and
+its stderr. The value is a `no_log` parameter of the module, so it stays out of the log
+while the diagnosis does not.
 
 **Requirements.** The controller needs the `sops` binary and the `community.sops`
 collection, and the decryption key — without it the run fails at the decrypting task,
@@ -586,25 +593,29 @@ This destroys `/var/app/<app>` — back it up first:
 
 ## Where the logic lives
 
-The role's real computation is Python, not Jinja. It calls five filter plugins that ship
-with this collection, by their fully qualified names (`binarycodes.homelab.route_problems`
-and so on), so they resolve wherever the collection is installed:
+The role's real computation is Python, not Jinja: filter plugins for what runs on the
+controller, a module for what runs on the host. All ship with this collection and are called
+by their fully qualified names (`binarycodes.homelab.route_problems` and so on), so they
+resolve wherever the collection is installed:
 
-| Filter               | Used for                                                          |
-| -------------------- | ----------------------------------------------------------------- |
-| `secret_digests`     | SHA-256 per secret value, the record a converge compares against. |
-| `reconcile_secrets`  | Which secrets to store and which to drop, from three inputs.      |
-| `route_problems`     | Checking `systemd_app_domain` / `_upstream` / `_port`.             |
-| `container_problems` | Checking what would be interpolated into a rendered Quadlet.      |
-| `systemd_env_lines`  | Quoting and escaping `systemd_app_env` into `Environment=` lines.  |
+| Plugin               | Kind   | Used for                                                          |
+| -------------------- | ------ | ----------------------------------------------------------------- |
+| `podman_secrets`     | module | Reconciling the app's podman secrets against the store, on the host. |
+| `route_problems`     | filter | Checking `systemd_app_domain` / `_upstream` / `_port`.             |
+| `container_problems` | filter | Checking what would be interpolated into a rendered Quadlet.      |
+| `systemd_env_lines`  | filter | Quoting and escaping `systemd_app_env` into `Environment=` lines.  |
+| `manifest_units`     | filter | The units the install manifest implies, so `absent` need not be told them. |
 
-They live in `plugins/filter/`, one file per filter, and are
-Python so they can be tested as Python: a table of cases in under a second, rather than a
-playbook run per case (`tests/unit/`). Both `*_problems` filters return a list of
-human-readable problems and never raise, so one run reports everything wrong at once. A
-change to what the role *accepts*, or to how it decides which secrets to store, belongs
-there rather than in a YAML scalar.
+The filters live in `plugins/filter/`, the module in `plugins/modules/`, one file each, and
+are Python so they can be tested as Python: a table of cases in under a second, rather than
+a playbook run per case (`tests/unit/`). Both `*_problems` filters return a list of
+human-readable problems and never raise, so one run reports everything wrong at once. The
+module keeps every podman call behind one runner, so its reconciliation is tested against a
+fake store the same way. A change to what the role *accepts*, or to how it decides what the
+secret store should hold, belongs there rather than in a YAML scalar.
 
 They are collection-global public API: anyone who installs the collection can call them,
 whether or not they use this role, which is why they are named for what they compute
-rather than for the role that calls them.
+rather than for the role that calls them. Two filters, `secret_digests` and
+`reconcile_secrets`, are deprecated: the module does their work from labels on the secrets
+themselves, and they go in 2.0.0.

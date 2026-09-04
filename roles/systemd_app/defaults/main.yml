@@ -109,25 +109,19 @@ systemd_app_service_options: []              # extra raw [Service] lines
 # can point it at any variable. See the role README.
 systemd_app_secrets_file: "{{ systemd_app_apps_dir }}/{{ systemd_app_name }}/secrets.sops.yaml"
 
-# The decrypted file, as one dict rather than top-level vars: its keys are podman secret
-# names, which are not legal variable names, and nothing sensitive then becomes a play
-# variable. Populated by present.yml when the file exists.
-systemd_app_secret_values: {}
-
-# SHA-256 of every secret this app last stored, keyed by secret name. Podman offers no
-# version-independent way to read a stored secret back, so a digest recorded here is what
-# tells the next run which values actually changed — without it, every converge would have
-# to recreate the secrets and restart the app to be sure. Its key set doubles as the record
-# of which secrets the app owns: that is how a later deploy drops one the app has stopped
-# declaring, and how a decommission knows what to remove without the encrypted file.
-# Root-only, and it lives in the app's home so a decommission takes it along.
-#
-# What it records is what was stored, not what is stored: nothing stops a secret being
-# removed from the host by hand. So a deploy reads the store as well and re-stores any name
-# recorded here that podman no longer holds, rather than trusting the record and leaving the
-# app pointing at a name that is gone.
-systemd_app_secret_digest_file: "{{ systemd_app_home }}/.secret-digests"
-systemd_app_secret_digests: "{{ systemd_app_secret_values | binarycodes.homelab.secret_digests }}"
+# The decrypted file as one dict, evaluated where it is used and stored nowhere. A lookup
+# rather than community.sops.load_vars, whose result becomes a host fact: a fact persists for
+# the play, so one app's decrypted values would be visible to every app that follows it in
+# the same run — including an 'absent' run, which never sets its own. A default is recomputed
+# on each reference, so sops runs a few times per app instead of once; that is a handful of
+# subprocess calls on the controller, and the price of there being nothing to reset or leak.
+# The keys are podman secret names, not legal variable names, and nothing sensitive becomes a
+# play variable. Empty when the app ships no file, or when systemd_app_apps_dir is unset —
+# which only an 'inline' app can leave unset, and then there is nowhere to look.
+systemd_app_secret_values: >-
+  {{ (lookup('community.sops.sops', systemd_app_secrets_file) | from_yaml)
+     if (systemd_app_apps_dir is defined and (systemd_app_secrets_file is file))
+     else {} }}
 
 # Directories to create before the container starts, for a bind mount whose contents the
 # app writes itself: podman would otherwise create the host path as root and a container

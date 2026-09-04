@@ -5,43 +5,11 @@
 
 # Secrets: an app that needs any ships apps/<app>/secrets.sops.yaml, keyed by the podman
 # secret names. Found rather than declared, like the app's quadlet/ and config/
-# directories, so that file is the only place the set is written down. First in the file
-# because an 'inline' app's Quadlet is rendered from those names below.
-# Skipped when systemd_app_apps_dir is unset, which only an 'inline' app can be (main.yml
-# requires it of a 'source' one): with nowhere to look, the app ships no secrets.
-- name: "Check for encrypted secrets of app {{ systemd_app_name }}"
-  ansible.builtin.stat:
-    path: "{{ systemd_app_secrets_file }}"
-  delegate_to: localhost
-  become: false
-  register: systemd_app_secrets_stat
-  when: systemd_app_apps_dir is defined
-
-# Decrypted on the controller; the values reach the host only through the secret store
-# below. no_log because the result carries them and the deploy runs with -v, which prints
-# task results.
-- name: "Load encrypted secrets of app {{ systemd_app_name }}"
-  community.sops.load_vars:
-    file: "{{ systemd_app_secrets_file }}"
-    name: systemd_app_secret_values
-    # Pinned rather than left on 'auto', so what this returns does not change with the
-    # controller's ansible-core version.
-    return_method: facts-only
-  register: systemd_app_secret_load
-  no_log: true
-  when: systemd_app_secrets_stat.stat.exists | default(false)
-
-# Taken from the register rather than used where the task above put it: main.yml clears
-# the per-app facts with set_fact, whose precedence beats a fact returned by a later task,
-# so that empty default would shadow the loaded values for the whole run. Assigning here
-# also means this runs for every app, and one app's secrets can never carry into the
-# next — an app with no encrypted file lands back on the empty default.
-- name: "Collect the decrypted secrets of app {{ systemd_app_name }}"
-  ansible.builtin.set_fact:
-    systemd_app_secret_values: >-
-      {{ systemd_app_secret_load.ansible_facts.systemd_app_secret_values | default({}, true) }}
-  no_log: true
-
+# directories, so that file is the only place the set is written down. Decrypted on the
+# controller by the lookup behind systemd_app_secret_values (see defaults/main.yml), which
+# is why no task here loads anything: the values are evaluated where they are used and are
+# never a fact. First in the file because an 'inline' app's Quadlet is rendered from those
+# names below. no_log, because the loop items carry the values and the deploy runs with -v.
 - name: "Verify every secret can be stored for app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
@@ -188,7 +156,7 @@
 
 # The config copy above creates this, but only for an app that ships a config tree. Every
 # app owns host state below it regardless: the install manifest recorded just below, and
-# for some also a bind-mounted data directory or the digests of the secrets it last stored.
+# for some also a bind-mounted data directory.
 - name: "Ensure the home directory exists for app {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_home }}"
@@ -242,101 +210,28 @@
   loop_control:
     label: "{{ item.path }}"
 
-- name: "Stat recorded secret digests for app {{ systemd_app_name }}"
-  ansible.builtin.stat:
-    path: "{{ systemd_app_secret_digest_file }}"
-  register: systemd_app_secret_digest_stat
+# One module call does the whole of the store: creates what is missing, removes and
+# re-creates what changed (podman cannot update a secret in place), drops what the app has
+# stopped declaring, and refuses a name another app owns. Ownership and the value's digest
+# live as labels on the secret itself, so the store is the only record and a secret removed
+# by hand is simply missing and comes back. The values are a no_log parameter, so a podman
+# failure is reported with its name, exit code and stderr while the value stays out of the
+# log. Registered for the restart decision below: podman reads a secret when it *creates*
+# a container, so a changed one is only live once the app is restarted.
+- name: "Reconcile podman secrets of app {{ systemd_app_name }}"
+  binarycodes.homelab.podman_secrets:
+    app: "{{ systemd_app_name }}"
+    secrets: "{{ systemd_app_secret_values }}"
+  register: systemd_app_secrets
 
-- name: "Read recorded secret digests for app {{ systemd_app_name }}"
-  ansible.builtin.slurp:
-    src: "{{ systemd_app_secret_digest_file }}"
-  register: systemd_app_secret_digest_slurp
-  when: systemd_app_secret_digest_stat.stat.exists | default(false)
-
-# What the store actually holds right now. The digest record says what this app last
-# stored, not what podman still has: a secret removed by hand, or lost with a store reset,
-# leaves the record matching so nothing would re-store it — and the app then references a
-# name podman no longer knows, which surfaces as a container that will not start with no
-# hint that a deploy could have fixed it. Only asked of a host for an app that has secrets.
-#
-# The Go template is escaped into the argument rather than written literally, so Jinja
-# leaves it for podman; `.Name` is a documented field of `podman secret ls`, unlike the
-# shape of its JSON, which has differed between versions.
-#
-# Asked under `--check` too. Ansible skips a `command` task in check mode because it
-# cannot know whether an arbitrary command writes; this one only reads, and skipping it
-# would leave the register empty, which reconcile_secrets below cannot tell apart from a
-# store holding nothing — so a dry run would report re-storing every secret the host
-# already has.
-- name: "List stored podman secrets for app {{ systemd_app_name }}"
-  ansible.builtin.command:
-    argv: [podman, secret, ls, --format, "{{ '{{' }}.Name{{ '}}' }}"]
-  register: systemd_app_secret_store_list
-  changed_when: false
-  check_mode: false
-  when: systemd_app_secret_values | length > 0
-
-# Storing is create-only, so what changed has to be worked out first — from three inputs:
-# what this app declares, what it last stored, and what the host still holds. The rules are
-# reconcile_secrets', with the cases spelled out in tests/unit/.
-# Digests and names only reach the fact; no value does, and the deploy is verbose enough to
-# print what it sets.
-- name: "Reconcile recorded secrets of app {{ systemd_app_name }}"
-  ansible.builtin.set_fact:
-    systemd_app_secret_reconciled: >-
-      {{ systemd_app_secret_digests
-         | binarycodes.homelab.reconcile_secrets(systemd_app_secret_digest_slurp.content | default(''),
-                             systemd_app_secret_store_list.stdout_lines | default([], true)) }}
-
-# Podman cannot update a stored secret in place on every version this may run on, and
-# `create` refuses a name that exists, so a rotation is a remove followed by a create.
-# The same pass removes the ones dropped from the file.
-- name: "Remove superseded podman secrets of app {{ systemd_app_name }}"
-  ansible.builtin.command:
-    argv: [podman, secret, rm, "{{ item }}"]
-  loop: "{{ systemd_app_secret_reconciled.remove | default([]) }}"
-  register: systemd_app_secret_rm
-  changed_when: systemd_app_secret_rm.rc == 0
-  failed_when:
-    - systemd_app_secret_rm.rc != 0
-    - "'no such secret' not in (systemd_app_secret_rm.stderr | default('') | lower)"
-
-# The value goes in on stdin, never in argv: /proc/<pid>/cmdline is world-readable, so
-# a command line carrying the secret would expose it to every user on the host for as
-# long as the process lives.
-- name: "Store podman secrets of app {{ systemd_app_name }}"
-  ansible.builtin.command:
-    argv: [podman, secret, create, "{{ item.key }}", "-"]
-    stdin: "{{ item.value }}"
-    stdin_add_newline: false
-  loop: >-
-    {{ systemd_app_secret_values | dict2items
-       | selectattr('key', 'in', systemd_app_secret_reconciled.store | default([])) | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  register: systemd_app_secret_create
-  changed_when: true
-  no_log: true
-
-# Written after the store succeeds, so a run that fails part-way leaves the older record
-# standing and the next one retries the secrets it did not get to.
-- name: "Record secret digests for app {{ systemd_app_name }}"
-  ansible.builtin.copy:
-    content: "{{ systemd_app_secret_digests | to_nice_json }}\n"
-    dest: "{{ systemd_app_secret_digest_file }}"
-    owner: "{{ systemd_app_owner }}"
-    group: "{{ systemd_app_group }}"
-    # Not a secret, but a digest of one: readable only by root, like the store itself.
-    mode: "0600"
-  when: systemd_app_secret_values | length > 0
-
-# An app that has stopped shipping secrets altogether: the record goes, having just been
-# used to drop them.
-- name: "Forget recorded secret digests of app {{ systemd_app_name }}"
+# Written by releases before 1.1.0, which recorded the digests in a file rather than on the
+# secrets. The module adopts a secret stored that way on the first deploy after upgrading,
+# so the file is not read; it is removed so a backup of the app no longer carries a digest
+# of every secret it ever had. Remove this task at 2.0.0.
+- name: "Remove the pre-1.1.0 secret digest record of app {{ systemd_app_name }}"
   ansible.builtin.file:
-    path: "{{ systemd_app_secret_digest_file }}"
+    path: "{{ systemd_app_home }}/.secret-digests"
     state: absent
-  when: systemd_app_secret_values | length == 0
 
 # Caddy route: only written when the app opts in with systemd_app_domain. The
 # snippet is imported by the central Caddyfile, so no daemon-reload is needed and
@@ -383,7 +278,7 @@
 - name: "Decide how this deploy reaches the running units of app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_restart_needed: >-
-      {{ (systemd_app_secret_create.changed | default(false))
+      {{ (systemd_app_secrets.changed | default(false))
          or (systemd_app_quadlet_render.changed | default(false))
          or (systemd_app_quadlet_install.changed | default(false))
          or (systemd_app_unit_install.changed | default(false)) }}

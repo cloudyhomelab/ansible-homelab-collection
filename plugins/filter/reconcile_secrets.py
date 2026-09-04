@@ -18,6 +18,13 @@ short_description: Which podman secrets to store and which to drop
 version_added: 1.0.0
 author:
   - binarycodes (@binarycodes)
+deprecated:
+  removed_in: 2.0.0
+  why: >-
+    The systemd_app role reconciles the store in one place, the
+    binarycodes.homelab.podman_secrets module, which reads ownership and digests from labels
+    on the secrets themselves rather than from a recorded file.
+  alternative: The M(binarycodes.homelab.podman_secrets) module.
 description:
   - Works out what a converge must do to the podman secret store, from three inputs - what
     the app declares now, what it last stored, and what the store actually holds.

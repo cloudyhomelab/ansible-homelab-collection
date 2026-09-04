@@ -12,3 +12,21 @@
 # this version as well as the current release. Raise this and the role's
 # min_ansible_version together with that matrix, never one without the others.
 requires_ansible: ">=2.15.0"
+
+# Deprecated rather than removed: the filters are public API, and RELEASE.md makes removing
+# one a major bump. This is what makes a consumer's use of them warn; the alternative is in
+# each filter's own docs.
+plugin_routing:
+  filter:
+    secret_digests:
+      deprecation:
+        removal_version: 2.0.0
+        warning_text: >-
+          The binarycodes.homelab.podman_secrets module records each secret's digest as a
+          label on the secret itself; nothing needs a separate digest.
+    reconcile_secrets:
+      deprecation:
+        removal_version: 2.0.0
+        warning_text: >-
+          The binarycodes.homelab.podman_secrets module reconciles the store in one call,
+          from labels on the secrets rather than a recorded file.

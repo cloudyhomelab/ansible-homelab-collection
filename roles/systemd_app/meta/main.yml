@@ -21,7 +21,8 @@ galaxy_info:
   # — it installs unit files, calls podman and drives systemd — but a platform listed here
   # is a promise, and the two below are the ones that promise is tested against, once per
   # row of .github/workflows/molecule.yml. Debian 12 is out because its podman (4.3) predates
-  # Quadlet (4.4); a healthcheck additionally needs podman 5.0 (see the role README). EL and
+  # Quadlet (4.4) and the secret labels the role relies on (4.5); a healthcheck additionally
+  # needs podman 5.0 (see the role README). EL and
   # Ubuntu would probably work and are not claimed until something converges them. Adding a
   # platform means a Dockerfile in the scenario and a matrix row as well as an entry here.
   # Rootful podman is a requirement either way.

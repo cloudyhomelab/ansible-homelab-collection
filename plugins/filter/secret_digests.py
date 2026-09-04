@@ -15,6 +15,13 @@ short_description: SHA-256 of each podman secret value, keyed by secret name
 version_added: 1.0.0
 author:
   - binarycodes (@binarycodes)
+deprecated:
+  removed_in: 2.0.0
+  why: >-
+    The systemd_app role records each secret's digest as a label on the stored secret itself,
+    through the binarycodes.homelab.podman_secrets module, so no record file is kept and
+    nothing computes digests separately.
+  alternative: The M(binarycodes.homelab.podman_secrets) module.
 description:
   - Returns the SHA-256 hex digest of every value in the input mapping, under the same keys.
   - Podman offers no version-independent way to read a stored secret back, so a converge

@@ -66,12 +66,14 @@
   loop: "{{ systemd_app_manifest_paths }}"
   notify: systemd_app reload systemd
 
-# Which secrets this app owns, from the record the last deploy wrote. Read before the
-# state tree that holds it is removed, and from the host rather than the encrypted file,
-# so a decommission needs nothing on the controller — the app's source tree may be gone.
-- name: "Read recorded secret digests for app {{ systemd_app_name }}"
+# Written by releases before 1.1.0, which recorded which secrets an app owned in a file
+# rather than as a label on each secret. A secret stored that way carries no label, so the
+# module cannot know it is this app's without being told: the record's keys are passed as
+# names to adopt. Read before the state tree that holds it is removed, and tolerated when
+# missing, which is every app deployed since. Remove this task, and `adopt` below, at 2.0.0.
+- name: "Read the pre-1.1.0 secret digest record of app {{ systemd_app_name }}"
   ansible.builtin.slurp:
-    src: "{{ systemd_app_secret_digest_file }}"
+    src: "{{ systemd_app_home }}/.secret-digests"
   register: systemd_app_secret_digest_slurp
   failed_when: false
 
@@ -97,22 +99,17 @@
     path: "{{ systemd_app_home }}"
     state: absent
 
-# Podman secrets are host-global, so they are not part of the tree removed above and
-# have to be dropped by name. Names are re-checked here because they are read from a host
-# file and passed to a root command; a repeat decommission stays green, since a name that
-# is no longer stored is tolerated.
+# Podman secrets are host-global, so they are not part of the tree removed above. The
+# module removes every secret labelled as this app's, which needs nothing from the
+# controller — the app's source tree may be gone — and refuses to touch another app's. A
+# repeat decommission finds nothing labelled and changes nothing.
 - name: "Remove podman secrets of app {{ systemd_app_name }}"
-  ansible.builtin.command:
-    argv: [podman, secret, rm, "{{ item }}"]
-  loop: >-
-    {{ ((systemd_app_secret_digest_slurp.content | default('') | b64decode
-         | default('{}', true)) | from_json).keys()
-       | select('match', '^[A-Za-z0-9][A-Za-z0-9._-]*$') | list }}
-  register: systemd_app_secret_rm
-  changed_when: systemd_app_secret_rm.rc == 0
-  failed_when:
-    - systemd_app_secret_rm.rc != 0
-    - "'no such secret' not in (systemd_app_secret_rm.stderr | default('') | lower)"
+  binarycodes.homelab.podman_secrets:
+    app: "{{ systemd_app_name }}"
+    state: absent
+    adopt: >-
+      {{ ((systemd_app_secret_digest_slurp.content | default('') | b64decode
+           | default('{}', true)) | from_json).keys() | list }}
 
 # Caddy route snippet, if the app registered one. It lives in reverse_proxy's config
 # tree, not this app's, so it needs removing explicitly. The route stops resolving when

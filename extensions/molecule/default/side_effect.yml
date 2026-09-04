@@ -22,6 +22,8 @@
       # Deployed with systemd_app_enable_units, decommissioned without it — the case a
       # teardown that works only from the caller's unit names cannot stop.
       - {name: molorphan, kind: source}
+      # Refused at its secrets, so only its files are on the host by then.
+      - {name: molclaim, kind: inline}
 
   tasks:
     # --- a file dropped from the app's source tree -------------------------------------
@@ -145,9 +147,9 @@
 
     # --- secrets: rotated, dropped, and re-stored after drift ----------------------------
     # Storing is create-only and podman cannot update a secret in place, so a changed value
-    # is a remove followed by a create — worked out from three inputs (what the app
-    # declares, what it last stored, what the host still holds) by reconcile_secrets. The
-    # unit tests cover that arithmetic; what is covered here is the task chain around it.
+    # is a remove followed by a create — decided by the podman_secrets module from the
+    # declared values and the labels each stored secret carries. The unit tests cover that
+    # arithmetic against a fake store; what is covered here is a real podman accepting it.
     - name: Re-encrypt the fixture secrets with one value changed and one name gone
       community.sops.sops_encrypt:
         path: "{{ molecule_apps_dir }}/molsecret/secrets.sops.yaml"
@@ -186,9 +188,9 @@
           {{ molecule_recorded_digests | list | sort }}.
         quiet: true
 
-    # The record says what this app last stored, not what podman still holds. A secret
-    # removed by hand — or lost with a store reset — leaves the record matching, so nothing
-    # would re-store it, and the app then references a name podman does not know.
+    # The store is the only record, so a secret removed by hand — or lost with a store
+    # reset — is simply missing on the next deploy and comes back, rather than the app
+    # referencing a name podman does not know.
     - name: Remove a stored secret behind the role's back
       ansible.builtin.command:
         argv: [podman, secret, rm, molsecret-token]
@@ -212,6 +214,74 @@
         that:
           - molecule_stored_values == molecule_secrets_rotated
         fail_msg: "After re-deploying over a hand-removed secret: {{ molecule_stored_names }}."
+        quiet: true
+
+    # --- a secret another app owns ----------------------------------------------------------
+    # Ownership is a label on the secret, and the module refuses to take over a name that
+    # carries another app's. The refusal has to leave the other app's secret exactly as it
+    # was — a deploy must not be able to steal or overwrite a sibling's value by declaring its
+    # name — and has to say whose it is, so the operator knows which app to look at.
+    - name: Store a secret owned by another app, under the name the clashing app declares
+      ansible.builtin.command:
+        argv: [podman, secret, create, --label, io.binarycodes.homelab.app=molother, molclaim-token, "-"]
+        stdin: not-ours
+        stdin_add_newline: false
+      changed_when: true
+
+    - name: Encrypt the clashing app's secrets into the copied tree
+      community.sops.sops_encrypt:
+        path: "{{ molecule_apps_dir }}/molclaim/secrets.sops.yaml"
+        age: ["{{ molecule_sops_recipient }}"]
+        content_yaml:
+          molclaim-token: mine-now
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    - name: Deploy an app declaring a secret another app owns
+      block:
+        - name: Deploy the clashing app
+          ansible.builtin.include_role:
+            name: binarycodes.homelab.systemd_app
+          vars:
+            systemd_app_kind: inline
+            systemd_app_name: molclaim
+            systemd_app_image: "{{ molecule_image }}"
+            systemd_app_container_options:
+              - Exec=sleep 86400
+
+        - name: Record that the clashing app was deployed
+          ansible.builtin.set_fact:
+            molecule_claim_deployed: true
+      rescue:
+        - name: Record why the clashing app was refused
+          ansible.builtin.set_fact:
+            molecule_claim_refusal: "{{ ansible_failed_result.msg | default('') }}"
+
+    - name: Read back the other app's secret
+      ansible.builtin.command:
+        argv:
+          - podman
+          - secret
+          - inspect
+          - --showsecret
+          - --format
+          - "{{ '{{' }}index .Spec.Labels \"io.binarycodes.homelab.app\"{{ '}}' }} {{ '{{' }}.SecretData{{ '}}' }}"
+          - molclaim-token
+      changed_when: false
+      register: molecule_claim_secret
+
+    - name: Assert the other app's secret was refused, named, and left untouched
+      ansible.builtin.assert:
+        that:
+          - molecule_claim_deployed is not defined
+          - "'molclaim-token' in molecule_claim_refusal | default('')"
+          - "'molother' in molecule_claim_refusal | default('')"
+          - molecule_claim_secret.stdout == 'molother not-ours'
+        fail_msg: >-
+          Deployed: {{ molecule_claim_deployed | default(false) }}; refusal:
+          {{ molecule_claim_refusal | default('(none)') }}; the secret now reads
+          '{{ molecule_claim_secret.stdout }}'.
         quiet: true
 
     # --- a domain another app already routes --------------------------------------------
@@ -290,6 +360,8 @@
         - /etc/containers/systemd/molinline.container
         - /etc/containers/systemd/molsecret.container
         - /etc/containers/systemd/molorphan.container
+        - /etc/containers/systemd/molclaim.container
+        - /var/app/molclaim
         - /etc/containers/systemd/molecule.network
         - /var/app/molproxy/config/conf.d/molsource.caddy
         - /var/app/molproxy/config/conf.d/molinline.caddy
@@ -333,6 +405,9 @@
             | list | length == 0
           - molecule_absent_secrets.stdout_lines | select('match', '^molsecret-')
             | list | length == 0
+          # molclaim's decommission ran with the other app's secret still on the host, and
+          # ownership is what says it was not molclaim's to remove.
+          - "'molclaim-token' in molecule_absent_secrets.stdout_lines"
           - molecule_absent_containers.stdout_lines
             | intersect(molecule_fixture_apps | map(attribute='name') | list) | length == 0
         fail_msg: >-
@@ -344,6 +419,12 @@
           {{ molecule_absent_containers.stdout_lines
              | intersect(molecule_fixture_apps | map(attribute='name') | list) }}.
         quiet: true
+
+    # Nothing owns it, so nothing in the role will ever remove it.
+    - name: Remove the other app's secret by hand
+      ansible.builtin.command:
+        argv: [podman, secret, rm, molclaim-token]
+      changed_when: true
 
     # A decommission works from the manifest on the host, which the first pass took with
     # it, so the second has nothing to read and must still succeed — a failure here is a

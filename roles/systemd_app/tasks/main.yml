@@ -176,13 +176,12 @@
 # been consumed by the asserts above, and are cleared all the same, so nothing added later
 # can read another app's result.
 #
-# The secret facts are here for the same reason and matter as much: the decrypted values
-# of one app must never be visible to the next, the digest read is skipped for an app with
-# no record and the store listing for an app with no secrets, so a stale register would make
-# this app's secrets look already-stored — or already-present on the host — and a stale
-# create result would restart an app that rotated nothing. The install registers are
-# here for that last reason too: each is skipped for the kind — or the app — that does not
-# use it, so one app's file changes would otherwise decide how the next app is reloaded.
+# The install registers are here for a related reason: each is skipped for the kind — or the
+# app — that does not use it, so one app's file changes would otherwise decide how the next
+# app is reloaded. The secrets result is the same: the module runs only on the present path,
+# and a stale one would restart an app that rotated nothing. The decrypted values themselves
+# are not a fact at all (see systemd_app_secret_values in defaults/main.yml), so there is
+# nothing of theirs to clear.
 - name: "Reset install path facts for app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_manifest_paths: []
@@ -190,13 +189,8 @@
     systemd_app_source_dir_stat: {}
     systemd_app_route_clash: {}
     systemd_app_config_found: {}
-    systemd_app_secrets_stat: {}
-    systemd_app_secret_load: {}
-    systemd_app_secret_reconciled: {store: [], drop: [], remove: []}
-    systemd_app_secret_digest_stat: {}
+    systemd_app_secrets: {}
     systemd_app_secret_digest_slurp: {}
-    systemd_app_secret_store_list: {}
-    systemd_app_secret_create: {}
     systemd_app_quadlet_render: {}
     systemd_app_quadlet_install: {}
     systemd_app_unit_install: {}

@@ -11,17 +11,21 @@ secrets.
 | ---- | ------- |
 | [`systemd_app`](roles/systemd_app/README.md) | Deploy or decommission one app — Quadlet files, systemd units and a config tree from a directory (`source`), or a single-container Quadlet rendered from call-site parameters (`inline`) — plus its route. |
 
+| Module | Purpose |
+| ------ | ------- |
+| `podman_secrets` | Reconcile one app's podman secrets against the store: create, rotate, drop, and refuse a name another app owns, with ownership and digests as labels on the secrets themselves. |
+
 | Filter | Purpose |
 | ------ | ------- |
-| `secret_digests` | SHA-256 per podman secret value, the record a converge compares against. |
-| `reconcile_secrets` | Which podman secrets to store and which to drop, given the declared set, the recorded digests and what the store holds. |
 | `route_problems` | Check a domain, upstream and port before they are written into a Caddy site block. |
 | `container_problems` | Check what would be interpolated into a rendered Quadlet. |
 | `systemd_env_lines` | Quote and escape a dict into `Environment=` lines. |
 | `manifest_units` | The systemd units a recorded install manifest implies, so a teardown need not be told them. |
+| `secret_digests` | *Deprecated, removed in 2.0.0.* SHA-256 per podman secret value. |
+| `reconcile_secrets` | *Deprecated, removed in 2.0.0.* Which podman secrets to store and which to drop, from a recorded digest file. |
 
-The filters are public API, not role internals: they are named for what they compute, and
-callable by anyone who installs the collection.
+The module and the filters are public API, not role internals: they are named for what
+they compute, and callable by anyone who installs the collection.
 
 ## Install
 
@@ -43,7 +47,7 @@ the controller.
 ## Use
 
 The role runs once per app, in a play that is privileged: it writes root-owned files,
-calls `podman` against the root store and drives system units. Rootful podman 4.4 or newer
+calls `podman` against the root store and drives system units. Rootful podman 4.5 or newer
 (5.0 for an app with a healthcheck), and systemd, are the host's side of the contract —
 in practice Fedora, or Debian 13 and later, which are the platforms it is tested on.
 

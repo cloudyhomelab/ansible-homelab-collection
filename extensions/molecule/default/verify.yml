@@ -24,7 +24,6 @@
       - /var/app/molproxy/config/conf.d/molsource.caddy
       - /var/app/molproxy/config/conf.d/molinline.caddy
       - /etc/containers/systemd/molsecret.container
-      - /var/app/molsecret/.secret-digests
       - /etc/containers/systemd/molorphan.container
     # Every path the 'source' app installed, and nothing else: this set is what a later
     # deploy reconciles against, so an entry missing here is a file that would survive
@@ -163,12 +162,15 @@
       changed_when: false
       register: molecule_secret_data
 
-    - name: Read the recorded secret digests
-      ansible.builtin.slurp:
-        src: /var/app/molsecret/.secret-digests
-      register: molecule_digest_file
+    # Ownership and digest live on the secrets themselves, as labels, so the store is the
+    # only record. Inspected as JSON: `Spec.Labels` is where podman keeps them.
+    - name: Read the labels of every stored secret
+      ansible.builtin.command:
+        argv: "{{ ['podman', 'secret', 'inspect'] + (molecule_secrets | list) }}"
+      changed_when: false
+      register: molecule_secret_inspect
 
-    - name: Stat the recorded secret digests
+    - name: Stat the record file releases before 1.1.0 wrote
       ansible.builtin.stat:
         path: /var/app/molsecret/.secret-digests
       register: molecule_digest_stat
@@ -180,22 +182,35 @@
           # The values sops decrypted, as podman now holds them: this is the whole path
           # end to end, from the encrypted file to the store.
           - molecule_stored_values == molecule_secrets
-          # A digest of a secret is not a secret, but it is close enough to warrant the
-          # same permissions as the store itself.
-          - molecule_digest_stat.stat.mode == '0600'
+          # Each secret carries its owner and the digest of its value, which is what a
+          # later deploy compares against and what a decommission removes by.
+          - molecule_secret_owners == dict(molecule_secrets | list | zip(['molsecret'] * (molecule_secrets | length)))
           - molecule_recorded_digests == molecule_expected_digests
+          # No record beside the store: a backup of the app carries no digest of anything.
+          - not molecule_digest_stat.stat.exists
         fail_msg: >-
-          Stored {{ molecule_secret_names.stdout_lines | sort }}, recorded
-          {{ molecule_recorded_digests.keys() | list | sort }}.
+          Stored {{ molecule_secret_names.stdout_lines | sort }}, owners
+          {{ molecule_secret_owners }}, digests {{ molecule_recorded_digests }}.
         quiet: true
       vars:
         molecule_stored_values: >-
           {{ dict(molecule_secret_data.results | map(attribute='item')
              | zip(molecule_secret_data.results | map(attribute='stdout'))) }}
-        molecule_recorded_digests: "{{ molecule_digest_file.content | b64decode | from_json }}"
+        molecule_secret_labels: >-
+          {{ dict(molecule_secret_inspect.stdout | from_json | map(attribute='Spec.Name')
+             | zip(molecule_secret_inspect.stdout | from_json | map(attribute='Spec.Labels'))) }}
+        molecule_secret_owners: >-
+          {{ dict(molecule_secret_labels | dict2items | map(attribute='key')
+             | zip(molecule_secret_labels.values() | map(attribute='io.binarycodes.homelab.app'))) }}
+        molecule_recorded_digests: >-
+          {{ dict(molecule_secret_labels | dict2items | map(attribute='key')
+             | zip(molecule_secret_labels.values() | map(attribute='io.binarycodes.homelab.digest'))) }}
+        # OCI form, algorithm first, which is what lets the module change algorithm later
+        # without rotating every secret.
         molecule_expected_digests: >-
           {{ dict(molecule_secrets | list
-             | zip(molecule_secrets.values() | list | map('hash', 'sha256') | list)) }}
+             | zip(molecule_secrets.values() | list | map('hash', 'sha256')
+                   | map('regex_replace', '^', 'sha256:') | list)) }}
 
     - name: Read the rendered Quadlet of the secrets app
       ansible.builtin.slurp:

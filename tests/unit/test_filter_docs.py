@@ -10,22 +10,20 @@ plugin's docs, so an undocumented filter ships silently -- which is exactly what
 before these tests existed. They fail if a filter has no DOCUMENTATION, if its declared
 name does not match the name it registers, or if ansible-doc cannot parse what it finds.
 
-`ansible-doc` resolves a filter only through an `ansible_collections/<ns>/<name>/` path, so
-the collection is symlinked into a throwaway tree rather than the repo being moved.
+`ansible-doc` resolves a filter only through an `ansible_collections/<ns>/<name>/` path;
+conftest.py's `collection_path` fixture provides one.
 """
 
 import json
-import os
-import pathlib
-import subprocess
 
 import pytest
 import yaml
 
-from conftest import FILTER_FILES, load_filter_module
+from conftest import COLLECTION, FILTER_FILES, ansible_doc as _ansible_doc, load_filter_module
 
-COLLECTION = "binarycodes.homelab"
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+def ansible_doc(collection_path, *args):
+    return _ansible_doc(collection_path, "filter", *args)
 
 
 def registered_filters(path):
@@ -34,24 +32,6 @@ def registered_filters(path):
 
 
 ALL_FILTERS = sorted(n for p in FILTER_FILES for n in registered_filters(p))
-
-
-@pytest.fixture(scope="session")
-def collection_path(tmp_path_factory):
-    """A tree ansible-doc will resolve the collection through."""
-    root = tmp_path_factory.mktemp("collections")
-    link = root / "ansible_collections" / "binarycodes" / "homelab"
-    link.parent.mkdir(parents=True)
-    link.symlink_to(ROOT, target_is_directory=True)
-    return root
-
-
-def ansible_doc(collection_path, *args):
-    env = {**os.environ, "ANSIBLE_COLLECTIONS_PATH": str(collection_path)}
-    return subprocess.run(
-        ["ansible-doc", "-t", "filter", *args],
-        capture_output=True, text=True, env=env, cwd=ROOT, check=False,
-    )
 
 
 def test_there_are_filters_to_check():

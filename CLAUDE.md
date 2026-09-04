@@ -112,14 +112,19 @@ is `github.ref_type`, not an input, so nothing published can come from a branch.
 
 ## Conventions
 
-- **Computation goes in `plugins/filter/`, with pytest cases** — not Jinja chains in YAML.
-  The six filters are public API, named for what they compute.
-- **One filter per file, named after the filter**, carrying its own `DOCUMENTATION`,
-  `RETURN` and `EXAMPLES`. `ansible-doc` addresses a filter by name, so a file holding two
-  could only document one of them. Rationale that spans filters is repeated in each one's
+- **Computation goes in Python, with pytest cases** — not Jinja chains in YAML. Controller-side
+  computation is a filter in `plugins/filter/`; host-side state that has to be read,
+  reconciled and written back is a module in `plugins/modules/`, with every external call
+  behind one runner callable so the logic is tested against a fake. Builtin modules do the
+  file and unit work; a custom module exists only where no builtin does the job. Filters and
+  modules alike are public API, named for what they compute.
+- **One plugin per file, named after the plugin**, carrying its own `DOCUMENTATION`,
+  `RETURN` and `EXAMPLES`. `ansible-doc` addresses a plugin by name, so a file holding two
+  could only document one of them. Rationale that spans plugins is repeated in each one's
   docs rather than kept in a shared module docstring, where `ansible-doc` cannot reach it.
-  `tests/unit/test_filter_docs.py` enforces all of this — nothing in `ansible-lint` or
+  `tests/unit/test_filter_docs.py` enforces this for filters — nothing in `ansible-lint` or
   `ansible-test sanity` checks filter docs, so an undocumented filter would ship silently.
+  `ansible-test sanity` does validate a module's docs against its argument spec.
 - **Comments explain why, not what.** The existing ones are the standard to match.
 - **Every role variable is prefixed `systemd_app_`** (ansible-lint's
   `var-naming[no-role-prefix]`); see `roles/systemd_app/meta/argument_specs.yml`.

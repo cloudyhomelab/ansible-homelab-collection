@@ -5,6 +5,7 @@ __pycache__/
 *.tar.gz
 .ansible/
 .cache/
+.DS_Store
 
 .idea/
 docs/

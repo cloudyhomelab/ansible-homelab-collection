@@ -199,12 +199,16 @@
         molecule_secret_labels: >-
           {{ dict(molecule_secret_inspect.stdout | from_json | map(attribute='Spec.Name')
              | zip(molecule_secret_inspect.stdout | from_json | map(attribute='Spec.Labels'))) }}
+        # extract, not map(attribute=): Jinja reads a dotted attribute as a path and would
+        # look for labels.io.binarycodes..., while extract indexes with the key as one string.
         molecule_secret_owners: >-
-          {{ dict(molecule_secret_labels | dict2items | map(attribute='key')
-             | zip(molecule_secret_labels.values() | map(attribute='io.binarycodes.homelab.app'))) }}
+          {{ dict(molecule_secret_labels | list
+             | zip(molecule_secret_labels | list
+                   | map('extract', molecule_secret_labels, 'io.binarycodes.homelab.app'))) }}
         molecule_recorded_digests: >-
-          {{ dict(molecule_secret_labels | dict2items | map(attribute='key')
-             | zip(molecule_secret_labels.values() | map(attribute='io.binarycodes.homelab.digest'))) }}
+          {{ dict(molecule_secret_labels | list
+             | zip(molecule_secret_labels | list
+                   | map('extract', molecule_secret_labels, 'io.binarycodes.homelab.digest'))) }}
         # OCI form, algorithm first, which is what lets the module change algorithm later
         # without rotating every secret.
         molecule_expected_digests: >-

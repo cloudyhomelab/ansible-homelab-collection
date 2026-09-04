@@ -75,9 +75,10 @@ jobs:
           echo "version=$declared" >> "$GITHUB_OUTPUT"
 
       # CHANGELOG.md is generated from changelogs/changelog.yaml, so the checks below ask
-      # the source of truth rather than the rendered file.
-      - name: Install antsibull-changelog
-        run: pipx inject ansible-core antsibull-changelog --include-apps
+      # the source of truth rather than the rendered file. antsibull-changelog arrives with
+      # the rest of the pinned tools; the version is requirements-dev.txt's.
+      - name: Install the development tools
+        uses: ./.github/actions/install-dev-tools
 
       # Both halves of the record: the fragments still waiting for a release (there should
       # be none by now, but an unparseable one would fail the release step itself) and the
@@ -202,9 +203,9 @@ jobs:
       # the same command that writes the changelog writes the release body, so the two
       # cannot disagree about where a version's notes end. verify has already established
       # that this version has an entry.
-      - name: Install antsibull-changelog
+      - name: Install the development tools
         if: needs.verify.outputs.release == 'true'
-        run: pipx inject ansible-core antsibull-changelog --include-apps
+        uses: ./.github/actions/install-dev-tools
 
       # After the upload, so a failed publish leaves no release announcing a version that
       # is not there.
@@ -223,9 +224,9 @@ jobs:
       # A rehearsal is only useful if it says what it did not do. The release notes are
       # rendered here as well, since an empty or wrong-looking body is the one thing the
       # checks above cannot judge for you.
-      - name: Install antsibull-changelog for the rehearsal notes
+      - name: Install the development tools for the rehearsal notes
         if: needs.verify.outputs.release != 'true'
-        run: pipx inject ansible-core antsibull-changelog --include-apps
+        uses: ./.github/actions/install-dev-tools
 
       - name: Report what a release would have done
         if: needs.verify.outputs.release != 'true'

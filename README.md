@@ -72,6 +72,7 @@ effect: [`roles/systemd_app/README.md`](roles/systemd_app/README.md).
 ## Tests
 
 ```sh
+pip install -r requirements-dev.txt   # the tools, pinned; into the env that holds ansible-core
 pytest tests/unit -q     # the filters, as Python
 ansible-lint             # roles, playbooks and the molecule scenario
 antsibull-changelog lint # the changelog fragments

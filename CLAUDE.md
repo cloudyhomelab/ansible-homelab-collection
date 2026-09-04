@@ -52,6 +52,12 @@ ansible-galaxy collection build       # catches metadata Galaxy would refuse
 molecule test                         # the role on a systemd container; same layout, its own workflow
 ```
 
+The tools these run with are pinned in `requirements-dev.txt`; CI installs from it through
+`.github/actions/install-dev-tools`, and a contributor installs it into the environment that
+holds ansible-core. It includes `requirements-test.txt`, the unit tests' own needs, which is
+what the supported-versions matrix installs beside each ansible-core it tests. ansible-core
+itself is deliberately in neither file.
+
 `ansible-test sanity` and `molecule test` both only run when the checkout sits at
 `ansible_collections/binarycodes/homelab/`: sanity imports plugins through that path, and
 the molecule converge calls the role by FQCN with nothing installing the collection for it.

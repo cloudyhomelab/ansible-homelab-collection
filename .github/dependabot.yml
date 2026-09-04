@@ -18,3 +18,18 @@ updates:
     groups:
       github-actions:
         patterns: ['*']
+
+  # requirements-dev.txt and the requirements-test.txt it includes: the tools CI runs the
+  # gates with. Grouped for the same reason: one PR a month to review, and the gates on that
+  # PR are what say whether the new versions still agree with each other and with the
+  # runner's ansible-core.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+    groups:
+      dev-tools:
+        patterns: ['*']

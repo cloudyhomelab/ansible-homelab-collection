@@ -1,0 +1,12 @@
+# The tools the gates in CLAUDE.md run with, pinned so a contributor and CI resolve the same
+# versions. Install into the environment that holds ansible-core, which is deliberately not
+# listed: it is the thing under test, and .github/workflows/supported-versions.yml installs
+# each supported release in turn — with requirements-test.txt alone, which is why the unit
+# tests' own needs live in that file and are included here. `sops` is a binary, not a Python
+# package, and is pinned in .github/workflows/molecule.yml. Dependabot's pip entry bumps
+# both files monthly.
+-r requirements-test.txt
+ansible-lint==26.8.0
+antsibull-changelog==0.35.1
+molecule==26.8.0
+molecule-plugins[podman]==26.7.15

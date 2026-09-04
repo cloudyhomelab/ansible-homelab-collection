@@ -13,11 +13,9 @@ is the part you come back to.
 
 You need, once:
 
-- **`antsibull-changelog`**, which writes the changelog. Match what CI installs:
-
-  ```sh
-  pipx inject ansible-core antsibull-changelog --include-apps
-  ```
+- **`antsibull-changelog`**, which writes the changelog, at the version CI uses. It is in
+  `requirements-dev.txt` with the other tools; install that file into the environment that
+  holds ansible-core.
 
 - **A `GALAXY_API_KEY` secret** on the GitHub repository, from your Galaxy account's
   namespace. Without it the publish step fails with a clear message rather than uploading

@@ -1,0 +1,8 @@
+# What the unit tests need beyond ansible-core: pytest to run them and PyYAML to parse the
+# filters' documentation blocks. Kept apart from requirements-dev.txt so that
+# .github/workflows/supported-versions.yml can install this file next to each ansible-core
+# it tests without the lint and molecule tools, whose own ansible-core floors would drag the
+# declared-floor row forward. ansible-core itself is deliberately not listed; it is the thing
+# under test. The tests also need `ansible-doc` on PATH, which ansible-core provides.
+pytest==9.1.1
+PyYAML==6.0.3

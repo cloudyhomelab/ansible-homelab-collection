@@ -18,9 +18,9 @@ decommissioning.
 ## Running it
 
 ```sh
-pipx inject ansible-core molecule --include-apps      # once; --include-apps is what puts
-pipx inject ansible-core 'molecule-plugins[podman]'   # molecule on PATH, and only
-                                                      # molecule has an entry point
+pip install -r requirements-dev.txt                   # once, into the environment that
+                                                      # holds ansible-core; molecule and its
+                                                      # podman driver are in there, pinned
 molecule test                                         # Fedora
 MOLECULE_DISTRO=debian MOLECULE_IMAGE=docker.io/library/debian:13 molecule test
 ```

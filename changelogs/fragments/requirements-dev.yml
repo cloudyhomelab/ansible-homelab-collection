@@ -1,0 +1,2 @@
+trivial:
+  - The development tools are pinned in ``requirements-dev.txt`` and ``requirements-test.txt``, which CI installs from.

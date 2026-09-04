@@ -43,6 +43,8 @@ build_ignore:
   - .idea
   - CLAUDE.md
   - RELEASE.md
+  - requirements-dev.txt
+  - requirements-test.txt
   - docs
   - .ansible
   - .cache

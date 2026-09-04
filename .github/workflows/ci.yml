@@ -30,12 +30,10 @@ jobs:
       - name: Checkout collection
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Injected into the runner image's own ansible-core venv rather than pip-installed
-      # beside it, so the lint runs against the very ansible-core a consumer would use
-      # instead of the second, collection-less one pip drags in as a dependency.
-      # --include-apps is what puts the ansible-lint and pytest entry points on PATH.
-      - name: Install ansible-lint, pytest and antsibull-changelog
-        run: pipx inject ansible-core ansible-lint pytest antsibull-changelog --include-apps
+      # From requirements-dev.txt, into the runner image's own ansible-core venv; the action
+      # says why. The pins there are what a contributor installs too.
+      - name: Install the development tools
+        uses: ./.github/actions/install-dev-tools
 
       # The role calls community.sops.load_vars, so the lint's own syntax check needs the
       # collection present to resolve it.

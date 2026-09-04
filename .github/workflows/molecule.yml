@@ -15,6 +15,10 @@ on:
       - 'plugins/filter/**'
       - 'extensions/molecule/**'
       - '.github/workflows/molecule.yml'
+      # The tools the converge runs with: a version bump has to converge too.
+      - '.github/actions/**'
+      - 'requirements-dev.txt'
+      - 'requirements-test.txt'
   push:
     branches: [main]
     paths:
@@ -22,6 +26,10 @@ on:
       - 'plugins/filter/**'
       - 'extensions/molecule/**'
       - '.github/workflows/molecule.yml'
+      # The tools the converge runs with: a version bump has to converge too.
+      - '.github/actions/**'
+      - 'requirements-dev.txt'
+      - 'requirements-test.txt'
   # Callable, so release.yml runs this gate against the tagged commit rather than
   # trusting a tick from whenever main last ran. The triggers above never fire for a tag.
   workflow_call:
@@ -71,13 +79,11 @@ jobs:
         with:
           path: ansible_collections/binarycodes/homelab
 
-      # Same seam as ci.yml. Two calls, because --include-apps is what puts `molecule` on
-      # PATH and pipx fails outright on an injected package with no entry point at all —
-      # which the driver, a plugin package, does not have.
-      - name: Install molecule and its podman driver
-        run: |
-          pipx inject ansible-core molecule --include-apps
-          pipx inject ansible-core 'molecule-plugins[podman]'
+      # Same seam as ci.yml: molecule and its podman driver come from requirements-dev.txt,
+      # into the runner's ansible-core venv. The action lives in this checkout, which sits
+      # under ansible_collections/, and finds the requirements file from its own location.
+      - name: Install the development tools
+        uses: ./ansible_collections/binarycodes/homelab/.github/actions/install-dev-tools
 
       # The role decrypts an app's secrets through community.sops, which shells out to the
       # sops binary; the scenario ships an age identity and a fixture app that needs one.

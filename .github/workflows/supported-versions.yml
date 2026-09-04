@@ -84,8 +84,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - name: Install ansible-core ${{ matrix.label }}
-        run: pip install "ansible-core${{ matrix.core }}" pytest
+      # requirements-test.txt and not requirements-dev.txt: the lint and molecule tools in the
+      # latter have ansible-core floors of their own that would drag this row's core forward
+      # and defeat the row. The unit tests' needs are kept in their own file for exactly this.
+      - name: Install ansible-core ${{ matrix.label }} and the unit tests' requirements
+        run: pip install "ansible-core${{ matrix.core }}" -r requirements-test.txt
 
       # Resolved rather than pinned: ansible-galaxy honours each collection's own
       # requires_ansible, so this lands the newest community.sops the row's core supports.

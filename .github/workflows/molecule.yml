@@ -12,7 +12,7 @@ on:
   pull_request:
     paths:
       - 'roles/systemd_app/**'
-      - 'plugins/filter/**'
+      - 'plugins/**'
       - 'extensions/molecule/**'
       - '.github/workflows/molecule.yml'
       # The tools the converge runs with: a version bump has to converge too.
@@ -23,7 +23,7 @@ on:
     branches: [main]
     paths:
       - 'roles/systemd_app/**'
-      - 'plugins/filter/**'
+      - 'plugins/**'
       - 'extensions/molecule/**'
       - '.github/workflows/molecule.yml'
       # The tools the converge runs with: a version bump has to converge too.

@@ -72,7 +72,10 @@ class FakePodman:
 
     def writes(self):
         """The rm and create calls, in order, as ('rm'|'create', name)."""
-        return [(a[2], a[-1] if a[2] == "rm" else a[-2]) for a, _ in self.calls if a[2] in ("rm", "create")]
+        return [
+            (argv[2], argv[-1] if argv[2] == "rm" else argv[-2])
+            for argv, stdin in self.calls if argv[2] in ("rm", "create")
+        ]
 
 
 def owned(name, value, app="myapp"):
@@ -229,7 +232,7 @@ def test_check_mode_reports_the_plan_and_writes_nothing():
     assert result["removed"] == ["myapp-old"]
     assert podman.writes() == []
     # Reads still happen in check mode, or the plan could not be computed.
-    assert [a[2] for a, _ in podman.calls] == ["ls", "inspect"]
+    assert [argv[2] for argv, stdin in podman.calls] == ["ls", "inspect"]
 
 
 def test_the_diff_names_what_the_app_owns_before_and_after_and_no_value():

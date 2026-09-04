@@ -163,8 +163,8 @@ def matches(recorded, value):
     A digest with no algorithm, or under one this Python cannot compute, cannot be verified
     and so reads as changed - the safe direction, costing one rotation.
     """
-    algorithm, sep, _ = (recorded or "").partition(":")
-    if not sep or algorithm not in hashlib.algorithms_available:
+    algorithm, sep, hexdigest = (recorded or "").partition(":")
+    if not sep or not hexdigest or algorithm not in hashlib.algorithms_available:
         return False
     return recorded == digest(value, algorithm)
 

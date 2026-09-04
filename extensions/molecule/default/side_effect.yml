@@ -228,6 +228,16 @@
         stdin_add_newline: false
       changed_when: true
 
+    # No fixture under apps/ for this app either, for the reason prepare.yml gives for the
+    # secrets app: the encrypted file is its only content, and it is written here.
+    - name: Create the clashing app's directory in the copied tree
+      ansible.builtin.file:
+        path: "{{ molecule_apps_dir }}/molclaim"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+
     - name: Encrypt the clashing app's secrets into the copied tree
       community.sops.sops_encrypt:
         path: "{{ molecule_apps_dir }}/molclaim/secrets.sops.yaml"

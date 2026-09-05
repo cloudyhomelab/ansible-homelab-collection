@@ -5,7 +5,7 @@
 
 name: Supported versions
 
-# What meta/runtime.yml claims, actually run. `requires_ansible: ">=2.15.0"` and the role's
+# What meta/runtime.yml claims, actually run. `requires_ansible: ">=2.19.0"` and the role's
 # min_ansible_version are a promise to a consumer, and CI would otherwise only ever see the
 # one ansible-core the runner image happens to ship — so the promise would be tested
 # nowhere and could rot silently.
@@ -51,12 +51,9 @@ jobs:
           # The floor meta/runtime.yml declares. This row is what makes that declaration a
           # tested claim rather than an assertion: if it ever fails, the fix is to raise
           # the floor to what passes, not to drop the row.
-          - core: "==2.15.*"
-            python: "3.11"
-            label: "2.15 (declared floor)"
           - core: "==2.19.*"
             python: "3.11"
-            label: "2.19"
+            label: "2.19 (declared floor)"
           # Unpinned: a release that breaks the collection should fail here the week it
           # lands, not whenever someone next thinks to bump a pin.
           - core: ""
@@ -78,7 +75,7 @@ jobs:
           path: ansible_collections/binarycodes/homelab
 
       # Pinned per row, not once for the job: each ansible-core has its own controller
-      # Python floor, and 2.15 predates the interpreter the runner image ships.
+      # Python floor and ceiling, and the runner image's interpreter suits only the latest.
       - name: Install Python ${{ matrix.python }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:

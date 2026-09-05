@@ -15,7 +15,7 @@ galaxy_info:
   license: GPL-3.0-or-later
   # Kept in step with meta/runtime.yml at the collection root, which carries the reason
   # for the number and names the CI matrix that tests it.
-  min_ansible_version: "2.15"
+  min_ansible_version: "2.19"
 
   # Only what the molecule scenario converges: nothing in the role is distribution-specific
   # — it installs unit files, calls podman and drives systemd — but a platform listed here

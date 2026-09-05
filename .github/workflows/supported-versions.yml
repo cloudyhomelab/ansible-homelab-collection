@@ -14,10 +14,9 @@ name: Supported versions
 # refuses to run unless the collection sits at ansible_collections/<namespace>/<name>/, and
 # aborts with "the current working directory must be within the source tree being tested"
 # anywhere else. Keeping it separate lets CI check out normally.
+# Called, not triggered: checks.yml runs this on every pull request and push to main, and
+# release.yml against the tagged commit. One run per PR, summed up by one required check.
 on:
-  pull_request:
-  push:
-    branches: [main]
   # Sunday, because this is the one workflow whose result can change without a commit: the
   # latest row is unpinned, and every row resolves community.sops and ansible-test's own
   # requirements afresh. A release that breaks the collection would otherwise sit unnoticed
@@ -25,14 +24,8 @@ on:
   # scheduler is least congested and a run is least likely to be dropped.
   schedule:
     - cron: '17 5 * * 0'
-  # Callable, so release.yml runs this gate against the tagged commit rather than
-  # trusting a tick from whenever main last ran. The triggers above never fire for a tag.
   workflow_call:
   workflow_dispatch:
-
-concurrency:
-  group: supported-versions-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

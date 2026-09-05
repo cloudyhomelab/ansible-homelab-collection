@@ -42,7 +42,9 @@ and carries one.
 
 ## Gates
 
-All four must pass before a change lands. They are what CI runs.
+All four must pass before a change lands. `.github/workflows/checks.yml` runs them on every
+pull request: it calls the three gate workflows and ends in one job, `All gates passed`, the only status
+check branch protection needs to require.
 
 ```sh
 pytest tests/unit -q                  # the filter plugins, as plain Python

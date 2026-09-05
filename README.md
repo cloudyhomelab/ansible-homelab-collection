@@ -14,7 +14,7 @@ secrets.
 | Module | Purpose |
 | ------ | ------- |
 | `podman_secrets` | Reconcile one app's podman secrets against the store: create, rotate, drop, and refuse a name another app owns, with ownership and digests as labels on the secrets themselves. |
-| `install_manifest` | Reconcile the files an app installed against the record of its last deploy: prune what it no longer installs, record what it did, remove all of it on decommission, and refuse a record that names anything outside the app's own install paths. |
+| `install_manifest` | Reconcile the files an app installed against the record of its last deploy: prune, record, and remove on decommission; a record naming anything outside the app's install paths is refused. |
 
 | Filter | Purpose |
 | ------ | ------- |

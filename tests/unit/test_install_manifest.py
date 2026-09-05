@@ -4,10 +4,8 @@
 
 """The ``install_manifest`` module's reconciliation, driven against a temporary directory.
 
-The module only reads, unlinks and writes small files, so pytest's `tmp_path` is a faithful
-host: every case below lays out a record and some files, calls `reconcile` the way `main`
-does, and checks what is left on disk and what was reported. The refusal cases are the ones
-that matter most - a corrupt or tampered record must remove nothing - so each names its rule.
+The module only reads, unlinks and writes small files, so `tmp_path` is a faithful host. The
+refusal cases matter most: a corrupt or tampered record must remove nothing.
 """
 
 import json

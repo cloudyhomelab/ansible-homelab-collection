@@ -16,67 +16,44 @@ version_added: 1.1.0
 author:
   - binarycodes (@binarycodes)
 description:
-  - Keeps one app's install manifest, a root-owned file listing the absolute host paths the
-    app's last deploy put on the host, one per line, and removes what that record names and
-    the current deploy no longer installs. One call per app, on the host, after the files
-    have been installed.
-  - The record is what lets a later deploy and a decommission work without the app's source
-    tree, which by then may name different files or be gone. A file renamed or dropped from
-    the app is pruned from the host instead of lingering, and a decommission removes exactly
-    what was recorded rather than anything matching a pattern in directories shared with
-    every other app.
-  - Everything the record names is acted on as root, so a corrupt or tampered record must not
-    be able to reach outside what the app installed. Every line is checked before anything is
-    removed. A line is legal in two shapes, a single path segment directly inside
-    O(system_dir) or O(unit_dir), or any path nested under O(config_dir) with no empty, C(.)
-    or C(..) segment, and it must be a regular file, a symlink, or missing. A line that names a
-    directory, or anything else, is refused - the record is only ever a list of files, and
-    removing a directory recursively from a list an attacker could edit is the one thing this
-    must never do. One illegal line refuses the whole record and removes nothing.
-  - O(installed) is checked against the same rules before it is recorded, so the module cannot
-    be made to write a record it would later refuse to act on.
-  - Pruned paths are unlinked, never removed recursively. The record is written last, so a
-    failure part-way leaves the older, wider record standing and the next run still knows
-    about every file on the host.
-  - Supports check mode, in which the planned prune and the would-be record are reported and
-    nothing is touched, and diff mode, which shows the record before and after.
+  - Keeps one app's install manifest, a file listing the absolute host paths its last deploy
+    installed, one per line. Prunes what that record names and O(installed) does not, then
+    records O(installed). On O(state=absent), removes everything recorded and the record.
+  - The record is acted on as root, so every line is checked before anything is removed. A
+    line must be one segment directly inside O(system_dir) or O(unit_dir), or nested under
+    O(config_dir) with no empty, C(.) or C(..) segment; and it must be a regular file, a
+    symlink or missing. A directory is refused - the record is a list of files, and nothing
+    on it is ever removed recursively. One illegal line refuses the whole record and removes
+    nothing. O(installed) is held to the same rules before it is recorded.
+  - The record is written last, so a failure part-way leaves the older, wider record standing.
+  - Supports check mode and diff mode.
 options:
   path:
-    description:
-      - The record. Created on the first deploy, rewritten on each, removed on O(state=absent).
-        Its directory must exist.
+    description: The record. Its directory must exist.
     type: path
     required: true
   installed:
     description:
-      - Every absolute host path this deploy installed. What the record will hold, and what
-        is kept - a recorded path not listed here is pruned.
-      - Ignored when O(state=absent).
+      - Every absolute host path this deploy installed. A recorded path not listed is pruned.
+        Ignored when O(state=absent).
     type: list
     elements: str
     default: []
   system_dir:
-    description:
-      - The Quadlet install directory, normally C(/etc/containers/systemd). A recorded path
-        may be one segment directly inside it.
+    description: The Quadlet install directory, normally C(/etc/containers/systemd).
     type: path
     required: true
   unit_dir:
-    description:
-      - The plain-unit install directory, normally C(/etc/systemd/system). A recorded path
-        may be one segment directly inside it.
+    description: The plain-unit install directory, normally C(/etc/systemd/system).
     type: path
     required: true
   config_dir:
-    description:
-      - The app's own deployed config tree, normally C(/var/app/<app>/config). A recorded
-        path may sit anywhere below it, since that tree's layout is preserved.
+    description: The app's own deployed config tree, normally C(/var/app/<app>/config).
     type: path
     required: true
   state:
     description:
-      - C(present) prunes what the record names and O(installed) does not, then records
-        O(installed). C(absent) removes everything the record names and the record itself.
+      - C(present) prunes and records. C(absent) removes everything recorded and the record.
     type: str
     choices: [present, absent]
     default: present
@@ -90,23 +67,14 @@ EXAMPLES = r"""
     path: /var/app/myapp/.install-manifest
     installed:
       - /etc/containers/systemd/myapp.container
-      - /etc/systemd/system/myapp-extra.service
       - /var/app/myapp/config/app.conf
     system_dir: /etc/containers/systemd
     unit_dir: /etc/systemd/system
     config_dir: /var/app/myapp/config
-    owner: root
-    group: root
     mode: "0644"
   register: myapp_manifest
 
-- name: Tell a running app its config changed, when a config file was pruned
-  ansible.builtin.systemd:
-    name: myapp.service
-    state: reloaded
-  when: myapp_manifest.config_changed
-
-- name: Learn what the app is running before removing its files
+- name: Learn what the app is running, without removing anything yet
   binarycodes.homelab.install_manifest:
     path: /var/app/myapp/.install-manifest
     system_dir: /etc/containers/systemd
@@ -133,7 +101,7 @@ EXAMPLES = r"""
 
 RETURN = r"""
 pruned:
-  description: Paths the record named that were removed - everything it named, on absent.
+  description: Recorded paths that were removed.
   type: list
   elements: str
   returned: always
@@ -143,21 +111,16 @@ recorded:
   elements: str
   returned: always
 config_changed:
-  description:
-    - Whether any pruned path was under O(config_dir). A pruned config file is a change to
-      what a still-running app reads; a pruned unit file leaves nothing running to tell.
+  description: Whether any pruned path was under O(config_dir) - a change a running app still reads.
   type: bool
   returned: always
 units:
   description:
-    - The systemd units the record implied when it was read, so a decommission can stop what
-      the app is running without being told the names.
-    - A Quadlet source file is not a unit; the generator makes one from it, and not always
-      under the file's own name. C(.container) and C(.kube) become C(<name>.service),
-      C(.pod) becomes C(<name>-pod.service). Only the Quadlet kinds that run something are
-      mapped - C(.volume), C(.network), C(.image) and C(.build) create a resource that outlives
-      the app by design. A plain unit under O(unit_dir) is its own name when it is a
-      C(.service), C(.socket), C(.timer), C(.path), C(.mount) or C(.automount).
+    - The systemd units the record implied when read, so a decommission can stop them without
+      being told the names. C(.container) and C(.kube) map to C(<name>.service), C(.pod) to
+      C(<name>-pod.service); C(.volume), C(.network), C(.image) and C(.build) are not units
+      that run anything and are left out. A plain C(.service), C(.socket), C(.timer),
+      C(.path), C(.mount) or C(.automount) under O(unit_dir) is its own name.
   type: list
   elements: str
   returned: always
@@ -170,8 +133,7 @@ import tempfile
 
 from ansible.module_utils.basic import AnsibleModule
 
-# Quadlet file suffix -> the suffix systemd's generator gives the unit it produces. Only the
-# kinds that run a container: see RETURN for why the rest are left out rather than unimplemented.
+# Quadlet file suffix -> the suffix systemd's generator gives the unit it produces.
 _QUADLET_UNIT_SUFFIXES = {
     ".container": ".service",
     ".kube": ".service",
@@ -204,12 +166,7 @@ class InstallManifestError(Exception):
 
 
 class Files(object):
-    """The host filesystem, seen through one class so the logic can be driven against a tmp dir.
-
-    Everything the module does to the host goes through here: read the record, look at what
-    a line names, unlink, write. Nothing in it is clever, which is the point - the decisions
-    are all in `reconcile`.
-    """
+    """Everything the module does to the host, so `reconcile` can be driven against a tmp dir."""
 
     def read_lines(self, path):
         """The record's non-blank lines, or None when there is no record."""
@@ -243,11 +200,7 @@ class Files(object):
                 raise
 
     def write(self, path, text):
-        """Replace the record atomically, so a failure part-way leaves the old one whole.
-
-        A replaced record keeps its mode; a new one is created 0644, which is what a root-owned
-        list of paths wants and what the `mode` option overrides.
-        """
+        """Replace the record atomically; a replaced one keeps its mode, a new one is 0644."""
         existing = self.kind(path)
         fd, tmp = tempfile.mkstemp(prefix=".install-manifest.", dir=os.path.dirname(path) or ".")
         try:

@@ -1,25 +1,19 @@
 minor_changes:
   - >-
-    New module ``install_manifest``: keeps one app's install manifest on the host and
-    reconciles the files it lists in one call - pruning what the last deploy installed and
-    this one does not, recording what this one did, and removing everything recorded together
-    with the record itself on decommission. Every recorded path is checked against the app's
-    three install roots before anything is removed, and the units the record implies are
-    returned so a decommission can stop them without being told their names. Supports check
-    mode and diff mode. The ``systemd_app`` role now uses it in place of a chain of stat,
-    slurp, assert, file and template tasks; the record format is unchanged, so an app
-    deployed by an earlier release is reconciled without conversion.
+    New module ``install_manifest``: keeps an app's install manifest on the host, pruning
+    what the last deploy installed and this one does not, recording what this one did, and
+    removing everything recorded on decommission. Every recorded path is checked against the
+    app's install roots first, and the units the record implies are returned so a
+    decommission need not be told them. Supports check and diff mode. The ``systemd_app``
+    role now uses it; the record format is unchanged.
 deprecated_features:
   - >-
     The ``manifest_units`` filter is deprecated and will be removed in 2.0.0. The
-    ``install_manifest`` module returns the same unit names as ``units``, computed on the
-    host from the record it has just read; the role no longer calls the filter.
+    ``install_manifest`` module returns the same names as ``units``.
 security_fixes:
   - >-
-    The ``systemd_app`` role now refuses an install manifest line that names a directory,
-    or anything other than a regular file, symlink or missing path, and removes nothing.
-    The record is root-owned host state, so such a line is corrupt or tampered rather than
-    written by the role - but previously it passed the path checks and reached
-    ``file: state=absent``, which removes a directory recursively: a ``.wants`` directory
-    directly inside ``/etc/systemd/system``, or a subtree of the app's own config, was
-    within reach that way. Pruned paths are now unlinked, never removed recursively.
+    The ``systemd_app`` role now refuses an install manifest line that names a directory and
+    removes nothing. Previously such a line passed the path checks and reached
+    ``file: state=absent``, which removes recursively - a ``.wants`` directory inside
+    ``/etc/systemd/system``, or a subtree of the app's config, was within reach of a
+    tampered record. Pruned paths are now unlinked, never removed recursively.

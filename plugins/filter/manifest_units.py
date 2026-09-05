@@ -18,9 +18,8 @@ author:
 deprecated:
   removed_in: 2.0.0
   why: >-
-    The systemd_app role reads, prunes and removes its install manifest through the
-    binarycodes.homelab.install_manifest module, on the host, which returns the units the
-    record implies by these same rules; nothing computes them on the controller any more.
+    The binarycodes.homelab.install_manifest module reconciles the record on the host and
+    returns the units it implies; nothing computes them on the controller any more.
   alternative: The C(units) return value of the M(binarycodes.homelab.install_manifest) module.
 description:
   - Works out which systemd units an app is running, from the paths its last deploy

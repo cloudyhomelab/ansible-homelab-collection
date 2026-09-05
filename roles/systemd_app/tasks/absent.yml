@@ -15,11 +15,9 @@
 # are NOT removed — they outlive the units that created them, and Caddy's TLS
 # certificates live in one. Remove those by hand (`podman volume rm`) once you are sure.
 
-# Asked before anything is stopped or removed, because what the manifest lists is also what
-# has to be stopped, and the units must go while their files still exist. The same call as
-# the removal below, forced into check mode: it reads and validates the record and reports
-# what it would remove and the units that implies, without touching anything — so a record
-# the module refuses fails the run here, before a single unit is stopped.
+# The removal call below, forced into check mode: what the record lists is also what has to
+# be stopped, and the units must go while their files still exist. A record the module
+# refuses fails here, before anything is stopped.
 - name: "Read recorded install manifest for app {{ systemd_app_name }}"
   binarycodes.homelab.install_manifest:
     path: "{{ systemd_app_manifest_file }}"
@@ -41,9 +39,7 @@
 # repeat it here would otherwise have every unit file deleted while the containers keep
 # running: the generated service vanishes from systemd's view, its ExecStopPost never
 # fires, and nothing is left that names the container. The manifest is on the host and
-# needs no input, so it answers what the call did not. What it maps, and what it
-# deliberately does not, is in the module's own docs
-# (`ansible-doc binarycodes.homelab.install_manifest`, under the `units` return value).
+# needs no input, so it answers what the call did not (see the module's `units` return).
 - name: "Stop units for app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ item }}"
@@ -67,9 +63,7 @@
   notify: systemd_app reload systemd
 
 # Everything the record names, and the record itself. The install dirs are shared with every
-# other app, so this is the one place a decommission touches them, and it does so by list,
-# never by pattern; a recorded path the module will not act on fails the run with nothing
-# removed, as the read above already established.
+# other app, so this removes by list, never by pattern.
 - name: "Remove installed files for app {{ systemd_app_name }}"
   binarycodes.homelab.install_manifest:
     path: "{{ systemd_app_manifest_file }}"

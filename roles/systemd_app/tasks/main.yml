@@ -178,11 +178,9 @@
 #
 # The install registers are here for a related reason: each is skipped for the kind — or the
 # app — that does not use it, so one app's file changes would otherwise decide how the next
-# app is reloaded. The two module results are the same: the manifest result carries what one
-# app pruned and the units it was running, the secrets result whether its secrets changed,
-# and a stale one would reload or restart an app that changed nothing. The decrypted values
-# themselves are not a fact at all (see systemd_app_secret_values in defaults/main.yml), so
-# there is nothing of theirs to clear.
+# app is reloaded. The two module results are the same: a stale one would reload or restart
+# an app that changed nothing. The decrypted values themselves are not a fact at all (see
+# systemd_app_secret_values in defaults/main.yml), so there is nothing of theirs to clear.
 - name: "Reset install path facts for app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_manifest: {}

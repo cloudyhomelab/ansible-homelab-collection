@@ -206,24 +206,19 @@ file rather than re-deriving from `apps/<app>/`, which by then may name differen
 or be gone entirely, so a renamed or deleted file does not linger on the host and a
 decommission needs no source tree at all.
 
-Reading, pruning and recording are one call of the collection's `install_manifest`
-module, on the host (`ansible-doc binarycodes.homelab.install_manifest`). The manifest is
-host state acted on as root, so the module checks every recorded path before it removes
-anything. A line is legal in exactly two shapes: a single path segment directly inside
-`systemd_app_system_dir` / `systemd_app_unit_dir`, or any path nested under this app's own
-`/var/app/<app>/config` with no empty, `.` or `..` segment. It must also be a regular file,
-a symlink or missing: a line naming a directory is refused, because the record is a list of
-files and nothing on it is ever removed recursively. One illegal line fails the run without
-deleting anything, and what this deploy installed is held to the same rules before it is
-recorded.
+Reading, pruning and recording are one call of the `install_manifest` module, on the host.
+The manifest is acted on as root, so every line is checked first: a single path segment
+directly inside `systemd_app_system_dir` / `systemd_app_unit_dir`, or a path under this
+app's own `/var/app/<app>/config` with no empty, `.` or `..` segment, and a regular file,
+symlink or missing path — never a directory, since nothing recorded is removed recursively.
+One illegal line fails the run without deleting anything.
 
 `absent` reads it too, and has to: the Quadlet files and systemd units it must remove
 live in `/etc/containers/systemd/` and `/etc/systemd/system/`, which are shared with
 every other app and cannot be relocated — systemd and the Quadlet generator only read
 those paths. Dropping `/var/app/<app>` alone would leave them behind, and the generator
-would recreate the service on the next `daemon-reload`. It asks the module first, in check
-mode, what the record holds and which units that implies, stops those, and then calls it
-again to remove the files and the record.
+would recreate the service on the next `daemon-reload`. It first asks the module, in check
+mode, which units the record implies, stops those, then calls it again to remove.
 
 **Changing an app's kind converges on it.** Both kinds record a manifest and both
 reconcile against it, so flipping `systemd_app_kind` between `source` and `inline` —
@@ -617,11 +612,10 @@ The filters live in `plugins/filter/`, the modules in `plugins/modules/`, one fi
 are Python so they can be tested as Python: a table of cases in under a second, rather than
 a playbook run per case (`tests/unit/`). Both `*_problems` filters return a list of
 human-readable problems and never raise, so one run reports everything wrong at once. The
-secrets module keeps every podman call behind one runner, so its reconciliation is tested
-against a fake store; the manifest module only reads, unlinks and writes small files, so
-its tests drive it against a temporary directory. A change to what the role *accepts*, to
-how it decides what the secret store should hold, or to what a manifest may name, belongs
-there rather than in a YAML scalar.
+secrets module keeps every podman call behind one runner and is tested against a fake
+store; the manifest module is tested against a temporary directory. A change to what the
+role *accepts*, or to what the store or the manifest should hold, belongs there rather
+than in a YAML scalar.
 
 They are collection-global public API: anyone who installs the collection can call them,
 whether or not they use this role, which is why they are named for what they compute

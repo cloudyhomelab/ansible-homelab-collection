@@ -120,25 +120,16 @@
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_dir_mode }}"
 
-# Files the last deploy installed that this one does not — renamed, dropped from the app's
-# source tree, or belonging to the kind the app has just stopped being — are still live host
-# state if left behind: the Quadlet generator keeps making services from stale unit files,
-# and stale config keeps being mounted. One module call reads what the last deploy recorded,
-# prunes the difference, and records this deploy, after the installs above so the app is
-# never left without its files. The record is read for either kind, which is what makes a
-# change of kind converge: the paths a 'source' deploy recorded are exactly what the 'inline'
-# one it became has to prune, and the other way round. What the module refuses to act on,
-# and why, is in its own docs (`ansible-doc binarycodes.homelab.install_manifest`).
+# Files the last deploy installed that this one does not — renamed, dropped, or belonging to
+# the kind the app has just stopped being — are still live host state if left behind: the
+# generator keeps making services from stale unit files, stale config stays mounted. One call
+# prunes them and records this deploy, after the installs so the app is never without its
+# files. The record is read for either kind, which is what makes a change of kind converge.
+# A pruned unit keeps running until stopped by hand, once (see README).
 #
-# A unit whose file is pruned while it is running keeps running until it is stopped or the
-# host reboots, so converting an app that shipped several units means stopping the ones it
-# no longer ships by hand, once. See README.
-#
-# The generated Caddy route is deliberately not recorded. It lives in the reverse proxy's
-# config tree rather than this app's, so it is outside what the module admits, and
-# absent.yml removes it by name instead. The reload is notified for a pruned unit file; a
-# deploy that only changed the record reloads once for nothing, which costs less than a
-# second task to tell the two apart.
+# The Caddy route is not recorded: it lives in the reverse proxy's tree, outside what the
+# module admits, and absent.yml removes it by name. The reload is for a pruned unit file; a
+# record-only change reloads once for nothing, cheaper than a second task to tell them apart.
 - name: "Reconcile the install manifest of app {{ systemd_app_name }}"
   binarycodes.homelab.install_manifest:
     path: "{{ systemd_app_manifest_file }}"
@@ -152,9 +143,8 @@
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_file_mode }}"
   vars:
-    # Every host path this deploy just installed. For 'source': the two flat install dirs by
-    # basename, plus the config tree with its relative layout preserved. For 'inline': the
-    # one rendered Quadlet.
+    # 'source': the two flat install dirs by basename plus the config tree with its layout
+    # preserved; 'inline': the one rendered Quadlet.
     systemd_app_inline_installed_paths:
       - "{{ systemd_app_system_dir }}/{{ systemd_app_name }}.container"
     systemd_app_source_installed_paths: >-
@@ -262,9 +252,8 @@
 # whose unit declares ExecReload= means it can take config without dropping what it is
 # serving, and cycling it anyway would throw that away.
 #
-# Files removed by the prune are counted only when they were config, which the manifest
-# module reports. A removed unit file leaves nothing to act on; a removed config file is a
-# change to what a still-running app reads.
+# A pruned config file counts as a config change, since a running app still reads it; a
+# pruned unit file leaves nothing to act on. The manifest module tells the two apart.
 - name: "Decide how this deploy reaches the running units of app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_restart_needed: >-

@@ -1,0 +1,6 @@
+breaking_changes:
+  - >-
+    The collection now requires ansible-core 2.19 or newer on the controller; the previous
+    floor was 2.15. The floor is what the oldest claimed platform, Debian 13, ships, and
+    2.15 through 2.18 are end of life upstream. A controller on an older ansible-core can no
+    longer install the collection.

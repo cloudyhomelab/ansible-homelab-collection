@@ -3,15 +3,16 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# The floor a supported controller sets rather than one the role's syntax needs: nothing
-# here uses a keyword newer than 2.14, but ansible-core releases below 2.15 are end of
-# life, and Galaxy's tooling refuses to call them supported.
+# The floor is the ansible-core the oldest platform this collection claims ships as a
+# controller — Debian 13's 2.19 — which is also the oldest release still supported upstream.
+# Nothing in the role needs a keyword that new; the number says what is tested, not what
+# the syntax requires, and it moves when the platform does.
 #
 # Tested rather than merely declared: .github/workflows/supported-versions.yml runs the
 # unit tests, a syntax check of a play that uses the role, and ansible-test sanity against
 # this version as well as the current release. Raise this and the role's
 # min_ansible_version together with that matrix, never one without the others.
-requires_ansible: ">=2.15.0"
+requires_ansible: ">=2.19.0"
 
 # Deprecated rather than removed: the filters are public API, and RELEASE.md makes removing
 # one a major bump. This is what makes a consumer's use of them warn; the alternative is in

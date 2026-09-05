@@ -45,13 +45,6 @@
   register: systemd_app_quadlet_render
   notify: systemd_app reload systemd
 
-# What the last deploy installed, so the files below can be reconciled against it. Read
-# for either kind, and that is what makes a change of kind converge: the paths recorded
-# by a 'source' deploy are exactly what the 'inline' one it became has to prune, and the
-# other way round.
-- name: "Read recorded install manifest for app {{ systemd_app_name }}"
-  ansible.builtin.include_tasks: read-manifest.yml
-
 - name: "Install Quadlet files for app {{ systemd_app_name }}"
   ansible.builtin.copy:
     src: "{{ item }}"
@@ -116,44 +109,6 @@
     - systemd_app_config_dir.stat.isdir
   register: systemd_app_config_deploy
 
-# Every host path this deploy just installed. For 'source': the two flat install dirs by
-# basename, plus the config tree with its relative layout preserved. For 'inline': the one
-# rendered Quadlet. Derived in one place so the prune below and the recorded manifest
-# cannot disagree about the set.
-#
-# The generated Caddy route is deliberately not in here. It lives in the reverse proxy's
-# config tree rather than this app's, so it is outside what the manifest allowlist admits,
-# and absent.yml removes it by name instead.
-- name: "Collect installed paths for app {{ systemd_app_name }}"
-  ansible.builtin.set_fact:
-    systemd_app_installed_paths: >-
-      {{ systemd_app_inline_installed_paths if systemd_app_kind == 'inline'
-         else systemd_app_source_installed_paths }}
-  vars:
-    systemd_app_inline_installed_paths:
-      - "{{ systemd_app_system_dir }}/{{ systemd_app_name }}.container"
-    systemd_app_source_installed_paths: >-
-      {{ ([systemd_app_system_dir] | product(systemd_app_source_quadlet_files | map('basename') | list) | map('join', '/') | list)
-         + ([systemd_app_unit_dir] | product(systemd_app_source_unit_files | map('basename') | list) | map('join', '/') | list)
-         + ([systemd_app_home ~ '/config'] | product(systemd_app_config_found.files | default([])
-            | map(attribute='path') | map('relpath', systemd_app_source_config_dir) | list) | map('join', '/') | list) }}
-
-# Files the last deploy installed that this one does not: renamed, dropped from the app's
-# source tree, or belonging to the kind the app has just stopped being. Left behind they
-# are still live host state — the Quadlet generator keeps making services from stale unit
-# files, and stale config keeps being mounted. Pruned after the installs above, so the app
-# is never left without its files.
-#
-# A unit whose file is pruned while it is running keeps running until it is stopped or the
-# host reboots, so converting an app that shipped several units means stopping the ones it
-# no longer ships by hand, once. See README.
-- name: "Remove files no longer installed by app {{ systemd_app_name }}"
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop: "{{ systemd_app_manifest_paths | difference(systemd_app_installed_paths) }}"
-  notify: systemd_app reload systemd
-
 # The config copy above creates this, but only for an app that ships a config tree. Every
 # app owns host state below it regardless: the install manifest recorded just below, and
 # for some also a bind-mounted data directory.
@@ -165,15 +120,40 @@
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_dir_mode }}"
 
-# Written last: a failure part-way through the install leaves the older, wider
-# manifest in place, so the next run still knows about every file on the host.
-- name: "Record install manifest for app {{ systemd_app_name }}"
-  ansible.builtin.template:
-    src: install-manifest.j2
-    dest: "{{ systemd_app_manifest_file }}"
+# Files the last deploy installed that this one does not — renamed, dropped, or belonging to
+# the kind the app has just stopped being — are still live host state if left behind: the
+# generator keeps making services from stale unit files, stale config stays mounted. One call
+# prunes them and records this deploy, after the installs so the app is never without its
+# files. The record is read for either kind, which is what makes a change of kind converge.
+# A pruned unit keeps running until stopped by hand, once (see README).
+#
+# The Caddy route is not recorded: it lives in the reverse proxy's tree, outside what the
+# module admits, and absent.yml removes it by name. The reload is for a pruned unit file; a
+# record-only change reloads once for nothing, cheaper than a second task to tell them apart.
+- name: "Reconcile the install manifest of app {{ systemd_app_name }}"
+  binarycodes.homelab.install_manifest:
+    path: "{{ systemd_app_manifest_file }}"
+    installed: >-
+      {{ systemd_app_inline_installed_paths if systemd_app_kind == 'inline'
+         else systemd_app_source_installed_paths }}
+    system_dir: "{{ systemd_app_system_dir }}"
+    unit_dir: "{{ systemd_app_unit_dir }}"
+    config_dir: "{{ systemd_app_home }}/config"
     owner: "{{ systemd_app_owner }}"
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_file_mode }}"
+  vars:
+    # 'source': the two flat install dirs by basename plus the config tree with its layout
+    # preserved; 'inline': the one rendered Quadlet.
+    systemd_app_inline_installed_paths:
+      - "{{ systemd_app_system_dir }}/{{ systemd_app_name }}.container"
+    systemd_app_source_installed_paths: >-
+      {{ ([systemd_app_system_dir] | product(systemd_app_source_quadlet_files | map('basename') | list) | map('join', '/') | list)
+         + ([systemd_app_unit_dir] | product(systemd_app_source_unit_files | map('basename') | list) | map('join', '/') | list)
+         + ([systemd_app_home ~ '/config'] | product(systemd_app_config_found.files | default([])
+            | map(attribute='path') | map('relpath', systemd_app_source_config_dir) | list) | map('join', '/') | list) }}
+  register: systemd_app_manifest
+  notify: systemd_app reload systemd
 
 # Bind-mount targets the app itself writes to, named relative to the app's home.
 # Podman creates a missing host path as root:root, which an unprivileged container cannot
@@ -272,9 +252,8 @@
 # whose unit declares ExecReload= means it can take config without dropping what it is
 # serving, and cycling it anyway would throw that away.
 #
-# Files removed by the prune are counted only when they were config. A removed unit file
-# leaves nothing to act on; a removed config file is a change to what a still-running app
-# reads.
+# A pruned config file counts as a config change, since a running app still reads it; a
+# pruned unit file leaves nothing to act on. The manifest module tells the two apart.
 - name: "Decide how this deploy reaches the running units of app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_restart_needed: >-
@@ -284,11 +263,7 @@
          or (systemd_app_unit_install.changed | default(false)) }}
     systemd_app_config_changed: >-
       {{ (systemd_app_config_deploy.changed | default(false))
-         or (systemd_app_manifest_paths | difference(systemd_app_installed_paths)
-             | select('match', systemd_app_config_path_prefix) | list | length > 0) }}
-  vars:
-    # Escaped, because it is built from a name and interpolated into a regex.
-    systemd_app_config_path_prefix: "{{ (systemd_app_home ~ '/config/') | regex_escape }}"
+         or (systemd_app_manifest.config_changed | default(false)) }}
 
 # Registered for the reload below: the module returns the unit's `systemctl show`
 # properties, so no separate probe is needed to learn whether it can reload.

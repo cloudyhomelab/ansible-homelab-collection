@@ -206,17 +206,19 @@ file rather than re-deriving from `apps/<app>/`, which by then may name differen
 or be gone entirely, so a renamed or deleted file does not linger on the host and a
 decommission needs no source tree at all.
 
-The manifest is host state acted on as root, so every recorded path is checked before
-anything is removed. A line is legal in exactly two shapes: a single path segment
-directly inside `systemd_app_system_dir` / `systemd_app_unit_dir`, or any file nested
-under this app's own `/var/app/<app>/config`. `.` and `..` segments are refused in both,
-and a manifest containing one illegal line fails the run without deleting anything.
+Reading, pruning and recording are one call of the `install_manifest` module, on the host.
+The manifest is acted on as root, so every line is checked first: a single path segment
+directly inside `systemd_app_system_dir` / `systemd_app_unit_dir`, or a path under this
+app's own `/var/app/<app>/config` with no empty, `.` or `..` segment, and a regular file,
+symlink or missing path — never a directory, since nothing recorded is removed recursively.
+One illegal line fails the run without deleting anything.
 
 `absent` reads it too, and has to: the Quadlet files and systemd units it must remove
 live in `/etc/containers/systemd/` and `/etc/systemd/system/`, which are shared with
 every other app and cannot be relocated — systemd and the Quadlet generator only read
 those paths. Dropping `/var/app/<app>` alone would leave them behind, and the generator
-would recreate the service on the next `daemon-reload`.
+would recreate the service on the next `daemon-reload`. It first asks the module, in check
+mode, which units the record implies, stops those, then calls it again to remove.
 
 **Changing an app's kind converges on it.** Both kinds record a manifest and both
 reconcile against it, so flipping `systemd_app_kind` between `source` and `inline` —
@@ -601,21 +603,23 @@ resolve wherever the collection is installed:
 | Plugin               | Kind   | Used for                                                          |
 | -------------------- | ------ | ----------------------------------------------------------------- |
 | `podman_secrets`     | module | Reconciling the app's podman secrets against the store, on the host. |
+| `install_manifest`   | module | Reading, pruning and recording the install manifest, on the host; on `absent`, the units it implies. |
 | `route_problems`     | filter | Checking `systemd_app_domain` / `_upstream` / `_port`.             |
 | `container_problems` | filter | Checking what would be interpolated into a rendered Quadlet.      |
 | `systemd_env_lines`  | filter | Quoting and escaping `systemd_app_env` into `Environment=` lines.  |
-| `manifest_units`     | filter | The units the install manifest implies, so `absent` need not be told them. |
 
-The filters live in `plugins/filter/`, the module in `plugins/modules/`, one file each, and
+The filters live in `plugins/filter/`, the modules in `plugins/modules/`, one file each, and
 are Python so they can be tested as Python: a table of cases in under a second, rather than
 a playbook run per case (`tests/unit/`). Both `*_problems` filters return a list of
 human-readable problems and never raise, so one run reports everything wrong at once. The
-module keeps every podman call behind one runner, so its reconciliation is tested against a
-fake store the same way. A change to what the role *accepts*, or to how it decides what the
-secret store should hold, belongs there rather than in a YAML scalar.
+secrets module keeps every podman call behind one runner and is tested against a fake
+store; the manifest module is tested against a temporary directory. A change to what the
+role *accepts*, or to what the store or the manifest should hold, belongs there rather
+than in a YAML scalar.
 
 They are collection-global public API: anyone who installs the collection can call them,
 whether or not they use this role, which is why they are named for what they compute
-rather than for the role that calls them. Two filters, `secret_digests` and
-`reconcile_secrets`, are deprecated: the module does their work from labels on the secrets
-themselves, and they go in 2.0.0.
+rather than for the role that calls them. Three filters are deprecated and go in 2.0.0:
+`secret_digests` and `reconcile_secrets`, whose work the secrets module does from labels on
+the secrets themselves, and `manifest_units`, whose answer the manifest module returns as
+`units`.

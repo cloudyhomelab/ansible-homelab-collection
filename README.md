@@ -14,17 +14,18 @@ secrets.
 | Module | Purpose |
 | ------ | ------- |
 | `podman_secrets` | Reconcile one app's podman secrets against the store: create, rotate, drop, and refuse a name another app owns, with ownership and digests as labels on the secrets themselves. |
+| `install_manifest` | Reconcile the files an app installed against the record of its last deploy: prune, record, and remove on decommission; a record naming anything outside the app's install paths is refused. |
 
 | Filter | Purpose |
 | ------ | ------- |
 | `route_problems` | Check a domain, upstream and port before they are written into a Caddy site block. |
 | `container_problems` | Check what would be interpolated into a rendered Quadlet. |
 | `systemd_env_lines` | Quote and escape a dict into `Environment=` lines. |
-| `manifest_units` | The systemd units a recorded install manifest implies, so a teardown need not be told them. |
+| `manifest_units` | *Deprecated, removed in 2.0.0.* The systemd units a recorded install manifest implies; the `install_manifest` module returns them as `units`. |
 | `secret_digests` | *Deprecated, removed in 2.0.0.* SHA-256 per podman secret value. |
 | `reconcile_secrets` | *Deprecated, removed in 2.0.0.* Which podman secrets to store and which to drop, from a recorded digest file. |
 
-The module and the filters are public API, not role internals: they are named for what
+The modules and the filters are public API, not role internals: they are named for what
 they compute, and callable by anyone who installs the collection.
 
 ## Install

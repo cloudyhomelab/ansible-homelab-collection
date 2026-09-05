@@ -15,6 +15,12 @@ short_description: The systemd units a recorded install manifest implies
 version_added: 1.0.0
 author:
   - binarycodes (@binarycodes)
+deprecated:
+  removed_in: 2.0.0
+  why: >-
+    The binarycodes.homelab.install_manifest module reconciles the record on the host and
+    returns the units it implies; nothing computes them on the controller any more.
+  alternative: The C(units) return value of the M(binarycodes.homelab.install_manifest) module.
 description:
   - Works out which systemd units an app is running, from the paths its last deploy
     recorded, so a decommission can stop them without being told their names.
@@ -68,8 +74,8 @@ EXAMPLES = r"""
     name: "{{ item }}"
     state: stopped
   loop: >-
-    {{ systemd_app_manifest_paths
-       | binarycodes.homelab.manifest_units(systemd_app_system_dir, systemd_app_unit_dir) }}
+    {{ recorded_paths
+       | binarycodes.homelab.manifest_units('/etc/containers/systemd', '/etc/systemd/system') }}
   # A manifest listing /etc/containers/systemd/app.container and
   # /etc/systemd/system/app-extra.service yields ['app-extra.service', 'app.service'].
 """

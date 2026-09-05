@@ -30,3 +30,9 @@ plugin_routing:
         warning_text: >-
           The binarycodes.homelab.podman_secrets module reconciles the store in one call,
           from labels on the secrets rather than a recorded file.
+    manifest_units:
+      deprecation:
+        removal_version: 2.0.0
+        warning_text: >-
+          The binarycodes.homelab.install_manifest module reads and reconciles the record on
+          the host, and returns the units it implies as `units`.

@@ -1,0 +1,120 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Checks
+
+# The one workflow a pull request triggers. It calls the three gates as reusable workflows,
+# the same way release.yml does, and ends in one job that waits on all of them — so branch
+# protection requires a single check, `All gates passed`, and keeps requiring it however the matrices
+# and the path filter below change. The gates fire on nothing else: a PR would otherwise
+# get two runs of each, and there would be no job in a position to sum them up.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One group for the whole run, here rather than in each called workflow. A superseded PR
+# push is worth cancelling; a push to main is not, since that run is the record of whether
+# the commit passed.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Molecule's path filter used to sit on its trigger. It cannot stay there: a workflow that
+  # does not start produces no check, and a required check that never arrives blocks the
+  # merge. So the decision is a job, and the summing-up job reads its result.
+  changes:
+    name: Decide what the change needs
+    runs-on: ubuntu-latest
+    outputs:
+      molecule: ${{ steps.paths.outputs.molecule }}
+
+    steps:
+      # Full history: a push to main may carry several commits, and the range below reaches
+      # back to whatever main was before it.
+      - name: Checkout collection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # The role and what converges it: the scenario, the plugins the role calls, the tool
+      # pins the converge runs with, and the two workflow files that define the run. A
+      # range that cannot be resolved — a dispatch, or a push whose previous tip is not in
+      # this history — converges rather than guesses.
+      - name: Check whether a molecule converge is needed
+        id: paths
+        env:
+          BASE: >-
+            ${{ github.event_name == 'pull_request'
+                && github.event.pull_request.base.sha
+                || github.event.before }}
+        run: |
+          molecule=true
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            files="$(git diff --name-only "$BASE" "$GITHUB_SHA")"
+            if grep -qE \
+                 -e '^roles/systemd_app/' \
+                 -e '^plugins/' \
+                 -e '^extensions/molecule/' \
+                 -e '^\.github/actions/' \
+                 -e '^\.github/workflows/(molecule|checks)\.yml$' \
+                 -e '^requirements-(dev|test)\.txt$' \
+                 <<< "$files"; then
+              echo "A path molecule covers changed; converging."
+            else
+              molecule=false
+              echo "No path molecule covers changed; skipping the converge."
+            fi
+          else
+            echo "No base to diff against; converging."
+          fi
+          echo "molecule=$molecule" >> "$GITHUB_OUTPUT"
+
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  versions:
+    name: Supported versions
+    uses: ./.github/workflows/supported-versions.yml
+
+  molecule:
+    name: Molecule
+    needs: changes
+    if: needs.changes.outputs.molecule == 'true'
+    uses: ./.github/workflows/molecule.yml
+
+  # The one required status check. always(), because a failed gate would otherwise skip
+  # this job, and GitHub shows a skipped required check as pending, not failed. Molecule
+  # skipped is a pass only when `changes` said so — it is the one job allowed to skip, and
+  # only on a successful decision.
+  all-gates:
+    name: All gates passed
+    needs: [changes, ci, versions, molecule]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Require every gate to have passed
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+          CHANGES: ${{ needs.changes.result }}
+          CI: ${{ needs.ci.result }}
+          VERSIONS: ${{ needs.versions.result }}
+          MOLECULE: ${{ needs.molecule.result }}
+        run: |
+          echo "changes=$CHANGES ci=$CI versions=$VERSIONS molecule=$MOLECULE"
+          if [ "$CHANGES" = success ] && [ "$CI" = success ] && [ "$VERSIONS" = success ] \
+             && { [ "$MOLECULE" = success ] || [ "$MOLECULE" = skipped ]; }; then
+            echo "Every gate passed."
+          else
+            echo "::error::A gate did not pass: $RESULTS" >&2
+            exit 1
+          fi

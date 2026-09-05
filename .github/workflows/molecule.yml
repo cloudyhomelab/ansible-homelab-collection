@@ -6,40 +6,12 @@
 name: Molecule
 
 # The systemd_app role's behaviour on a host: what the filters' unit tests cannot cover and
-# a syntax check never runs. A converge takes minutes, so it is its own workflow rather
-# than part of CI.
+# a syntax check never runs. Called, not triggered: checks.yml decides from the changed
+# paths whether a pull request needs the converge, and release.yml runs it against the
+# tagged commit. One run per PR, summed up by one required check.
 on:
-  pull_request:
-    paths:
-      - 'roles/systemd_app/**'
-      - 'plugins/**'
-      - 'extensions/molecule/**'
-      - '.github/workflows/molecule.yml'
-      # The tools the converge runs with: a version bump has to converge too.
-      - '.github/actions/**'
-      - 'requirements-dev.txt'
-      - 'requirements-test.txt'
-  push:
-    branches: [main]
-    paths:
-      - 'roles/systemd_app/**'
-      - 'plugins/**'
-      - 'extensions/molecule/**'
-      - '.github/workflows/molecule.yml'
-      # The tools the converge runs with: a version bump has to converge too.
-      - '.github/actions/**'
-      - 'requirements-dev.txt'
-      - 'requirements-test.txt'
-  # Callable, so release.yml runs this gate against the tagged commit rather than
-  # trusting a tick from whenever main last ran. The triggers above never fire for a tag.
   workflow_call:
   workflow_dispatch:
-
-# Everything happens inside the runner, so a superseded PR push is worth cancelling. Not
-# for a push to main, where the run is the record of whether that commit converges.
-concurrency:
-  group: molecule-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

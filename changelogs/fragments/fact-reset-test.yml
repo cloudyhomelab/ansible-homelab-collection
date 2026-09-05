@@ -1,0 +1,3 @@
+trivial:
+  - A unit test now holds the ``systemd_app`` role's per-app fact reset to the names its tasks
+    actually register or set, with the few exemptions and their reasons written down beside it.

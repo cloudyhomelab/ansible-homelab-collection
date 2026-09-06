@@ -20,11 +20,11 @@ from ansible.errors import AnsibleFilterError
 
 # Registered by conftest.py, which loads them from plugins/filter/ by path -- one module
 # per filter, each named systemd_app_<filter name>.
-from systemd_app_app_problems import app_problems
-from systemd_app_container_problems import container_problems
+from systemd_app_app_validation_errors import app_validation_errors
+from systemd_app_container_validation_errors import container_validation_errors
 from systemd_app_manifest_units import manifest_units
 from systemd_app_reconcile_secrets import reconcile_secrets
-from systemd_app_route_problems import route_problems
+from systemd_app_route_validation_errors import route_validation_errors
 from systemd_app_secret_digests import secret_digests
 from systemd_app_systemd_env_lines import systemd_env_lines
 
@@ -144,71 +144,71 @@ def test_corrupt_record_is_refused_rather_than_ignored(content):
         reconcile_secrets(DIGESTS, content, [])
 
 
-# --- app_problems ----------------------------------------------------------------------
+# --- app_validation_errors ----------------------------------------------------------------------
 
-def problems(name="myapp", **kwargs):
+def errors(name="myapp", **kwargs):
     kwargs.setdefault("kind", "inline")
     kwargs.setdefault("image", "docker.io/org/app:latest")
-    return app_problems(name, **kwargs)
+    return app_validation_errors(name, **kwargs)
 
 
 def test_a_trailing_newline_in_the_name_is_refused():
     # The case the YAML `is match('^...$')` assert this filter replaced let through: `$`
     # matches before a trailing newline, and nothing the name is written into fails on one.
-    assert problems("myapp\n") != []
-    assert problems("myapp") == []
+    assert errors("myapp\n") != []
+    assert errors("myapp") == []
 
 
 @pytest.mark.parametrize("name", ["myapp", "my.app", "my-app_2", "0app", "a"])
 def test_good_names_are_accepted(name):
-    assert problems(name) == []
+    assert errors(name) == []
 
 
 @pytest.mark.parametrize("name", ["", None, ".app", "..", "my/app", "my app", "app\x00", "-app"])
 def test_bad_names_are_rejected_and_named(name):
-    got = problems(name)
+    got = errors(name)
     assert len(got) == 1 and got[0].startswith("systemd_app_name")
 
 
 @pytest.mark.parametrize("kind", ["", None, "Inline", "container"])
 def test_bad_kinds_are_rejected(kind):
-    assert any(p.startswith("systemd_app_kind") for p in problems(kind=kind))
+    assert any(p.startswith("systemd_app_kind") for p in errors(kind=kind))
 
 
 @pytest.mark.parametrize("state", ["", None, "removed"])
 def test_bad_states_are_rejected(state):
-    assert any(p.startswith("systemd_app_state") for p in problems(state=state))
+    assert any(p.startswith("systemd_app_state") for p in errors(state=state))
 
 
 @pytest.mark.parametrize("image", ["", None])
 def test_an_inline_app_being_deployed_needs_an_image(image):
-    assert any(p.startswith("systemd_app_image") for p in problems(image=image))
+    assert any(p.startswith("systemd_app_image") for p in errors(image=image))
 
 
 @pytest.mark.parametrize("image", ["", None])
 def test_an_inline_app_being_decommissioned_needs_no_image(image):
-    assert problems(state="absent", image=image) == []
+    assert errors(state="absent", image=image) == []
 
 
 def test_a_source_app_needs_no_image():
-    assert problems(kind="source", image="", apps_dir="/srv/apps") == []
+    assert errors(kind="source", image="", apps_dir="/srv/apps") == []
 
 
 @pytest.mark.parametrize("apps_dir", ["", None])
 def test_a_source_app_needs_the_apps_directory(apps_dir):
-    got = problems(kind="source", apps_dir=apps_dir)
+    got = errors(kind="source", apps_dir=apps_dir)
     assert any(p.startswith("systemd_app_apps_dir") for p in got)
     # Either state: a decommission still looks there for the app's secrets file.
-    assert problems(kind="source", state="absent", apps_dir=apps_dir) != []
+    assert errors(kind="source", state="absent", apps_dir=apps_dir) != []
 
 
 def test_an_inline_app_needs_no_apps_directory():
-    assert problems(apps_dir="") == []
+    assert errors(apps_dir="") == []
 
 
 @pytest.mark.parametrize("path", ["data", "data/db", "a.b", "..hidden"])
 def test_relative_data_directories_are_accepted(path):
-    assert problems(data_dirs=[{"path": path, "owner": "10001"}]) == []
+    assert errors(data_dirs=[{"path": path, "owner": "10001"}]) == []
 
 
 @pytest.mark.parametrize(
@@ -228,50 +228,50 @@ def test_relative_data_directories_are_accepted(path):
     ],
 )
 def test_data_directories_that_could_leave_the_home_are_rejected(entry):
-    got = problems(data_dirs=[entry])
+    got = errors(data_dirs=[entry])
     assert len(got) == 1 and got[0].startswith("systemd_app_data_dirs")
 
 
 @pytest.mark.parametrize("secret", ["myapp-token", "a", "myapp-oidc-client-secret", "x1-2"])
 def test_secret_names_an_inline_app_can_reference_are_accepted(secret):
-    assert problems(secret_names=[secret]) == []
-    assert problems(kind="source", apps_dir="/srv", secret_names=[secret]) == []
+    assert errors(secret_names=[secret]) == []
+    assert errors(kind="source", apps_dir="/srv", secret_names=[secret]) == []
 
 
 @pytest.mark.parametrize("secret", ["my.app.token", "my_app_token", "1token"])
 def test_a_source_app_may_use_any_podman_secret_name(secret):
-    assert problems(kind="source", apps_dir="/srv", secret_names=[secret]) == []
+    assert errors(kind="source", apps_dir="/srv", secret_names=[secret]) == []
 
 
 @pytest.mark.parametrize("secret", ["my.app.token", "my_app_token", "1token", "token-\n"])
 def test_an_inline_app_needs_names_that_spell_a_variable(secret):
-    got = problems(secret_names=[secret])
+    got = errors(secret_names=[secret])
     assert len(got) == 1 and got[0].startswith("secrets.sops.yaml key")
 
 
 @pytest.mark.parametrize("secret", ["", ".token", "my token", "my/token", "token\n"])
 def test_names_podman_would_refuse_are_refused_for_either_kind(secret):
     for kwargs in ({}, {"kind": "source", "apps_dir": "/srv"}):
-        got = problems(secret_names=[secret], **kwargs)
+        got = errors(secret_names=[secret], **kwargs)
         assert len(got) == 1 and "podman secret name" in got[0]
 
 
 def test_no_secret_value_appears_in_an_app_problem():
     # Values never reach the filter, by construction: the call site passes the keys alone.
-    assert "value" not in inspect.signature(app_problems).parameters
+    assert "value" not in inspect.signature(app_validation_errors).parameters
 
 
 def test_every_app_problem_is_reported_at_once():
-    got = app_problems("bad name", kind="what", state="gone", data_dirs=[{"path": "/x"}])
+    got = app_validation_errors("bad name", kind="what", state="gone", data_dirs=[{"path": "/x"}])
     assert len(got) == 4
 
 
 def test_the_role_defaults_are_no_problem():
-    assert app_problems("myapp", kind="inline", state="present", image="img", apps_dir="", data_dirs=[]) == []
-    assert app_problems("myapp", kind="source", state="present", image="", apps_dir="/srv/apps", data_dirs=[]) == []
+    assert app_validation_errors("myapp", kind="inline", state="present", image="img", apps_dir="", data_dirs=[]) == []
+    assert app_validation_errors("myapp", kind="source", state="present", image="", apps_dir="/srv/apps", data_dirs=[]) == []
 
 
-# --- route_problems --------------------------------------------------------------------
+# --- route_validation_errors --------------------------------------------------------------------
 
 @pytest.mark.parametrize(
     "domain",
@@ -284,12 +284,12 @@ def test_the_role_defaults_are_no_problem():
     ],
 )
 def test_good_domains_are_accepted(domain):
-    assert route_problems(domain, "myapp", 8080) == []
+    assert route_validation_errors(domain, "myapp", 8080) == []
 
 
 def test_a_label_at_exactly_the_dns_maximum_is_accepted():
     # 63 is legal; the check must not be off by one.
-    assert route_problems("a" * 63 + ".example.com", "myapp", 8080) == []
+    assert route_validation_errors("a" * 63 + ".example.com", "myapp", 8080) == []
 
 
 @pytest.mark.parametrize(
@@ -314,29 +314,29 @@ def test_a_label_at_exactly_the_dns_maximum_is_accepted():
     ],
 )
 def test_bad_domains_are_rejected(domain, why):
-    problems = route_problems(domain, "myapp", 8080)
+    problems = route_validation_errors(domain, "myapp", 8080)
     assert any("systemd_app_domain" in p for p in problems), why
 
 
 @pytest.mark.parametrize("upstream", ["myapp", "my.app", "a_b", "x-1.2_3"])
 def test_good_upstreams_are_accepted(upstream):
-    assert route_problems("x.example.com", upstream, 8080) == []
+    assert route_validation_errors("x.example.com", upstream, 8080) == []
 
 
 @pytest.mark.parametrize("upstream", ["my app", "-myapp", ".myapp", "myapp/x", "", None])
 def test_bad_upstreams_are_rejected(upstream):
-    problems = route_problems("x.example.com", upstream, 8080)
+    problems = route_validation_errors("x.example.com", upstream, 8080)
     assert any("systemd_app_upstream" in p for p in problems)
 
 
 @pytest.mark.parametrize("port", [1, 80, 8080, 65535, "8080"])
 def test_good_ports_are_accepted(port):
-    assert route_problems("x.example.com", "myapp", port) == []
+    assert route_validation_errors("x.example.com", "myapp", port) == []
 
 
 @pytest.mark.parametrize("port", [0, -1, 65536, 70000, "http", "", None, "80 80"])
 def test_bad_ports_are_rejected(port):
-    problems = route_problems("x.example.com", "myapp", port)
+    problems = route_validation_errors("x.example.com", "myapp", port)
     assert any("systemd_app_port" in p for p in problems)
 
 
@@ -356,61 +356,61 @@ def test_bad_ports_are_rejected(port):
 )
 def test_ports_int_would_wrongly_accept_are_rejected(port, why):
     # Each of these passes a bare int(), which is why the filter does not use one.
-    problems = route_problems("x.example.com", "myapp", port)
+    problems = route_validation_errors("x.example.com", "myapp", port)
     assert any("systemd_app_port" in p for p in problems), why
 
 
 @pytest.mark.parametrize("port", ["8080", "1", "65535"])
 def test_a_port_given_as_a_string_of_digits_is_accepted(port):
     # YAML and a call site both hand ports over as strings often enough to allow it.
-    assert route_problems("x.example.com", "myapp", port) == []
+    assert route_validation_errors("x.example.com", "myapp", port) == []
 
 
 def test_every_problem_is_reported_at_once():
     # One run should tell the caller everything wrong, not just the first thing.
-    assert len(route_problems("bad {", "-bad", 0)) == 3
+    assert len(route_validation_errors("bad {", "-bad", 0)) == 3
 
 
-# --- container_problems ----------------------------------------------------------------
+# --- container_validation_errors ----------------------------------------------------------------
 
 @pytest.mark.parametrize(
     "value",
     ["native", "-Xmx512m -Xms256m", "100%", 'say "hi"', r"C:\path", "a=b=c", "", 8080, True],
 )
 def test_values_the_template_can_escape_are_accepted(value):
-    assert container_problems({"KEY": value}) == []
+    assert container_validation_errors({"KEY": value}) == []
 
 
 @pytest.mark.parametrize("key", ["FOO", "FOO_BAR", "_FOO", "F1", "a"])
 def test_good_env_keys_are_accepted(key):
-    assert container_problems({key: "x"}) == []
+    assert container_validation_errors({key: "x"}) == []
 
 
 @pytest.mark.parametrize("key", ["FOO-BAR", "1FOO", "FOO BAR", "FOO.BAR", "", "FOO="])
 def test_bad_env_keys_are_rejected(key):
-    problems = container_problems({key: "x"})
+    problems = container_validation_errors({key: "x"})
     assert any("not a legal variable name" in p for p in problems)
 
 
 @pytest.mark.parametrize("value", ["a\nExecStartPre=/bin/x", "a\tb", "a\x00b", "a\x7f"])
 def test_control_characters_in_values_are_rejected(value):
-    problems = container_problems({"FOO": value})
+    problems = container_validation_errors({"FOO": value})
     assert any("FOO" in p and "control character" in p for p in problems)
 
 
 def test_no_secret_value_appears_in_a_problem_message():
-    problems = container_problems({"TOKEN": "s3cret-\nvalue"})
+    problems = container_validation_errors({"TOKEN": "s3cret-\nvalue"})
     assert problems
     assert not any("s3cret" in p for p in problems)
 
 
 def test_description_control_character_is_rejected():
-    problems = container_problems({}, "app\nExecStopPost=/bin/x")
+    problems = container_validation_errors({}, "app\nExecStopPost=/bin/x")
     assert any("systemd_app_description" in p for p in problems)
 
 
 def test_clean_description_is_accepted():
-    assert container_problems({}, "Myapp web app") == []
+    assert container_validation_errors({}, "Myapp web app") == []
 
 
 @pytest.mark.parametrize(
@@ -423,12 +423,12 @@ def test_clean_description_is_accepted():
     ],
 )
 def test_multiline_raw_entries_are_rejected_and_named(kwargs, param):
-    problems = container_problems({}, "d", **kwargs)
+    problems = container_validation_errors({}, "d", **kwargs)
     assert any(p.startswith(param) for p in problems)
 
 
 def test_clean_raw_entries_are_accepted():
-    assert container_problems(
+    assert container_validation_errors(
         {}, "d",
         volumes=["/var/app/x/data:/app/data", "certs.volume:/data"],
         publish_ports=["443:443", "443:443/udp"],
@@ -438,8 +438,8 @@ def test_clean_raw_entries_are_accepted():
 
 
 def test_nothing_configured_is_no_problem():
-    assert container_problems(None) == []
-    assert container_problems({}) == []
+    assert container_validation_errors(None) == []
+    assert container_validation_errors({}) == []
 
 
 @pytest.mark.parametrize(
@@ -460,13 +460,13 @@ def test_nothing_configured_is_no_problem():
 )
 def test_control_characters_in_rendered_scalars_are_rejected(kwargs, param):
     """Each of these is one directive, so a newline in it writes a further directive."""
-    problems = container_problems({}, **kwargs)
+    problems = container_validation_errors({}, **kwargs)
     assert problems == [f"{param} holds a control character"]
 
 
 def test_health_values_are_not_checked_without_a_probe():
     """No health command means no health block, so nothing to break — and nothing to fix."""
-    assert container_problems(
+    assert container_validation_errors(
         {},
         health_interval="15s\nUser=0",
         health_retries="3\nUser=0",
@@ -476,7 +476,7 @@ def test_health_values_are_not_checked_without_a_probe():
 
 
 def test_the_role_defaults_of_every_rendered_scalar_are_accepted():
-    assert container_problems(
+    assert container_validation_errors(
         {},
         image="docker.io/org/app:latest",
         network="web.network",
@@ -502,13 +502,13 @@ def test_every_scalar_the_inline_template_interpolates_reaches_the_filter():
     interpolated = set(re.findall(r"\{\{\s*(systemd_app_[a-z_]+)", template))
 
     checked = {f"systemd_app_{name}" for name in inspect.signature(
-        container_problems).parameters} | {
+        container_validation_errors).parameters} | {
         # Also a filename and a container name, so it is checked by the role's name rule
         # before any of this runs.
         "systemd_app_name",
         # Their own filter, called by the template itself.
         "systemd_app_env",
-        # Only the names reach the unit, and app_problems checks those, in main.yml.
+        # Only the names reach the unit, and app_validation_errors checks those, in main.yml.
         "systemd_app_secret_values",
     }
     assert interpolated - checked == set()
@@ -605,12 +605,12 @@ def test_the_install_dirs_are_taken_from_the_caller():
 
 def test_an_ordinary_call_site_validates():
     """What a routed app actually passes. Tightening a rule must not fail this."""
-    assert route_problems("app.example.com", "myapp", 8080) == []
-    assert route_problems("*.example.com", "myapp", 443) == []
-    assert container_problems(
+    assert route_validation_errors("app.example.com", "myapp", 8080) == []
+    assert route_validation_errors("*.example.com", "myapp", 443) == []
+    assert container_validation_errors(
         {"FORWARD_HEADERS_STRATEGY": "native"}, "Myapp web app"
     ) == []
-    assert container_problems({}, None) == []
+    assert container_validation_errors({}, None) == []
 
 
 # --- systemd_env_lines -----------------------------------------------------------------
@@ -660,6 +660,6 @@ def test_nothing_configured_renders_nothing():
 
 @pytest.mark.parametrize("env", [{"A": "x\nExecStartPre=/bin/x"}, {"A\n": "x"}, {"A": "x\x00"}])
 def test_control_characters_are_refused_as_a_backstop(env):
-    # container_problems rejects these first; this guards against the two drifting.
+    # container_validation_errors rejects these first; this guards against the two drifting.
     with pytest.raises(AnsibleFilterError):
         systemd_env_lines(env)

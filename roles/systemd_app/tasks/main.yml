@@ -13,21 +13,21 @@
 # home, so it has to be one plain path segment; the two conditional requirements cannot
 # be expressed in meta/argument_specs.yml, which can only mark an option required outright.
 # What is refused, and why, is in the filter's own docs
-# (`ansible-doc -t filter binarycodes.homelab.app_problems`). Nothing here interpolates
+# (`ansible-doc -t filter binarycodes.homelab.app_validation_errors`). Nothing here interpolates
 # systemd_app_name, so an undefined or unusable name fails this task rather than its title.
 # The secrets file is passed by its keys alone, and only on present: the values are podman's,
 # never a filter's, and a decommission must not need the key that decrypts them.
 - name: Validate role input
   ansible.builtin.assert:
     that:
-      - systemd_app_app_problems | length == 0
+      - systemd_app_app_validation_errors | length == 0
     fail_msg: >-
       The 'systemd_app' role cannot act on this app as given:
-      {{ systemd_app_app_problems | join('; ') }}.
+      {{ systemd_app_app_validation_errors | join('; ') }}.
     quiet: true
   vars:
-    systemd_app_app_problems: >-
-      {{ systemd_app_name | default('') | binarycodes.homelab.app_problems(
+    systemd_app_app_validation_errors: >-
+      {{ systemd_app_name | default('') | binarycodes.homelab.app_validation_errors(
            kind=systemd_app_kind | default(''),
            state=systemd_app_state,
            image=systemd_app_image | default(''),
@@ -44,18 +44,18 @@
 #
 # Both filters return one string per problem, so a run reports everything wrong at once
 # rather than the first thing. What each accepts, and why, is in the filter's own docs
-# (`ansible-doc -t filter binarycodes.homelab.route_problems`).
+# (`ansible-doc -t filter binarycodes.homelab.route_validation_errors`).
 - name: "Verify the route inputs of app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
-      - systemd_app_route_problems | length == 0
+      - systemd_app_route_validation_errors | length == 0
     fail_msg: >-
       App {{ systemd_app_name }} cannot be routed as given:
-      {{ systemd_app_route_problems | join('; ') }}.
+      {{ systemd_app_route_validation_errors | join('; ') }}.
     quiet: true
   vars:
-    systemd_app_route_problems: >-
-      {{ systemd_app_domain | binarycodes.homelab.route_problems(systemd_app_upstream, systemd_app_port) }}
+    systemd_app_route_validation_errors: >-
+      {{ systemd_app_domain | binarycodes.homelab.route_validation_errors(systemd_app_upstream, systemd_app_port) }}
   when:
     - systemd_app_state == 'present'
     - systemd_app_domain is defined
@@ -106,16 +106,16 @@
 - name: "Verify the rendered container inputs of app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
-      - systemd_app_container_problems | length == 0
+      - systemd_app_container_validation_errors | length == 0
     fail_msg: >-
       App {{ systemd_app_name }} has values that would not survive into its Quadlet:
-      {{ systemd_app_container_problems | join('; ') }}.
+      {{ systemd_app_container_validation_errors | join('; ') }}.
     quiet: true
   vars:
     # Named rather than positional: every value inline.container.j2 interpolates is here,
     # and which one is missing has to be visible at a glance when the template gains a line.
-    systemd_app_container_problems: >-
-      {{ systemd_app_env | binarycodes.homelab.container_problems(
+    systemd_app_container_validation_errors: >-
+      {{ systemd_app_env | binarycodes.homelab.container_validation_errors(
            description=systemd_app_description | default(''),
            volumes=systemd_app_volumes,
            publish_ports=systemd_app_publish_ports,

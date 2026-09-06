@@ -1,6 +1,6 @@
 minor_changes:
   - >-
-    New filter ``app_problems``: why an app cannot be acted on as named, one string per
+    New filter ``app_validation_errors``: why an app cannot be acted on as named, one string per
     problem - the name's shape, the kind and state, the image an ``inline`` deploy requires,
     the ``systemd_app_apps_dir`` a ``source`` app requires, the shape of each
     ``systemd_app_data_dirs`` entry, and the names in ``secrets.sops.yaml`` (never the
@@ -16,3 +16,8 @@ bugfixes:
     check was a ``$``-anchored ``match``, which accepts one, and nothing the name is written
     into - install paths, ``ContainerName=``, the route snippet's filename - fails on it. No
     working deploy is affected, since such a container would never have started.
+deprecated_features:
+  - >-
+    The ``route_problems`` and ``container_problems`` filters are renamed
+    ``route_validation_errors`` and ``container_validation_errors``. The old names redirect to
+    the new ones with a deprecation warning and are removed in 2.0.0.

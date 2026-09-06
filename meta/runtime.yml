@@ -19,6 +19,18 @@ requires_ansible: ">=2.19.0"
 # each filter's own docs.
 plugin_routing:
   filter:
+    # Renamed in 1.1.0, so a consumer's call under the old name keeps working, with a warning,
+    # until the redirect goes in 2.0.0.
+    route_problems:
+      redirect: binarycodes.homelab.route_validation_errors
+      deprecation:
+        removal_version: 2.0.0
+        warning_text: The filter is now called binarycodes.homelab.route_validation_errors.
+    container_problems:
+      redirect: binarycodes.homelab.container_validation_errors
+      deprecation:
+        removal_version: 2.0.0
+        warning_text: The filter is now called binarycodes.homelab.container_validation_errors.
     secret_digests:
       deprecation:
         removal_version: 2.0.0

@@ -2,7 +2,7 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The ``route_problems`` filter. Runs on the controller; touches no managed host."""
+"""The ``route_validation_errors`` filter. Runs on the controller; touches no managed host."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ import re
 
 
 DOCUMENTATION = r"""
-name: route_problems
+name: route_validation_errors
 short_description: Why an app cannot be routed, one string per problem
-version_added: 1.0.0
+version_added: 1.1.0
 author:
   - binarycodes (@binarycodes)
 description:
@@ -24,6 +24,8 @@ description:
     them, taking every other app's route down with one bad domain.
   - Never raises, and returns one string per problem rather than stopping at the first, so a
     typo at a call site is reported in full and fixed in one pass.
+  - Called C(route_problems) from 1.0.0; that name redirects here with a deprecation warning
+    and is removed in 2.0.0.
   - Matching uses C(re.fullmatch) rather than a C($)-anchored C(re.match), because C($) also
     matches just before a trailing newline - a hostname of V(example.com\n) would pass a C($)
     pattern and then break the site block it composes.
@@ -66,7 +68,7 @@ EXAMPLES = r"""
 - name: Refuse a call site that would break every imported route
   ansible.builtin.assert:
     that:
-      - app_domain | binarycodes.homelab.route_problems(app_upstream, app_port) | length == 0
+      - app_domain | binarycodes.homelab.route_validation_errors(app_upstream, app_port) | length == 0
     # 'example' produces: ["systemd_app_domain 'example' is not a hostname of at least two labels, ..."]
 """
 
@@ -107,7 +109,7 @@ def _port_number(port):
     return None
 
 
-def route_problems(domain, upstream=None, port=None):
+def route_validation_errors(domain, upstream=None, port=None):
     """Why this app cannot be routed, one string per problem; empty means it can."""
     problems = []
 
@@ -145,4 +147,4 @@ class FilterModule:
     """Input checks for an app's Caddy route."""
 
     def filters(self):
-        return {"route_problems": route_problems}
+        return {"route_validation_errors": route_validation_errors}

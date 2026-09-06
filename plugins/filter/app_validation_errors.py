@@ -2,7 +2,7 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The ``app_problems`` filter. Runs on the controller; touches no managed host."""
+"""The ``app_validation_errors`` filter. Runs on the controller; touches no managed host."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import re
 
 
 DOCUMENTATION = r"""
-name: app_problems
+name: app_validation_errors
 short_description: Why an app cannot be deployed or decommissioned as named, one string per problem
 version_added: 1.1.0
 author:
@@ -84,7 +84,7 @@ EXAMPLES = r"""
 - name: Refuse a call site before anything is composed from it
   ansible.builtin.assert:
     that:
-      - app_name | binarycodes.homelab.app_problems(kind=app_kind, state='present', image=app_image) | length == 0
+      - app_name | binarycodes.homelab.app_validation_errors(kind=app_kind, state='present', image=app_image) | length == 0
     # An 'inline' app with no image produces: ["systemd_app_image is required for an 'inline' app ..."]
 """
 
@@ -103,8 +103,8 @@ _FORBIDDEN_SEGMENTS = frozenset(["", ".", ".."])
 _INLINE_SECRET_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]*")
 
 
-def app_problems(name, kind="", state="present", image="", apps_dir="", data_dirs=None,
-                 secret_names=None):
+def app_validation_errors(name, kind="", state="present", image="", apps_dir="",
+                          data_dirs=None, secret_names=None):
     """Why this app cannot be deployed or decommissioned as named, one string per problem."""
     problems = []
 
@@ -177,4 +177,4 @@ class FilterModule:
     """Input checks for the app an invocation of the role acts on."""
 
     def filters(self):
-        return {"app_problems": app_problems}
+        return {"app_validation_errors": app_validation_errors}

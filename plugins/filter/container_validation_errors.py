@@ -2,7 +2,7 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The ``container_problems`` filter. Runs on the controller; touches no managed host."""
+"""The ``container_validation_errors`` filter. Runs on the controller; touches no managed host."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ import re
 
 
 DOCUMENTATION = r"""
-name: container_problems
+name: container_validation_errors
 short_description: Why an app's Quadlet cannot be rendered, one string per problem
-version_added: 1.0.0
+version_added: 1.1.0
 author:
   - binarycodes (@binarycodes)
 description:
@@ -26,6 +26,8 @@ description:
     cannot rescue, and systemd mis-parses the result without complaining.
   - Never raises, and returns one string per problem rather than stopping at the first, so a
     typo at a call site is reported in full and fixed in one pass.
+  - Called C(container_problems) from 1.0.0; that name redirects here with a deprecation warning
+    and is removed in 2.0.0.
   - Matching uses C(re.fullmatch) rather than a C($)-anchored C(re.match), because C($) also
     matches just before a trailing newline, which would let a trailing newline through.
   - Values are not checked for spaces, quotes or percent signs. The
@@ -112,7 +114,7 @@ EXAMPLES = r"""
 - name: Refuse values that would not survive into the unit file
   ansible.builtin.assert:
     that:
-      - app_env | binarycodes.homelab.container_problems(app_description, app_volumes) | length == 0
+      - app_env | binarycodes.homelab.container_validation_errors(app_description, app_volumes) | length == 0
     # A newline in a volume produces: ["systemd_app_volumes entry '...' holds a control character; ..."]
 """
 
@@ -126,10 +128,10 @@ _ENV_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
-def container_problems(env, description="", volumes=None, publish_ports=None,
-                       container_options=None, service_options=None, image="",
-                       network="", health_cmd="", health_interval="", health_retries="",
-                       health_start_period="", start_timeout=""):
+def container_validation_errors(env, description="", volumes=None, publish_ports=None,
+                                container_options=None, service_options=None, image="",
+                                network="", health_cmd="", health_interval="",
+                                health_retries="", health_start_period="", start_timeout=""):
     """Why this app's Quadlet cannot be rendered, one string per problem."""
     problems = []
 
@@ -190,4 +192,4 @@ class FilterModule:
     """Input checks for an app's rendered Quadlet."""
 
     def filters(self):
-        return {"container_problems": container_problems}
+        return {"container_validation_errors": container_validation_errors}

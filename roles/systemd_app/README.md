@@ -597,21 +597,21 @@ This destroys `/var/app/<app>` — back it up first:
 
 The role's real computation is Python, not Jinja: filter plugins for what runs on the
 controller, a module for what runs on the host. All ship with this collection and are called
-by their fully qualified names (`binarycodes.homelab.route_problems` and so on), so they
+by their fully qualified names (`binarycodes.homelab.route_validation_errors` and so on), so they
 resolve wherever the collection is installed:
 
 | Plugin               | Kind   | Used for                                                          |
 | -------------------- | ------ | ----------------------------------------------------------------- |
 | `podman_secrets`     | module | Reconciling the app's podman secrets against the store, on the host. |
 | `install_manifest`   | module | Reading, pruning and recording the install manifest, on the host; on `absent`, the units it implies. |
-| `app_problems`       | filter | Checking `systemd_app_name`, `_kind`, `_state`, what each kind requires, `_data_dirs`, and the secret names. |
-| `route_problems`     | filter | Checking `systemd_app_domain` / `_upstream` / `_port`.             |
-| `container_problems` | filter | Checking what would be interpolated into a rendered Quadlet.      |
+| `app_validation_errors`       | filter | Checking `systemd_app_name`, `_kind`, `_state`, what each kind requires, `_data_dirs`, and the secret names. |
+| `route_validation_errors`     | filter | Checking `systemd_app_domain` / `_upstream` / `_port`.             |
+| `container_validation_errors` | filter | Checking what would be interpolated into a rendered Quadlet.      |
 | `systemd_env_lines`  | filter | Quoting and escaping `systemd_app_env` into `Environment=` lines.  |
 
 The filters live in `plugins/filter/`, the modules in `plugins/modules/`, one file each, and
 are Python so they can be tested as Python: a table of cases in under a second, rather than
-a playbook run per case (`tests/unit/`). Both `*_problems` filters return a list of
+a playbook run per case (`tests/unit/`). Both `*_validation_errors` filters return a list of
 human-readable problems and never raise, so one run reports everything wrong at once. The
 secrets module keeps every podman call behind one runner and is tested against a fake
 store; the manifest module is tested against a temporary directory. A change to what the

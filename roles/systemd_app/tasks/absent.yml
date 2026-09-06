@@ -91,7 +91,7 @@
 - name: "Verify the home directory to remove belongs to app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
-      - systemd_app_name | binarycodes.homelab.app_problems(kind=systemd_app_kind, state='absent') | length == 0
+      - systemd_app_name | binarycodes.homelab.app_validation_errors(kind=systemd_app_kind, state='absent') | length == 0
       - systemd_app_home == systemd_app_root ~ '/' ~ systemd_app_name
       - systemd_app_home != systemd_app_root
     fail_msg: >-

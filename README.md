@@ -18,9 +18,9 @@ secrets.
 
 | Filter | Purpose |
 | ------ | ------- |
-| `app_problems` | Check the app's name, kind and state, what each kind requires, its data directories and its secret names, before anything is composed from them. |
-| `route_problems` | Check a domain, upstream and port before they are written into a Caddy site block. |
-| `container_problems` | Check what would be interpolated into a rendered Quadlet. |
+| `app_validation_errors` | Check the app's name, kind and state, what each kind requires, its data directories and its secret names, before anything is composed from them. |
+| `route_validation_errors` | Check a domain, upstream and port before they are written into a Caddy site block. |
+| `container_validation_errors` | Check what would be interpolated into a rendered Quadlet. |
 | `systemd_env_lines` | Quote and escape a dict into `Environment=` lines. |
 | `manifest_units` | *Deprecated, removed in 2.0.0.* The systemd units a recorded install manifest implies; the `install_manifest` module returns them as `units`. |
 | `secret_digests` | *Deprecated, removed in 2.0.0.* SHA-256 per podman secret value. |

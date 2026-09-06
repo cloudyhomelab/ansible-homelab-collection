@@ -15,6 +15,8 @@
 # What is refused, and why, is in the filter's own docs
 # (`ansible-doc -t filter binarycodes.homelab.app_problems`). Nothing here interpolates
 # systemd_app_name, so an undefined or unusable name fails this task rather than its title.
+# The secrets file is passed by its keys alone, and only on present: the values are podman's,
+# never a filter's, and a decommission must not need the key that decrypts them.
 - name: Validate role input
   ansible.builtin.assert:
     that:
@@ -30,7 +32,8 @@
            state=systemd_app_state,
            image=systemd_app_image | default(''),
            apps_dir=systemd_app_apps_dir | default(''),
-           data_dirs=systemd_app_data_dirs) }}
+           data_dirs=systemd_app_data_dirs,
+           secret_names=(systemd_app_secret_values | list) if systemd_app_state == 'present' else []) }}
 
 # The values checked below are interpolated into files this role generates rather than
 # passed to a module, so a stray character does not fail the task that writes them. Caddy

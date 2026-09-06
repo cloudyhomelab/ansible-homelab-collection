@@ -22,7 +22,8 @@
       # Deployed with systemd_app_enable_units, decommissioned without it — the case a
       # teardown that works only from the caller's unit names cannot stop.
       - {name: molorphan, kind: source}
-      # Refused at its secrets, so only its files are on the host by then.
+      # Refused at its secrets before anything reached the host; here so a decommission of
+      # an app that was never deployed stays green.
       - {name: molclaim, kind: inline}
 
   tasks:

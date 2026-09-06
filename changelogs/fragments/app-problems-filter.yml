@@ -2,9 +2,14 @@ minor_changes:
   - >-
     New filter ``app_problems``: why an app cannot be acted on as named, one string per
     problem - the name's shape, the kind and state, the image an ``inline`` deploy requires,
-    the ``systemd_app_apps_dir`` a ``source`` app requires, and the shape of each
-    ``systemd_app_data_dirs`` entry. The ``systemd_app`` role now validates its input
-    through it, in one task, reporting every problem at once.
+    the ``systemd_app_apps_dir`` a ``source`` app requires, the shape of each
+    ``systemd_app_data_dirs`` entry, and the names in ``secrets.sops.yaml`` (never the
+    values). The ``systemd_app`` role now validates its input through it, in one task,
+    reporting every problem at once.
+  - >-
+    The ``systemd_app`` role reconciles an app's podman secrets before installing any of its
+    files, so a value the store refuses fails the deploy with nothing on the host, as a
+    refused name already did.
 bugfixes:
   - >-
     The ``systemd_app`` role now refuses a ``systemd_app_name`` with a trailing newline. The

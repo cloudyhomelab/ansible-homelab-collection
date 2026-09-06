@@ -31,9 +31,15 @@ description:
     app's home on C(absent), so it may not be absolute or climb with C(..); relative and
     C(..)-free is what makes reaching another app's tree impossible, rather than a prefix
     check on a path the caller composed.
+  - A secret's name is passed to C(podman secret create) as root and written into a Quadlet's
+    C(Secret=) line, so it has the same shape as the app's name. For an C(inline) app the
+    role also derives the variable the container sees from it - upper-cased, dashes as
+    underscores - so the name is further limited to letters, digits and dashes; an
+    underscore or a dot would either not spell a variable or collide with a dashed name.
+    Checked by name only, so no value can reach a failure message.
   - Never raises, and returns one string per problem rather than stopping at the first, so a
     typo at a call site is reported in full and fixed in one pass.
-positional: kind, state, image, apps_dir, data_dirs
+positional: kind, state, image, apps_dir, data_dirs, secret_names
 options:
   _input:
     description: The app's name, C(systemd_app_name).
@@ -59,6 +65,11 @@ options:
     description: Entries of C(systemd_app_data_dirs), each a mapping with a C(path).
     type: list
     elements: dict
+    default: []
+  secret_names:
+    description: The keys of the app's C(secrets.sops.yaml), never its values.
+    type: list
+    elements: str
     default: []
 """
 
@@ -87,8 +98,13 @@ _STATES = ("present", "absent")
 # An empty segment is a doubled or trailing slash; the other two are how a path climbs.
 _FORBIDDEN_SEGMENTS = frozenset(["", ".", ".."])
 
+# A secret name that, upper-cased with dashes as underscores, spells a legal environment
+# variable and cannot collide with another name doing the same.
+_INLINE_SECRET_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]*")
 
-def app_problems(name, kind="", state="present", image="", apps_dir="", data_dirs=None):
+
+def app_problems(name, kind="", state="present", image="", apps_dir="", data_dirs=None,
+                 secret_names=None):
     """Why this app cannot be deployed or decommissioned as named, one string per problem."""
     problems = []
 
@@ -133,6 +149,20 @@ def app_problems(name, kind="", state="present", image="", apps_dir="", data_dir
             problems.append(
                 f"systemd_app_data_dirs path {path!r} has an empty, '.' or '..' segment, "
                 "which could climb out of the app's home"
+            )
+
+    for secret in secret_names or []:
+        secret = str(secret)
+        if not _NAME_RE.fullmatch(secret):
+            problems.append(
+                f"secrets.sops.yaml key {secret!r} is not a podman secret name (letters, digits, "
+                "dot, dash or underscore, not starting with a dot)"
+            )
+        elif kind == "inline" and not _INLINE_SECRET_RE.fullmatch(secret):
+            problems.append(
+                f"secrets.sops.yaml key {secret!r} cannot name the variable an 'inline' app's "
+                "container sees: upper-cased with dashes as underscores, so letters, digits "
+                "and dashes only, starting with a letter"
             )
 
     return problems

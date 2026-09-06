@@ -8,29 +8,32 @@
 # directories, so that file is the only place the set is written down. Decrypted on the
 # controller by the lookup behind systemd_app_secret_values (see defaults/main.yml), which
 # is why no task here loads anything: the values are evaluated where they are used and are
-# never a fact. First in the file because an 'inline' app's Quadlet is rendered from those
-# names below. no_log, because the loop items carry the values and the deploy runs with -v.
-- name: "Verify every secret can be stored for app {{ systemd_app_name }}"
-  ansible.builtin.assert:
-    that:
-      # Passed to `podman secret` as root, and useful only if a Quadlet can reference it.
-      - item.key is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')
-      # An 'inline' app's Secret= line is rendered from this key, so the key also has to
-      # spell a legal environment variable once upper-cased — no dots, no leading digit.
-      - systemd_app_kind != 'inline' or item.key is match('^[A-Za-z][A-Za-z0-9-]*$')
-      # Refused here rather than at container start, where an empty value surfaces as the
-      # app failing to boot with no explanation of why.
-      - item.value is not none and (item.value | string | length > 0)
-    fail_msg: >-
-      {{ systemd_app_name }}/secrets.sops.yaml must map podman secret names (letters,
-      digits, dot, dash or underscore, not starting with a dot) to non-empty values. For an
-      'inline' app the name is also the variable the container sees, upper-cased with
-      dashes as underscores, so it is limited to letters, digits and dashes.
-    quiet: true
-  loop: "{{ systemd_app_secret_values | dict2items }}"
-  loop_control:
-    label: "{{ item.key }}"
-  no_log: true
+# never a fact. The names were checked with the rest of the input in main.yml; the values
+# are checked by the module below, which is the first task here so that a value the store
+# refuses fails the deploy before any file is installed.
+#
+# One module call does the whole of the store: creates what is missing, removes and
+# re-creates what changed (podman cannot update a secret in place), drops what the app has
+# stopped declaring, and refuses a name another app owns. Ownership and the value's digest
+# live as labels on the secret itself, so the store is the only record and a secret removed
+# by hand is simply missing and comes back. The values are a no_log parameter, so a podman
+# failure is reported with its name, exit code and stderr while the value stays out of the
+# log. Registered for the restart decision below: podman reads a secret when it *creates*
+# a container, so a changed one is only live once the app is restarted.
+- name: "Reconcile podman secrets of app {{ systemd_app_name }}"
+  binarycodes.homelab.podman_secrets:
+    app: "{{ systemd_app_name }}"
+    secrets: "{{ systemd_app_secret_values }}"
+  register: systemd_app_secrets
+
+# Written by releases before 1.1.0, which recorded the digests in a file rather than on the
+# secrets. The module adopts a secret stored that way on the first deploy after upgrading,
+# so the file is not read; it is removed so a backup of the app no longer carries a digest
+# of every secret it ever had. Remove this task at 2.0.0.
+- name: "Remove the pre-1.1.0 secret digest record of app {{ systemd_app_name }}"
+  ansible.builtin.file:
+    path: "{{ systemd_app_home }}/.secret-digests"
+    state: absent
 
 # 'inline' kind: render the single-container Quadlet from call-site params. 'source'
 # kind installs its container from a file instead (the copy tasks below).
@@ -172,29 +175,6 @@
   loop: "{{ systemd_app_data_dirs }}"
   loop_control:
     label: "{{ item.path }}"
-
-# One module call does the whole of the store: creates what is missing, removes and
-# re-creates what changed (podman cannot update a secret in place), drops what the app has
-# stopped declaring, and refuses a name another app owns. Ownership and the value's digest
-# live as labels on the secret itself, so the store is the only record and a secret removed
-# by hand is simply missing and comes back. The values are a no_log parameter, so a podman
-# failure is reported with its name, exit code and stderr while the value stays out of the
-# log. Registered for the restart decision below: podman reads a secret when it *creates*
-# a container, so a changed one is only live once the app is restarted.
-- name: "Reconcile podman secrets of app {{ systemd_app_name }}"
-  binarycodes.homelab.podman_secrets:
-    app: "{{ systemd_app_name }}"
-    secrets: "{{ systemd_app_secret_values }}"
-  register: systemd_app_secrets
-
-# Written by releases before 1.1.0, which recorded the digests in a file rather than on the
-# secrets. The module adopts a secret stored that way on the first deploy after upgrading,
-# so the file is not read; it is removed so a backup of the app no longer carries a digest
-# of every secret it ever had. Remove this task at 2.0.0.
-- name: "Remove the pre-1.1.0 secret digest record of app {{ systemd_app_name }}"
-  ansible.builtin.file:
-    path: "{{ systemd_app_home }}/.secret-digests"
-    state: absent
 
 # Caddy route: only written when the app opts in with systemd_app_domain. The
 # snippet is imported by the central Caddyfile, so no daemon-reload is needed and

@@ -232,6 +232,35 @@ def test_data_directories_that_could_leave_the_home_are_rejected(entry):
     assert len(got) == 1 and got[0].startswith("systemd_app_data_dirs")
 
 
+@pytest.mark.parametrize("secret", ["myapp-token", "a", "myapp-oidc-client-secret", "x1-2"])
+def test_secret_names_an_inline_app_can_reference_are_accepted(secret):
+    assert problems(secret_names=[secret]) == []
+    assert problems(kind="source", apps_dir="/srv", secret_names=[secret]) == []
+
+
+@pytest.mark.parametrize("secret", ["my.app.token", "my_app_token", "1token"])
+def test_a_source_app_may_use_any_podman_secret_name(secret):
+    assert problems(kind="source", apps_dir="/srv", secret_names=[secret]) == []
+
+
+@pytest.mark.parametrize("secret", ["my.app.token", "my_app_token", "1token", "token-\n"])
+def test_an_inline_app_needs_names_that_spell_a_variable(secret):
+    got = problems(secret_names=[secret])
+    assert len(got) == 1 and got[0].startswith("secrets.sops.yaml key")
+
+
+@pytest.mark.parametrize("secret", ["", ".token", "my token", "my/token", "token\n"])
+def test_names_podman_would_refuse_are_refused_for_either_kind(secret):
+    for kwargs in ({}, {"kind": "source", "apps_dir": "/srv"}):
+        got = problems(secret_names=[secret], **kwargs)
+        assert len(got) == 1 and "podman secret name" in got[0]
+
+
+def test_no_secret_value_appears_in_an_app_problem():
+    # Values never reach the filter, by construction: the call site passes the keys alone.
+    assert "value" not in inspect.signature(app_problems).parameters
+
+
 def test_every_app_problem_is_reported_at_once():
     got = app_problems("bad name", kind="what", state="gone", data_dirs=[{"path": "/x"}])
     assert len(got) == 4
@@ -479,7 +508,7 @@ def test_every_scalar_the_inline_template_interpolates_reaches_the_filter():
         "systemd_app_name",
         # Their own filter, called by the template itself.
         "systemd_app_env",
-        # Read from the app's SOPS file after this assert has run, so it cannot be here.
+        # Only the names reach the unit, and app_problems checks those, in main.yml.
         "systemd_app_secret_values",
     }
     assert interpolated - checked == set()

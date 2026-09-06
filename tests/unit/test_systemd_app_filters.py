@@ -20,6 +20,7 @@ from ansible.errors import AnsibleFilterError
 
 # Registered by conftest.py, which loads them from plugins/filter/ by path -- one module
 # per filter, each named systemd_app_<filter name>.
+from systemd_app_app_problems import app_problems
 from systemd_app_container_problems import container_problems
 from systemd_app_manifest_units import manifest_units
 from systemd_app_reconcile_secrets import reconcile_secrets
@@ -141,6 +142,104 @@ def test_corrupt_record_is_refused_rather_than_ignored(content):
     # the app; a refusal says what to do instead.
     with pytest.raises(AnsibleFilterError):
         reconcile_secrets(DIGESTS, content, [])
+
+
+# --- app_problems ----------------------------------------------------------------------
+
+def problems(name="myapp", **kwargs):
+    kwargs.setdefault("kind", "inline")
+    kwargs.setdefault("image", "docker.io/org/app:latest")
+    return app_problems(name, **kwargs)
+
+
+def test_a_trailing_newline_in_the_name_is_refused():
+    # The case the YAML `is match('^...$')` assert this filter replaced let through: `$`
+    # matches before a trailing newline, and nothing the name is written into fails on one.
+    assert problems("myapp\n") != []
+    assert problems("myapp") == []
+
+
+@pytest.mark.parametrize("name", ["myapp", "my.app", "my-app_2", "0app", "a"])
+def test_good_names_are_accepted(name):
+    assert problems(name) == []
+
+
+@pytest.mark.parametrize("name", ["", None, ".app", "..", "my/app", "my app", "app\x00", "-app"])
+def test_bad_names_are_rejected_and_named(name):
+    got = problems(name)
+    assert len(got) == 1 and got[0].startswith("systemd_app_name")
+
+
+@pytest.mark.parametrize("kind", ["", None, "Inline", "container"])
+def test_bad_kinds_are_rejected(kind):
+    assert any(p.startswith("systemd_app_kind") for p in problems(kind=kind))
+
+
+@pytest.mark.parametrize("state", ["", None, "removed"])
+def test_bad_states_are_rejected(state):
+    assert any(p.startswith("systemd_app_state") for p in problems(state=state))
+
+
+@pytest.mark.parametrize("image", ["", None])
+def test_an_inline_app_being_deployed_needs_an_image(image):
+    assert any(p.startswith("systemd_app_image") for p in problems(image=image))
+
+
+@pytest.mark.parametrize("image", ["", None])
+def test_an_inline_app_being_decommissioned_needs_no_image(image):
+    assert problems(state="absent", image=image) == []
+
+
+def test_a_source_app_needs_no_image():
+    assert problems(kind="source", image="", apps_dir="/srv/apps") == []
+
+
+@pytest.mark.parametrize("apps_dir", ["", None])
+def test_a_source_app_needs_the_apps_directory(apps_dir):
+    got = problems(kind="source", apps_dir=apps_dir)
+    assert any(p.startswith("systemd_app_apps_dir") for p in got)
+    # Either state: a decommission still looks there for the app's secrets file.
+    assert problems(kind="source", state="absent", apps_dir=apps_dir) != []
+
+
+def test_an_inline_app_needs_no_apps_directory():
+    assert problems(apps_dir="") == []
+
+
+@pytest.mark.parametrize("path", ["data", "data/db", "a.b", "..hidden"])
+def test_relative_data_directories_are_accepted(path):
+    assert problems(data_dirs=[{"path": path, "owner": "10001"}]) == []
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"path": "/var/app/other/data"},
+        {"path": "../other/data"},
+        {"path": "data/../../other"},
+        {"path": "./data"},
+        {"path": "data//db"},
+        {"path": "data/"},
+        {"path": ""},
+        {"path": None},
+        {"path": 3},
+        {"owner": "10001"},
+        "data",
+    ],
+)
+def test_data_directories_that_could_leave_the_home_are_rejected(entry):
+    got = problems(data_dirs=[entry])
+    assert len(got) == 1 and got[0].startswith("systemd_app_data_dirs")
+
+
+def test_every_app_problem_is_reported_at_once():
+    got = app_problems("bad name", kind="what", state="gone", data_dirs=[{"path": "/x"}])
+    assert len(got) == 4
+
+
+def test_the_role_defaults_are_no_problem():
+    assert app_problems("myapp", kind="inline", state="present", image="img", apps_dir="", data_dirs=[]) == []
+    assert app_problems("myapp", kind="source", state="present", image="", apps_dir="/srv/apps", data_dirs=[]) == []
 
 
 # --- route_problems --------------------------------------------------------------------

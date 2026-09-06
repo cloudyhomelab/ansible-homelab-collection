@@ -1,0 +1,13 @@
+minor_changes:
+  - >-
+    New filter ``app_problems``: why an app cannot be acted on as named, one string per
+    problem - the name's shape, the kind and state, the image an ``inline`` deploy requires,
+    the ``systemd_app_apps_dir`` a ``source`` app requires, and the shape of each
+    ``systemd_app_data_dirs`` entry. The ``systemd_app`` role now validates its input
+    through it, in one task, reporting every problem at once.
+bugfixes:
+  - >-
+    The ``systemd_app`` role now refuses a ``systemd_app_name`` with a trailing newline. The
+    check was a ``$``-anchored ``match``, which accepts one, and nothing the name is written
+    into - install paths, ``ContainerName=``, the route snippet's filename - fails on it. No
+    working deploy is affected, since such a container would never have started.

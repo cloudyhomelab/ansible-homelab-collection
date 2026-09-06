@@ -9,30 +9,28 @@
 #   inline -> render a single-container Quadlet from call-site params (image, env, ...).
 # Both kinds optionally register a Caddy route. See README + defaults/main.yml.
 
+# The name composes every install path and, on absent, a recursive delete of the app's
+# home, so it has to be one plain path segment; the two conditional requirements cannot
+# be expressed in meta/argument_specs.yml, which can only mark an option required outright.
+# What is refused, and why, is in the filter's own docs
+# (`ansible-doc -t filter binarycodes.homelab.app_problems`). Nothing here interpolates
+# systemd_app_name, so an undefined or unusable name fails this task rather than its title.
 - name: Validate role input
   ansible.builtin.assert:
     that:
-      - systemd_app_name is defined
-      - systemd_app_name | string | length > 0
-      # The name composes every install path and, on absent, a recursive delete of
-      # {{ systemd_app_root }}/<name>, so it must be one plain path segment:
-      # a slash or a leading dot would let that delete escape the app's own directory.
-      - systemd_app_name is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')
-      - systemd_app_kind is defined
-      - systemd_app_kind in ['source', 'inline']
-      # 'inline' renders from an image, so present requires one (absent does not).
-      - systemd_app_kind != 'inline' or systemd_app_state == 'absent' or (systemd_app_image is defined and (systemd_app_image | string | length > 0))
-      # 'source' installs from a directory under systemd_app_apps_dir, which has no
-      # default. Checked here rather than in meta/argument_specs.yml, which can only
-      # mark an option required outright and would then fail every 'inline' app.
-      - systemd_app_kind != 'source' or (systemd_app_apps_dir is defined and (systemd_app_apps_dir | string | length > 0))
+      - systemd_app_app_problems | length == 0
     fail_msg: >-
-      The 'systemd_app' role requires 'systemd_app_name' (letters, digits, dot, dash
-      or underscore, not starting with a dot) and 'systemd_app_kind' (source|inline);
-      an 'inline' app being deployed (state=present) also requires 'systemd_app_image',
-      and a 'source' app requires 'systemd_app_apps_dir' — the directory its own
-      directory sits in, normally set once as a play variable.
+      The 'systemd_app' role cannot act on this app as given:
+      {{ systemd_app_app_problems | join('; ') }}.
     quiet: true
+  vars:
+    systemd_app_app_problems: >-
+      {{ systemd_app_name | default('') | binarycodes.homelab.app_problems(
+           kind=systemd_app_kind | default(''),
+           state=systemd_app_state,
+           image=systemd_app_image | default(''),
+           apps_dir=systemd_app_apps_dir | default(''),
+           data_dirs=systemd_app_data_dirs) }}
 
 # The values checked below are interpolated into files this role generates rather than
 # passed to a module, so a stray character does not fail the task that writes them. Caddy

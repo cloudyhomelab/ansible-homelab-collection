@@ -159,26 +159,9 @@
 # Podman creates a missing host path as root:root, which an unprivileged container cannot
 # write in, so the directory is made here with the owner the image runs as. The deploy
 # would not notice otherwise: the mount succeeds either way, and only the app hits the
-# failure, later, when it tries to write.
-- name: "Verify data directories are relative paths for app {{ systemd_app_name }}"
-  ansible.builtin.assert:
-    that:
-      # Created as root with a caller-supplied owner, and removed with the state tree on
-      # absent, so a path that climbed out of this app's own directory would hand another
-      # app's data away — or take it with it. Relative and '..'-free is what makes that
-      # impossible, rather than a prefix check on a path the caller composed.
-      - item.path is string
-      - not item.path.startswith('/')
-      - item.path.split('/') | intersect(['', '.', '..']) | length == 0
-    fail_msg: >-
-      Refusing to create '{{ item.path | default('(no path)') }}': an entry of
-      systemd_app_data_dirs names a path relative to {{ systemd_app_home }} —
-      'data', not '/var/app/<app>/data' — and may not climb out of it with '..'.
-    quiet: true
-  loop: "{{ systemd_app_data_dirs }}"
-  loop_control:
-    label: "{{ item.path | default('(no path)') }}"
-
+# failure, later, when it tries to write. That each path is relative and '..'-free was
+# checked with the rest of the input in main.yml, since a path that climbed out of this
+# app's home would be created as root here and removed with the tree on absent.
 - name: "Ensure data directories exist for app {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_home }}/{{ item.path }}"

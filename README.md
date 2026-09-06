@@ -18,6 +18,7 @@ secrets.
 
 | Filter | Purpose |
 | ------ | ------- |
+| `app_problems` | Check the app's name, kind and state, what each kind requires, its data directories and its secret names, before anything is composed from them. |
 | `route_problems` | Check a domain, upstream and port before they are written into a Caddy site block. |
 | `container_problems` | Check what would be interpolated into a rendered Quadlet. |
 | `systemd_env_lines` | Quote and escape a dict into `Environment=` lines. |

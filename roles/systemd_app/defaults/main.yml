@@ -57,9 +57,10 @@ systemd_app_manifest_file: "{{ systemd_app_home }}/.install-manifest"
 # What a 'source' deploy installs, read from the app's directory on the controller: the
 # files of quadlet/ and unit/, every file of the config/ tree, and the host path each lands
 # at, which is what the install manifest records. One filter rather than globs and a find,
-# so the manifest is composed where it is tested. Evaluated where it is referenced, and only
-# by tasks a 'source' app reaches, so an 'inline' app never reads it. A missing directory
-# raises, though main.yml refuses one before this is ever read.
+# so the manifest is composed where it is tested. Evaluated where it is referenced, which is
+# only in tasks/install-source.yml and a branch the manifest task takes for 'source' alone,
+# so an 'inline' app never reads it. A missing directory raises, though main.yml refuses one
+# before this is ever read.
 systemd_app_source_tree: >-
   {{ (systemd_app_apps_dir ~ '/' ~ systemd_app_name) | binarycodes.homelab.source_tree(
        systemd_app_system_dir, systemd_app_unit_dir, systemd_app_home ~ '/config') }}

@@ -36,7 +36,7 @@
     state: absent
 
 # 'inline' kind: render the single-container Quadlet from call-site params. 'source'
-# kind installs its container from a file instead (the copy tasks below).
+# kind installs its container from a file instead (install-source.yml).
 - name: "Render Quadlet for container {{ systemd_app_name }}"
   ansible.builtin.template:
     src: inline.container.j2
@@ -48,51 +48,17 @@
   register: systemd_app_quadlet_render
   notify: systemd_app reload systemd
 
-- name: "Install Quadlet files for app {{ systemd_app_name }}"
-  ansible.builtin.copy:
-    src: "{{ item }}"
-    dest: "{{ systemd_app_system_dir }}/"
-    owner: "{{ systemd_app_owner }}"
-    group: "{{ systemd_app_group }}"
-    mode: "{{ systemd_app_file_mode }}"
-  loop: "{{ systemd_app_source_tree.quadlet_files }}"
+# Included rather than written here with `when: systemd_app_kind == 'source'` on each task:
+# Ansible evaluates a task's `loop` before its `when`, so a loop over
+# systemd_app_source_tree would read the tree for an 'inline' app too, and the filter
+# behind it refuses an app directory that is not there.
+- name: "Install the files of source app {{ systemd_app_name }}"
+  ansible.builtin.include_tasks: install-source.yml
   when: systemd_app_kind == 'source'
-  register: systemd_app_quadlet_install
-  notify: systemd_app reload systemd
 
-- name: "Install systemd units for app {{ systemd_app_name }}"
-  ansible.builtin.copy:
-    src: "{{ item }}"
-    dest: "{{ systemd_app_unit_dir }}/"
-    owner: "{{ systemd_app_owner }}"
-    group: "{{ systemd_app_group }}"
-    mode: "{{ systemd_app_file_mode }}"
-  loop: "{{ systemd_app_source_tree.unit_files }}"
-  when: systemd_app_kind == 'source'
-  register: systemd_app_unit_install
-  notify: systemd_app reload systemd
-
-# The tree is copied whole, layout preserved; what it holds is recorded file by file in the
-# manifest below, so the next deploy can prune what this one stops shipping.
-- name: "Deploy config tree for app {{ systemd_app_name }}"
-  ansible.builtin.copy:
-    src: "{{ systemd_app_source_tree.config_dir }}/"
-    dest: "{{ systemd_app_home }}/config/"
-    owner: "{{ systemd_app_owner }}"
-    group: "{{ systemd_app_group }}"
-    mode: "{{ systemd_app_file_mode }}"
-    directory_mode: "{{ systemd_app_dir_mode }}"
-  when:
-    # Shipping files from the repo is what makes an app 'source'; an 'inline' app is
-    # defined entirely at the call site and has no config tree to copy. First, so the tree
-    # is only read for a 'source' app.
-    - systemd_app_kind == 'source'
-    - systemd_app_source_tree.config_dir is not none
-  register: systemd_app_config_deploy
-
-# The config copy above creates this, but only for an app that ships a config tree. Every
-# app owns host state below it regardless: the install manifest recorded just below, and
-# for some also a bind-mounted data directory.
+# The config copy in install-source.yml creates this, but only for an app that ships a
+# config tree. Every app owns host state below it regardless: the install manifest recorded
+# just below, and for some also a bind-mounted data directory.
 - name: "Ensure the home directory exists for app {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_home }}"

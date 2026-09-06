@@ -132,13 +132,10 @@
     - systemd_app_state == 'present'
     - systemd_app_kind == 'inline'
 
-# A 'source' app installs from this directory, and every variable that reads it
-# (systemd_app_source_quadlet_files and its two siblings) is a fileglob, which returns an
-# empty list for a path that is not there rather than failing. So a wrong
-# systemd_app_apps_dir installs nothing and still reports success — and worse, on an app
-# already deployed, present.yml reads that empty set as "the app has stopped shipping
-# these files" and prunes every path the last deploy recorded. Checked here, before
-# either can happen.
+# A 'source' app installs from this directory. The filter behind systemd_app_source_tree
+# refuses a missing one, but is first read after the secrets are reconciled; checked here,
+# with the rest of the input, so a wrong systemd_app_apps_dir fails before anything is
+# touched, with a message that says what would otherwise have happened.
 #
 # Only on the present path: a decommission works from the manifest on the host alone, so
 # it has to keep working once the app's source tree is gone.
@@ -171,11 +168,9 @@
 # Facts and registers both persist for the rest of the play, and this role runs once
 # per app, so everything path-shaped is cleared here — an app must never inherit
 # another app's paths from an earlier invocation in the same run, least of all into a
-# task that deletes them. systemd_app_config_found is included because its `find` is
-# skipped for apps with no config tree, which would otherwise leave the previous app's
-# file list standing. systemd_app_source_dir_stat and systemd_app_route_clash have already
-# been consumed by the asserts above, and are cleared all the same, so nothing added later
-# can read another app's result.
+# task that deletes them. systemd_app_source_dir_stat and systemd_app_route_clash have
+# already been consumed by the asserts above, and are cleared all the same, so nothing added
+# later can read another app's result.
 #
 # The install registers are here for a related reason: each is skipped for the kind — or the
 # app — that does not use it, so one app's file changes would otherwise decide how the next
@@ -187,7 +182,6 @@
     systemd_app_manifest: {}
     systemd_app_source_dir_stat: {}
     systemd_app_route_clash: {}
-    systemd_app_config_found: {}
     systemd_app_secrets: {}
     systemd_app_secret_digest_slurp: {}
     systemd_app_quadlet_render: {}

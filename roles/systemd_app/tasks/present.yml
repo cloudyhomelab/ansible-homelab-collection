@@ -55,7 +55,7 @@
     owner: "{{ systemd_app_owner }}"
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_file_mode }}"
-  loop: "{{ systemd_app_source_quadlet_files }}"
+  loop: "{{ systemd_app_source_tree.quadlet_files }}"
   when: systemd_app_kind == 'source'
   register: systemd_app_quadlet_install
   notify: systemd_app reload systemd
@@ -67,38 +67,16 @@
     owner: "{{ systemd_app_owner }}"
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_file_mode }}"
-  loop: "{{ systemd_app_source_unit_files }}"
+  loop: "{{ systemd_app_source_tree.unit_files }}"
   when: systemd_app_kind == 'source'
   register: systemd_app_unit_install
   notify: systemd_app reload systemd
 
-- name: "Check for config directory of app {{ systemd_app_name }}"
-  ansible.builtin.stat:
-    path: "{{ systemd_app_source_config_dir }}"
-  delegate_to: localhost
-  become: false
-  register: systemd_app_config_dir
-
-# Recursive, because a config tree nests and fileglob sees only one level down. The
-# manifest has to list every file the copy below installs, or the next deploy prunes
-# something it should have kept.
-- name: "Find config files of app {{ systemd_app_name }}"
-  ansible.builtin.find:
-    paths: "{{ systemd_app_source_config_dir }}"
-    recurse: true
-    hidden: true
-    file_type: file
-  delegate_to: localhost
-  become: false
-  register: systemd_app_config_found
-  when:
-    - systemd_app_kind == 'source'
-    - systemd_app_config_dir.stat.exists
-    - systemd_app_config_dir.stat.isdir
-
+# The tree is copied whole, layout preserved; what it holds is recorded file by file in the
+# manifest below, so the next deploy can prune what this one stops shipping.
 - name: "Deploy config tree for app {{ systemd_app_name }}"
   ansible.builtin.copy:
-    src: "{{ systemd_app_source_config_dir }}/"
+    src: "{{ systemd_app_source_tree.config_dir }}/"
     dest: "{{ systemd_app_home }}/config/"
     owner: "{{ systemd_app_owner }}"
     group: "{{ systemd_app_group }}"
@@ -106,10 +84,10 @@
     directory_mode: "{{ systemd_app_dir_mode }}"
   when:
     # Shipping files from the repo is what makes an app 'source'; an 'inline' app is
-    # defined entirely at the call site and has no config tree to copy.
+    # defined entirely at the call site and has no config tree to copy. First, so the tree
+    # is only read for a 'source' app.
     - systemd_app_kind == 'source'
-    - systemd_app_config_dir.stat.exists
-    - systemd_app_config_dir.stat.isdir
+    - systemd_app_source_tree.config_dir is not none
   register: systemd_app_config_deploy
 
 # The config copy above creates this, but only for an app that ships a config tree. Every
@@ -138,7 +116,7 @@
     path: "{{ systemd_app_manifest_file }}"
     installed: >-
       {{ systemd_app_inline_installed_paths if systemd_app_kind == 'inline'
-         else systemd_app_source_installed_paths }}
+         else systemd_app_source_tree.installed }}
     system_dir: "{{ systemd_app_system_dir }}"
     unit_dir: "{{ systemd_app_unit_dir }}"
     config_dir: "{{ systemd_app_home }}/config"
@@ -146,15 +124,9 @@
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_file_mode }}"
   vars:
-    # 'source': the two flat install dirs by basename plus the config tree with its layout
-    # preserved; 'inline': the one rendered Quadlet.
+    # 'inline': the one rendered Quadlet. 'source': what the tree says it installed.
     systemd_app_inline_installed_paths:
       - "{{ systemd_app_system_dir }}/{{ systemd_app_name }}.container"
-    systemd_app_source_installed_paths: >-
-      {{ ([systemd_app_system_dir] | product(systemd_app_source_quadlet_files | map('basename') | list) | map('join', '/') | list)
-         + ([systemd_app_unit_dir] | product(systemd_app_source_unit_files | map('basename') | list) | map('join', '/') | list)
-         + ([systemd_app_home ~ '/config'] | product(systemd_app_config_found.files | default([])
-            | map(attribute='path') | map('relpath', systemd_app_source_config_dir) | list) | map('join', '/') | list) }}
   register: systemd_app_manifest
   notify: systemd_app reload systemd
 

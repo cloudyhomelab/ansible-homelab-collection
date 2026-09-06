@@ -186,10 +186,9 @@ it. Set it once as a play variable, since every app in a play reads the same tre
 ```
 
 A `source` app whose directory is not under it fails the run too, before anything is
-installed, rather than being treated as an app that ships no files: the lookups that read
-the directory are globs and return nothing for a path that does not exist, so a deploy
-would otherwise install nothing, report success, and prune every file the last one
-recorded (see [install manifest](#install-manifest)).
+installed, rather than being treated as an app that ships no files: a deploy that read
+nothing would install nothing, report success, and prune every file the last one recorded
+(see [install manifest](#install-manifest)).
 
 An `inline` app needs the variable only to be found by the secrets lookup below; without
 it that lookup is skipped, and the app is deployed as one that ships no secrets.
@@ -604,6 +603,7 @@ resolve wherever the collection is installed:
 | -------------------- | ------ | ----------------------------------------------------------------- |
 | `podman_secrets`     | module | Reconciling the app's podman secrets against the store, on the host. |
 | `install_manifest`   | module | Reading, pruning and recording the install manifest, on the host; on `absent`, the units it implies. |
+| `source_tree`        | filter | Reading what a `source` app ships from its directory, and the host paths it installs to. |
 | `app_validation_errors`       | filter | Checking `systemd_app_name`, `_kind`, `_state`, what each kind requires, `_data_dirs`, and the secret names. |
 | `route_validation_errors`     | filter | Checking `systemd_app_domain` / `_upstream` / `_port`.             |
 | `container_validation_errors` | filter | Checking what would be interpolated into a rendered Quadlet.      |

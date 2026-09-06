@@ -16,6 +16,7 @@ import pathlib
 import re
 
 import pytest
+import yaml
 from ansible.errors import AnsibleFilterError
 
 # Registered by conftest.py, which loads them from plugins/filter/ by path -- one module
@@ -26,6 +27,7 @@ from systemd_app_manifest_units import manifest_units
 from systemd_app_reconcile_secrets import reconcile_secrets
 from systemd_app_route_validation_errors import route_validation_errors
 from systemd_app_secret_digests import secret_digests
+from systemd_app_source_tree import source_tree
 from systemd_app_systemd_env_lines import systemd_env_lines
 
 
@@ -611,6 +613,127 @@ def test_an_ordinary_call_site_validates():
         {"FORWARD_HEADERS_STRATEGY": "native"}, "Myapp web app"
     ) == []
     assert container_validation_errors({}, None) == []
+
+
+# --- source_tree -----------------------------------------------------------------------
+
+HOME_CONFIG = "/var/app/myapp/config"
+
+
+def tree(app_dir):
+    return source_tree(str(app_dir), SYSTEM_DIR, UNIT_DIR, HOME_CONFIG)
+
+
+def touch(path, text=""):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+def test_a_full_source_app_is_grouped_as_it_is_installed(tmp_path):
+    app = tmp_path / "myapp"
+    touch(app / "quadlet" / "myapp.container")
+    touch(app / "quadlet" / "myapp.network")
+    touch(app / "unit" / "myapp-extra.service")
+    touch(app / "config" / "app.conf")
+    touch(app / "config" / "nested" / "deep.conf")
+    got = tree(app)
+    assert got["quadlet_files"] == [str(app / "quadlet" / "myapp.container"), str(app / "quadlet" / "myapp.network")]
+    assert got["unit_files"] == [str(app / "unit" / "myapp-extra.service")]
+    assert got["config_files"] == [
+        {"src": str(app / "config" / "app.conf"), "path": "app.conf"},
+        {"src": str(app / "config" / "nested" / "deep.conf"), "path": "nested/deep.conf"},
+    ]
+    assert got["config_dir"] == str(app / "config")
+    assert got["installed"] == [
+        f"{SYSTEM_DIR}/myapp.container",
+        f"{SYSTEM_DIR}/myapp.network",
+        f"{UNIT_DIR}/myapp-extra.service",
+        f"{HOME_CONFIG}/app.conf",
+        f"{HOME_CONFIG}/nested/deep.conf",
+    ]
+
+
+def test_an_app_shipping_only_a_quadlet_has_no_config_dir(tmp_path):
+    app = tmp_path / "net"
+    touch(app / "quadlet" / "web.network")
+    got = tree(app)
+    assert got["unit_files"] == [] and got["config_files"] == []
+    assert got["config_dir"] is None
+    assert got["installed"] == [f"{SYSTEM_DIR}/web.network"]
+
+
+def test_an_empty_config_directory_is_still_a_config_dir(tmp_path):
+    # The copy runs for it, creating the tree on the host, so the deploy must know it is there.
+    app = tmp_path / "myapp"
+    (app / "config").mkdir(parents=True)
+    got = tree(app)
+    assert got["config_dir"] == str(app / "config") and got["config_files"] == []
+
+
+def test_hidden_files_are_shipped_in_config_but_not_in_the_flat_directories(tmp_path):
+    # config/ is copied whole, dotfiles included; quadlet/ and unit/ were globbed with `*`,
+    # which skips them, and an editor's swap file in there is not a unit.
+    app = tmp_path / "myapp"
+    touch(app / "quadlet" / ".myapp.container.swp")
+    touch(app / "quadlet" / "myapp.container")
+    touch(app / "unit" / ".hidden.service")
+    touch(app / "config" / ".env")
+    touch(app / "config" / ".hidden" / "deep.conf")
+    got = tree(app)
+    assert got["quadlet_files"] == [str(app / "quadlet" / "myapp.container")]
+    assert got["unit_files"] == []
+    assert [e["path"] for e in got["config_files"]] == [".env", ".hidden/deep.conf"]
+
+
+def test_directories_inside_the_flat_directories_are_not_files(tmp_path):
+    app = tmp_path / "myapp"
+    (app / "quadlet" / "drop-in.d").mkdir(parents=True)
+    touch(app / "quadlet" / "myapp.container")
+    assert tree(app)["quadlet_files"] == [str(app / "quadlet" / "myapp.container")]
+
+
+def test_a_symlink_to_a_file_is_a_file_the_copy_installs(tmp_path):
+    # The copy follows it and puts a regular file on the host, so the manifest lists it.
+    app = tmp_path / "myapp"
+    target = touch(tmp_path / "shared.conf")
+    (app / "config").mkdir(parents=True)
+    (app / "config" / "linked.conf").symlink_to(target)
+    got = tree(app)
+    assert [e["path"] for e in got["config_files"]] == ["linked.conf"]
+    assert got["installed"] == [f"{HOME_CONFIG}/linked.conf"]
+
+
+def test_a_symlink_to_a_directory_under_config_is_not_descended(tmp_path):
+    app = tmp_path / "myapp"
+    touch(tmp_path / "elsewhere" / "x.conf")
+    (app / "config").mkdir(parents=True)
+    (app / "config" / "linked").symlink_to(tmp_path / "elsewhere")
+    assert tree(app)["config_files"] == []
+
+
+def test_a_missing_app_directory_raises_rather_than_shipping_nothing(tmp_path):
+    with pytest.raises(AnsibleFilterError, match="is not a directory"):
+        tree(tmp_path / "nowhere")
+
+
+def test_the_install_dirs_are_composed_from_the_caller(tmp_path):
+    app = tmp_path / "myapp"
+    touch(app / "quadlet" / "a.container")
+    touch(app / "unit" / "b.timer")
+    touch(app / "config" / "c.conf")
+    got = source_tree(str(app), "/srv/quadlet/", "/srv/units", "/srv/state/myapp/config")
+    assert got["installed"] == ["/srv/quadlet/a.container", "/srv/state/myapp/config/c.conf", "/srv/units/b.timer"]
+
+
+def test_the_molecule_fixture_records_what_the_scenario_expects():
+    """The scenario's oracle for the source app's manifest, checked against the fixture tree
+    it is written for: the two must agree or one of them is wrong."""
+    scenario = pathlib.Path(__file__).resolve().parents[2] / "extensions" / "molecule" / "default"
+    verify = yaml.safe_load((scenario / "verify.yml").read_text())
+    expected = verify[0]["vars"]["molecule_expected_source_manifest"]
+    got = source_tree(str(scenario / "apps" / "molsource"), SYSTEM_DIR, UNIT_DIR, "/var/app/molsource/config")
+    assert got["installed"] == sorted(expected)
 
 
 # --- systemd_env_lines -----------------------------------------------------------------

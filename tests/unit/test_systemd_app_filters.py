@@ -154,6 +154,14 @@ def errors(name="myapp", **kwargs):
     return app_validation_errors(name, **kwargs)
 
 
+@pytest.fixture(scope="module")
+def apps_dir(tmp_path_factory):
+    """An apps directory holding 'myapp', for the cases about a source app that exists."""
+    root = tmp_path_factory.mktemp("apps")
+    (root / "myapp").mkdir()
+    return str(root)
+
+
 def test_a_trailing_newline_in_the_name_is_refused():
     # The case the YAML `is match('^...$')` assert this filter replaced let through: `$`
     # matches before a trailing newline, and nothing the name is written into fails on one.
@@ -192,8 +200,8 @@ def test_an_inline_app_being_decommissioned_needs_no_image(image):
     assert errors(state="absent", image=image) == []
 
 
-def test_a_source_app_needs_no_image():
-    assert errors(kind="source", image="", apps_dir="/srv/apps") == []
+def test_a_source_app_needs_no_image(apps_dir):
+    assert errors(kind="source", image="", apps_dir=apps_dir) == []
 
 
 @pytest.mark.parametrize("apps_dir", ["", None])
@@ -206,6 +214,27 @@ def test_a_source_app_needs_the_apps_directory(apps_dir):
 
 def test_an_inline_app_needs_no_apps_directory():
     assert errors(apps_dir="") == []
+
+
+def test_a_source_app_being_deployed_needs_its_directory(apps_dir):
+    assert errors(kind="source", apps_dir=apps_dir) == []
+    got = errors(name="other", kind="source", apps_dir=apps_dir)
+    assert len(got) == 1 and "has no directory at" in got[0] and f"{apps_dir}/other" in got[0]
+
+
+def test_a_file_where_the_app_directory_should_be_is_not_a_directory(tmp_path):
+    (tmp_path / "myapp").write_text("")
+    assert any("has no directory at" in p for p in errors(kind="source", apps_dir=str(tmp_path)))
+
+
+def test_a_decommission_needs_no_source_directory(tmp_path):
+    # It works from the manifest on the host, and has to once the tree is gone.
+    assert errors(kind="source", state="absent", apps_dir=str(tmp_path)) == []
+
+
+def test_a_bad_name_is_not_also_reported_as_a_missing_directory(tmp_path):
+    got = errors(name="my/app", kind="source", apps_dir=str(tmp_path))
+    assert len(got) == 1 and got[0].startswith("systemd_app_name")
 
 
 @pytest.mark.parametrize("path", ["data", "data/db", "a.b", "..hidden"])
@@ -235,14 +264,14 @@ def test_data_directories_that_could_leave_the_home_are_rejected(entry):
 
 
 @pytest.mark.parametrize("secret", ["myapp-token", "a", "myapp-oidc-client-secret", "x1-2"])
-def test_secret_names_an_inline_app_can_reference_are_accepted(secret):
+def test_secret_names_an_inline_app_can_reference_are_accepted(secret, apps_dir):
     assert errors(secret_names=[secret]) == []
-    assert errors(kind="source", apps_dir="/srv", secret_names=[secret]) == []
+    assert errors(kind="source", apps_dir=apps_dir, secret_names=[secret]) == []
 
 
 @pytest.mark.parametrize("secret", ["my.app.token", "my_app_token", "1token"])
-def test_a_source_app_may_use_any_podman_secret_name(secret):
-    assert errors(kind="source", apps_dir="/srv", secret_names=[secret]) == []
+def test_a_source_app_may_use_any_podman_secret_name(secret, apps_dir):
+    assert errors(kind="source", apps_dir=apps_dir, secret_names=[secret]) == []
 
 
 @pytest.mark.parametrize("secret", ["my.app.token", "my_app_token", "1token", "token-\n"])
@@ -252,8 +281,8 @@ def test_an_inline_app_needs_names_that_spell_a_variable(secret):
 
 
 @pytest.mark.parametrize("secret", ["", ".token", "my token", "my/token", "token\n"])
-def test_names_podman_would_refuse_are_refused_for_either_kind(secret):
-    for kwargs in ({}, {"kind": "source", "apps_dir": "/srv"}):
+def test_names_podman_would_refuse_are_refused_for_either_kind(secret, apps_dir):
+    for kwargs in ({}, {"kind": "source", "apps_dir": apps_dir}):
         got = errors(secret_names=[secret], **kwargs)
         assert len(got) == 1 and "podman secret name" in got[0]
 
@@ -270,7 +299,7 @@ def test_every_app_problem_is_reported_at_once():
 
 def test_the_role_defaults_are_no_problem():
     assert app_validation_errors("myapp", kind="inline", state="present", image="img", apps_dir="", data_dirs=[]) == []
-    assert app_validation_errors("myapp", kind="source", state="present", image="", apps_dir="/srv/apps", data_dirs=[]) == []
+    assert app_validation_errors("myapp", kind="source", state="absent", image="", apps_dir="/srv/apps", data_dirs=[]) == []
 
 
 # --- route_validation_errors --------------------------------------------------------------------

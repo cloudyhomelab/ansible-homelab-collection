@@ -2,7 +2,8 @@ minor_changes:
   - >-
     New filter ``app_validation_errors``: why an app cannot be acted on as named, one string per
     problem - the name's shape, the kind and state, the image an ``inline`` deploy requires,
-    the ``systemd_app_apps_dir`` a ``source`` app requires, the shape of each
+    the ``systemd_app_apps_dir`` a ``source`` app requires and the directory under it a
+    ``source`` deploy reads from, the shape of each
     ``systemd_app_data_dirs`` entry, and the names in ``secrets.sops.yaml`` (never the
     values). The ``systemd_app`` role now validates its input through it, in one task,
     reporting every problem at once.

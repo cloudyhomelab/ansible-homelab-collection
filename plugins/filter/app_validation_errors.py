@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 
@@ -27,6 +28,11 @@ description:
   - The conditional requirements live here because a role argument spec can only mark an
     option required outright, and C(systemd_app_image) is required only for an C(inline) app
     being deployed, C(systemd_app_apps_dir) only for a C(source) one.
+  - A C(source) app being deployed must also have its directory under O(apps_dir), checked on
+    the controller where that directory is. Deploying without one would install nothing and
+    still report success, and on an app already on the host would prune every file the last
+    deploy installed. Not checked for C(absent), which works from the host alone and has to
+    keep working once the tree is gone.
   - A data directory is created as root with a caller-supplied owner and removed with the
     app's home on C(absent), so it may not be absolute or climb with C(..); relative and
     C(..)-free is what makes reaching another app's tree impossible, rather than a prefix
@@ -135,6 +141,16 @@ def app_validation_errors(name, kind="", state="present", image="", apps_dir="",
             "systemd_app_apps_dir is required for a 'source' app: the directory the app's "
             "own directory sits in, normally set once as a play variable"
         )
+    elif kind == "source" and state == "present" and _NAME_RE.fullmatch(name):
+        app_dir = os.path.join(str(apps_dir), name)
+        if not os.path.isdir(app_dir):
+            problems.append(
+                f"'source'-kind app {name} has no directory at {app_dir}; deploying it would "
+                "install nothing and still report success, and on an app already on the host "
+                "it would remove every file the last deploy installed. Check "
+                "systemd_app_apps_dir: it is normally set once as a play variable, and a "
+                "value composed from playbook_dir moves when the playbook does"
+            )
 
     for entry in data_dirs or []:
         path = entry.get("path") if isinstance(entry, dict) else None

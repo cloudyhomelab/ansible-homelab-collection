@@ -604,7 +604,7 @@ resolve wherever the collection is installed:
 | `podman_secrets`     | module | Reconciling the app's podman secrets against the store, on the host. |
 | `install_manifest`   | module | Reading, pruning and recording the install manifest, on the host; on `absent`, the units it implies. |
 | `source_tree`        | filter | Reading what a `source` app ships from its directory, and the host paths it installs to. |
-| `app_validation_errors`       | filter | Checking `systemd_app_name`, `_kind`, `_state`, what each kind requires, `_data_dirs`, and the secret names. |
+| `app_validation_errors`       | filter | Checking `systemd_app_name`, `_kind`, `_state`, what each kind requires (a `source` app's directory included), `_data_dirs`, and the secret names. |
 | `route_validation_errors`     | filter | Checking `systemd_app_domain` / `_upstream` / `_port`.             |
 | `container_validation_errors` | filter | Checking what would be interpolated into a rendered Quadlet.      |
 | `systemd_env_lines`  | filter | Quoting and escaping `systemd_app_env` into `Environment=` lines.  |

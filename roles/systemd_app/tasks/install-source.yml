@@ -1,0 +1,44 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# What a 'source' app installs from its directory on the controller, as systemd_app_source_tree
+# read it (see defaults/main.yml): quadlet/ and unit/ flat by basename, config/ as a tree.
+# Only ever included for a 'source' app, which is what lets every task here read the tree
+# without a kind condition of its own.
+- name: "Install Quadlet files for app {{ systemd_app_name }}"
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ systemd_app_system_dir }}/"
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "{{ systemd_app_file_mode }}"
+  loop: "{{ systemd_app_source_tree.quadlet_files }}"
+  register: systemd_app_quadlet_install
+  notify: systemd_app reload systemd
+
+- name: "Install systemd units for app {{ systemd_app_name }}"
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ systemd_app_unit_dir }}/"
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "{{ systemd_app_file_mode }}"
+  loop: "{{ systemd_app_source_tree.unit_files }}"
+  register: systemd_app_unit_install
+  notify: systemd_app reload systemd
+
+# The tree is copied whole, layout preserved; what it holds is recorded file by file in the
+# manifest present.yml reconciles next, so the next deploy can prune what this one stops
+# shipping.
+- name: "Deploy config tree for app {{ systemd_app_name }}"
+  ansible.builtin.copy:
+    src: "{{ systemd_app_source_tree.config_dir }}/"
+    dest: "{{ systemd_app_home }}/config/"
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "{{ systemd_app_file_mode }}"
+    directory_mode: "{{ systemd_app_dir_mode }}"
+  when: systemd_app_source_tree.config_dir is not none
+  register: systemd_app_config_deploy

@@ -33,7 +33,7 @@ You also need push access for a tag, and the working tree on `main`, clean and u
 
 - every `systemd_app_*` role variable, as documented in
   `roles/systemd_app/meta/argument_specs.yml`;
-- the six filters' names, their arguments, and the shape of what they return.
+- the filters' names, their arguments, and the shape of what they return.
 
 So:
 

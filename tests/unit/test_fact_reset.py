@@ -21,7 +21,6 @@ RESET_TASK = "Reset install path facts"
 # result" or "the task always runs" is only true until the task gains a `when`, which is the
 # point of writing it down where a reviewer sees it change.
 EXEMPT = {
-    "systemd_app_config_dir": "its stat has no `when`, so every present run refreshes it before the two tasks that read it",
     "systemd_app_stop_result": "read only by its own task's failed_when",
     "systemd_app_enable_result": "read only by its own task's failed_when",
 }

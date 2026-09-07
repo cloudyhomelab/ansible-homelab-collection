@@ -8,32 +8,35 @@
 # directories, so that file is the only place the set is written down. Decrypted on the
 # controller by the lookup behind systemd_app_secret_values (see defaults/main.yml), which
 # is why no task here loads anything: the values are evaluated where they are used and are
-# never a fact. First in the file because an 'inline' app's Quadlet is rendered from those
-# names below. no_log, because the loop items carry the values and the deploy runs with -v.
-- name: "Verify every secret can be stored for app {{ systemd_app_name }}"
-  ansible.builtin.assert:
-    that:
-      # Passed to `podman secret` as root, and useful only if a Quadlet can reference it.
-      - item.key is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')
-      # An 'inline' app's Secret= line is rendered from this key, so the key also has to
-      # spell a legal environment variable once upper-cased — no dots, no leading digit.
-      - systemd_app_kind != 'inline' or item.key is match('^[A-Za-z][A-Za-z0-9-]*$')
-      # Refused here rather than at container start, where an empty value surfaces as the
-      # app failing to boot with no explanation of why.
-      - item.value is not none and (item.value | string | length > 0)
-    fail_msg: >-
-      {{ systemd_app_name }}/secrets.sops.yaml must map podman secret names (letters,
-      digits, dot, dash or underscore, not starting with a dot) to non-empty values. For an
-      'inline' app the name is also the variable the container sees, upper-cased with
-      dashes as underscores, so it is limited to letters, digits and dashes.
-    quiet: true
-  loop: "{{ systemd_app_secret_values | dict2items }}"
-  loop_control:
-    label: "{{ item.key }}"
-  no_log: true
+# never a fact. The names were checked with the rest of the input in main.yml; the values
+# are checked by the module below, which is the first task here so that a value the store
+# refuses fails the deploy before any file is installed.
+#
+# One module call does the whole of the store: creates what is missing, removes and
+# re-creates what changed (podman cannot update a secret in place), drops what the app has
+# stopped declaring, and refuses a name another app owns. Ownership and the value's digest
+# live as labels on the secret itself, so the store is the only record and a secret removed
+# by hand is simply missing and comes back. The values are a no_log parameter, so a podman
+# failure is reported with its name, exit code and stderr while the value stays out of the
+# log. Registered for the restart decision below: podman reads a secret when it *creates*
+# a container, so a changed one is only live once the app is restarted.
+- name: "Reconcile podman secrets of app {{ systemd_app_name }}"
+  binarycodes.homelab.podman_secrets:
+    app: "{{ systemd_app_name }}"
+    secrets: "{{ systemd_app_secret_values }}"
+  register: systemd_app_secrets
+
+# Written by releases before 1.1.0, which recorded the digests in a file rather than on the
+# secrets. The module adopts a secret stored that way on the first deploy after upgrading,
+# so the file is not read; it is removed so a backup of the app no longer carries a digest
+# of every secret it ever had. Remove this task at 2.0.0.
+- name: "Remove the pre-1.1.0 secret digest record of app {{ systemd_app_name }}"
+  ansible.builtin.file:
+    path: "{{ systemd_app_home }}/.secret-digests"
+    state: absent
 
 # 'inline' kind: render the single-container Quadlet from call-site params. 'source'
-# kind installs its container from a file instead (the copy tasks below).
+# kind installs its container from a file instead (install-source.yml).
 - name: "Render Quadlet for container {{ systemd_app_name }}"
   ansible.builtin.template:
     src: inline.container.j2
@@ -45,73 +48,17 @@
   register: systemd_app_quadlet_render
   notify: systemd_app reload systemd
 
-- name: "Install Quadlet files for app {{ systemd_app_name }}"
-  ansible.builtin.copy:
-    src: "{{ item }}"
-    dest: "{{ systemd_app_system_dir }}/"
-    owner: "{{ systemd_app_owner }}"
-    group: "{{ systemd_app_group }}"
-    mode: "{{ systemd_app_file_mode }}"
-  loop: "{{ systemd_app_source_quadlet_files }}"
+# Included rather than written here with `when: systemd_app_kind == 'source'` on each task:
+# Ansible evaluates a task's `loop` before its `when`, so a loop over
+# systemd_app_source_tree would read the tree for an 'inline' app too, and the filter
+# behind it refuses an app directory that is not there.
+- name: "Install the files of source app {{ systemd_app_name }}"
+  ansible.builtin.include_tasks: install-source.yml
   when: systemd_app_kind == 'source'
-  register: systemd_app_quadlet_install
-  notify: systemd_app reload systemd
 
-- name: "Install systemd units for app {{ systemd_app_name }}"
-  ansible.builtin.copy:
-    src: "{{ item }}"
-    dest: "{{ systemd_app_unit_dir }}/"
-    owner: "{{ systemd_app_owner }}"
-    group: "{{ systemd_app_group }}"
-    mode: "{{ systemd_app_file_mode }}"
-  loop: "{{ systemd_app_source_unit_files }}"
-  when: systemd_app_kind == 'source'
-  register: systemd_app_unit_install
-  notify: systemd_app reload systemd
-
-- name: "Check for config directory of app {{ systemd_app_name }}"
-  ansible.builtin.stat:
-    path: "{{ systemd_app_source_config_dir }}"
-  delegate_to: localhost
-  become: false
-  register: systemd_app_config_dir
-
-# Recursive, because a config tree nests and fileglob sees only one level down. The
-# manifest has to list every file the copy below installs, or the next deploy prunes
-# something it should have kept.
-- name: "Find config files of app {{ systemd_app_name }}"
-  ansible.builtin.find:
-    paths: "{{ systemd_app_source_config_dir }}"
-    recurse: true
-    hidden: true
-    file_type: file
-  delegate_to: localhost
-  become: false
-  register: systemd_app_config_found
-  when:
-    - systemd_app_kind == 'source'
-    - systemd_app_config_dir.stat.exists
-    - systemd_app_config_dir.stat.isdir
-
-- name: "Deploy config tree for app {{ systemd_app_name }}"
-  ansible.builtin.copy:
-    src: "{{ systemd_app_source_config_dir }}/"
-    dest: "{{ systemd_app_home }}/config/"
-    owner: "{{ systemd_app_owner }}"
-    group: "{{ systemd_app_group }}"
-    mode: "{{ systemd_app_file_mode }}"
-    directory_mode: "{{ systemd_app_dir_mode }}"
-  when:
-    # Shipping files from the repo is what makes an app 'source'; an 'inline' app is
-    # defined entirely at the call site and has no config tree to copy.
-    - systemd_app_kind == 'source'
-    - systemd_app_config_dir.stat.exists
-    - systemd_app_config_dir.stat.isdir
-  register: systemd_app_config_deploy
-
-# The config copy above creates this, but only for an app that ships a config tree. Every
-# app owns host state below it regardless: the install manifest recorded just below, and
-# for some also a bind-mounted data directory.
+# The config copy in install-source.yml creates this, but only for an app that ships a
+# config tree. Every app owns host state below it regardless: the install manifest recorded
+# just below, and for some also a bind-mounted data directory.
 - name: "Ensure the home directory exists for app {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_home }}"
@@ -135,7 +82,7 @@
     path: "{{ systemd_app_manifest_file }}"
     installed: >-
       {{ systemd_app_inline_installed_paths if systemd_app_kind == 'inline'
-         else systemd_app_source_installed_paths }}
+         else systemd_app_source_tree.installed }}
     system_dir: "{{ systemd_app_system_dir }}"
     unit_dir: "{{ systemd_app_unit_dir }}"
     config_dir: "{{ systemd_app_home }}/config"
@@ -143,15 +90,9 @@
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_file_mode }}"
   vars:
-    # 'source': the two flat install dirs by basename plus the config tree with its layout
-    # preserved; 'inline': the one rendered Quadlet.
+    # 'inline': the one rendered Quadlet. 'source': what the tree says it installed.
     systemd_app_inline_installed_paths:
       - "{{ systemd_app_system_dir }}/{{ systemd_app_name }}.container"
-    systemd_app_source_installed_paths: >-
-      {{ ([systemd_app_system_dir] | product(systemd_app_source_quadlet_files | map('basename') | list) | map('join', '/') | list)
-         + ([systemd_app_unit_dir] | product(systemd_app_source_unit_files | map('basename') | list) | map('join', '/') | list)
-         + ([systemd_app_home ~ '/config'] | product(systemd_app_config_found.files | default([])
-            | map(attribute='path') | map('relpath', systemd_app_source_config_dir) | list) | map('join', '/') | list) }}
   register: systemd_app_manifest
   notify: systemd_app reload systemd
 
@@ -159,26 +100,9 @@
 # Podman creates a missing host path as root:root, which an unprivileged container cannot
 # write in, so the directory is made here with the owner the image runs as. The deploy
 # would not notice otherwise: the mount succeeds either way, and only the app hits the
-# failure, later, when it tries to write.
-- name: "Verify data directories are relative paths for app {{ systemd_app_name }}"
-  ansible.builtin.assert:
-    that:
-      # Created as root with a caller-supplied owner, and removed with the state tree on
-      # absent, so a path that climbed out of this app's own directory would hand another
-      # app's data away — or take it with it. Relative and '..'-free is what makes that
-      # impossible, rather than a prefix check on a path the caller composed.
-      - item.path is string
-      - not item.path.startswith('/')
-      - item.path.split('/') | intersect(['', '.', '..']) | length == 0
-    fail_msg: >-
-      Refusing to create '{{ item.path | default('(no path)') }}': an entry of
-      systemd_app_data_dirs names a path relative to {{ systemd_app_home }} —
-      'data', not '/var/app/<app>/data' — and may not climb out of it with '..'.
-    quiet: true
-  loop: "{{ systemd_app_data_dirs }}"
-  loop_control:
-    label: "{{ item.path | default('(no path)') }}"
-
+# failure, later, when it tries to write. That each path is relative and '..'-free was
+# checked with the rest of the input in main.yml, since a path that climbed out of this
+# app's home would be created as root here and removed with the tree on absent.
 - name: "Ensure data directories exist for app {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_home }}/{{ item.path }}"
@@ -189,29 +113,6 @@
   loop: "{{ systemd_app_data_dirs }}"
   loop_control:
     label: "{{ item.path }}"
-
-# One module call does the whole of the store: creates what is missing, removes and
-# re-creates what changed (podman cannot update a secret in place), drops what the app has
-# stopped declaring, and refuses a name another app owns. Ownership and the value's digest
-# live as labels on the secret itself, so the store is the only record and a secret removed
-# by hand is simply missing and comes back. The values are a no_log parameter, so a podman
-# failure is reported with its name, exit code and stderr while the value stays out of the
-# log. Registered for the restart decision below: podman reads a secret when it *creates*
-# a container, so a changed one is only live once the app is restarted.
-- name: "Reconcile podman secrets of app {{ systemd_app_name }}"
-  binarycodes.homelab.podman_secrets:
-    app: "{{ systemd_app_name }}"
-    secrets: "{{ systemd_app_secret_values }}"
-  register: systemd_app_secrets
-
-# Written by releases before 1.1.0, which recorded the digests in a file rather than on the
-# secrets. The module adopts a secret stored that way on the first deploy after upgrading,
-# so the file is not read; it is removed so a backup of the app no longer carries a digest
-# of every secret it ever had. Remove this task at 2.0.0.
-- name: "Remove the pre-1.1.0 secret digest record of app {{ systemd_app_name }}"
-  ansible.builtin.file:
-    path: "{{ systemd_app_home }}/.secret-digests"
-    state: absent
 
 # Caddy route: only written when the app opts in with systemd_app_domain. The
 # snippet is imported by the central Caddyfile, so no daemon-reload is needed and

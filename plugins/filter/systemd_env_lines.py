@@ -28,7 +28,7 @@ description:
   - Output is sorted by key, so the rendered unit does not change when a call site reorders
     its variables, which would otherwise restart the container for nothing.
   - A control character raises, having no representation in a unit file at any quoting level.
-    The M(binarycodes.homelab.container_problems) filter refuses one long before this point;
+    The M(binarycodes.homelab.container_validation_errors) filter refuses one long before this point;
     this is the backstop for a caller that renders without validating first, so the two
     cannot drift apart.
 options:
@@ -63,7 +63,7 @@ def systemd_env_lines(env):
     for key in sorted(normalised):
         value = normalised[key]
         # Unreachable through the role, which validates before rendering (see
-        # container_problems); a backstop so the two cannot drift apart.
+        # container_validation_errors); a backstop so the two cannot drift apart.
         if _CONTROL_RE.search(key) or _CONTROL_RE.search(value):
             raise AnsibleFilterError(
                 f"systemd_app_env entry {key!r} holds a control character, which cannot be "

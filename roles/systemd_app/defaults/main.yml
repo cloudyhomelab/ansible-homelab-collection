@@ -27,8 +27,9 @@ systemd_app_state: present
 # Deliberately no default: where a fleet keeps its app definitions is a property of that
 # fleet's repository, not of this role, and a guess here is one that silently installs
 # nothing (see the source-directory check in tasks/main.yml). Set it once as a play
-# variable — every app in a play shares it. A 'source' app requires it; an 'inline' app
-# needs it only to be found by the secrets lookup, which is skipped without it.
+# variable — every app in a play shares it. Deploying a 'source' app requires it; an
+# 'inline' app needs it only to be found by the secrets lookup, which is skipped without
+# it; a decommission of either kind never reads it.
 # systemd_app_apps_dir: /path/to/apps
 
 # Destinations on the target host.
@@ -54,12 +55,16 @@ systemd_app_home: "{{ systemd_app_root }}/{{ systemd_app_name }}"
 # allowlisted before anything is removed.
 systemd_app_manifest_file: "{{ systemd_app_home }}/.install-manifest"
 
-# The controller-side sources a 'source' deploy installs from. quadlet/ and unit/ are
-# flat — installed by basename — while config/ is a tree whose layout is preserved, so
-# present.yml discovers it with `find` rather than a one-level fileglob.
-systemd_app_source_quadlet_files: "{{ query('ansible.builtin.fileglob', systemd_app_apps_dir ~ '/' ~ systemd_app_name ~ '/quadlet/*') }}"
-systemd_app_source_unit_files: "{{ query('ansible.builtin.fileglob', systemd_app_apps_dir ~ '/' ~ systemd_app_name ~ '/unit/*') }}"
-systemd_app_source_config_dir: "{{ systemd_app_apps_dir }}/{{ systemd_app_name }}/config"
+# What a 'source' deploy installs, read from the app's directory on the controller: the
+# files of quadlet/ and unit/, every file of the config/ tree, and the host path each lands
+# at, which is what the install manifest records. One filter rather than globs and a find,
+# so the manifest is composed where it is tested. Evaluated where it is referenced, which is
+# only in tasks/install-source.yml and a branch the manifest task takes for 'source' alone,
+# so an 'inline' app never reads it. A missing directory raises, though main.yml refuses one
+# before this is ever read.
+systemd_app_source_tree: >-
+  {{ (systemd_app_apps_dir ~ '/' ~ systemd_app_name) | binarycodes.homelab.source_tree(
+       systemd_app_system_dir, systemd_app_unit_dir, systemd_app_home ~ '/config') }}
 
 # Ownership / permissions applied to everything this role installs.
 systemd_app_owner: root

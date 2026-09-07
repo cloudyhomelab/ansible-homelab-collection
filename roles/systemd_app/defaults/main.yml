@@ -66,6 +66,15 @@ systemd_app_source_tree: >-
   {{ (systemd_app_apps_dir ~ '/' ~ systemd_app_name) | binarycodes.homelab.source_tree(
        systemd_app_system_dir, systemd_app_unit_dir, systemd_app_home ~ '/config') }}
 
+# What this deploy installs, as the manifest records it: an 'inline' app's one rendered
+# Quadlet, or what a 'source' app's tree says. Read by the two manifest calls in
+# tasks/present.yml — the check-mode one that learns which units to disable and the one that
+# prunes — so the two cannot be given different lists. Lazy, like systemd_app_source_tree
+# behind it, so an 'inline' app never reads the tree.
+systemd_app_installed_paths: >-
+  {{ [systemd_app_system_dir ~ '/' ~ systemd_app_name ~ '.container']
+     if systemd_app_kind == 'inline' else systemd_app_source_tree.installed }}
+
 # Ownership / permissions applied to everything this role installs.
 systemd_app_owner: root
 systemd_app_group: root

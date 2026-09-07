@@ -21,10 +21,10 @@ and `side_effect` then mutates that state stage by stage, asserting after each.
 | Every managed unit is active, and a plain unit is enabled at boot | `verify` | all |
 | A second converge changes nothing | `idempotence` | all |
 | A file dropped from the source tree is removed from the host and the manifest; the app stays up | `side_effect` | `molsource` |
-| Converting `source` → `inline` prunes what the other kind installed and restarts from the rendered Quadlet | `side_effect` | `molsource` |
+| Converting `source` → `inline` prunes what the other kind installed, disables the pruned plain unit before its file goes, and restarts from the rendered Quadlet | `side_effect` | `molsource` |
 | A changed secret is removed and re-created; a dropped one leaves the store; one removed behind the role's back comes back | `side_effect` | `molsecret` |
 | A secret another app owns is refused by name and owner, and left untouched | `side_effect` | `molclaim` |
-| `absent` removes everything the apps owned, secrets included, stops a `source` app's container without being told its unit name, spares another app's secret, and stays green when repeated | `side_effect` | all |
+| `absent` removes everything the apps owned, secrets included, stops a `source` app's container without being told its unit name, leaves no dangling `.wants` symlink, spares another app's secret, and stays green when repeated | `side_effect` | all |
 
 Fixtures under `apps/` are `molnet` (a network unit, installed but never joined:
 `Network=none` throughout keeps netavark out of every run), `molsource`, and `molorphan`

@@ -161,6 +161,28 @@ def test_pruning_unlinks_a_symlink_and_not_what_it_points_at(host):
     assert os.path.exists(target)
 
 
+def test_pruned_units_are_those_of_the_pruned_paths_so_present_can_disable_them(host):
+    # Disabling needs the unit file, so the deploy asks in check mode before the prune.
+    files = host.touch(
+        host.quadlet("myapp.container"), host.quadlet("sidecar.container"),
+        host.unit("myapp-extra.service"), host.config("app.conf"),
+    )
+    host.record(*files)
+    result = host.reconcile([host.quadlet("myapp.container"), host.config("app.conf")], check_mode=True)
+
+    assert result["pruned_units"] == ["myapp-extra.service", "sidecar.service"]
+    assert result["units"] == ["myapp-extra.service", "myapp.service", "sidecar.service"]
+    assert all(os.path.exists(f) for f in files)
+
+
+def test_nothing_pruned_names_no_pruned_unit(host):
+    installed = host.touch(host.quadlet("myapp.container"), host.unit("myapp-extra.service"))
+    host.record(*installed)
+
+    assert host.reconcile(installed)["pruned_units"] == []
+    assert host.reconcile(installed[:1])["pruned_units"] == ["myapp-extra.service"]
+
+
 def test_a_change_of_kind_prunes_what_the_old_kind_installed(host):
     # A 'source' app's record, reconciled by the 'inline' deploy it became.
     source = host.touch(
@@ -340,6 +362,7 @@ def test_check_mode_absent_still_answers_what_is_running(host):
     result = host.reconcile(state="absent", check_mode=True)
 
     assert result["units"] == ["myapp-extra.service", "myapp.service"]
+    assert result["pruned_units"] == result["units"]
     assert result["pruned"] == sorted(files)
     assert all(os.path.exists(f) for f in files)
     assert os.path.exists(host.manifest)

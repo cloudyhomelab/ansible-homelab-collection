@@ -81,14 +81,14 @@
         molecule_recorded: "{{ (molecule_pruned_manifest.content | b64decode).splitlines() }}"
 
     # --- the same app, converted to the other kind -------------------------------------
-    # The role prunes the unit file but cannot stop a unit the app no longer ships, which
-    # is a caller's job once (see the role README). Done here so the flip below is
-    # asserted against a host in the state a real conversion leaves.
+    # The role prunes and disables the unit file but cannot stop a unit the app no longer
+    # ships, which is a caller's job once (see the role README). Stopped only, not disabled:
+    # the `.wants/` symlink its enable wrote is the role's to remove, and the assertion
+    # after the flip is that it did.
     - name: Stop the unit the converted app will no longer ship
       ansible.builtin.systemd:
         name: molsource-extra.service
         state: stopped
-        enabled: false
 
     - name: Deploy the same app as an inline container
       ansible.builtin.include_role:
@@ -124,6 +124,15 @@
       changed_when: false
       register: molecule_flipped_unit
 
+    # -xtype l is the dangling-link test: a symlink whose target is gone. The enable of the
+    # plain unit wrote one into multi-user.target.wants/, and the prune took the file it
+    # pointed at, so anything found here is a unit systemd will report not-found for good.
+    - name: Look for dangling unit symlinks after the flip
+      ansible.builtin.command:
+        argv: [find, /etc/systemd/system, -xtype, l, -name, "mol*"]
+      changed_when: false
+      register: molecule_flip_dangling
+
     - name: Assert the conversion pruned the other kind and runs from the rendered Quadlet
       ansible.builtin.assert:
         that:
@@ -140,7 +149,12 @@
           # A changed unit definition means a new container, so the app is restarted
           # rather than left running on the definition it started with.
           - molecule_flipped_unit.stdout == 'active'
-        fail_msg: "Recorded after the flip: {{ molecule_flip_recorded }}."
+          # The pruned plain unit was disabled before its file went, so nothing in a
+          # .wants/ directory still names it.
+          - molecule_flip_dangling.stdout_lines | length == 0
+        fail_msg: >-
+          Recorded after the flip: {{ molecule_flip_recorded }}; dangling:
+          {{ molecule_flip_dangling.stdout_lines }}.
         quiet: true
       vars:
         molecule_flip_recorded: "{{ (molecule_flip_files.results[0].content | b64decode).splitlines() }}"
@@ -401,10 +415,17 @@
       changed_when: false
       register: molecule_absent_secrets
 
+    - name: Look for dangling unit symlinks after the decommission
+      ansible.builtin.command:
+        argv: [find, /etc/systemd/system, -xtype, l, -name, "mol*"]
+      changed_when: false
+      register: molecule_absent_dangling
+
     - name: Assert nothing the apps owned is left on the host
       ansible.builtin.assert:
         that:
           - molecule_after_absent.results | selectattr('stat.exists') | list | length == 0
+          - molecule_absent_dangling.stdout_lines | length == 0
           - molecule_absent_units.results | selectattr('stdout', 'equalto', 'active')
             | list | length == 0
           - molecule_absent_secrets.stdout_lines | select('match', '^molsecret-')
@@ -421,7 +442,8 @@
           {{ molecule_absent_units.results | selectattr('stdout', 'equalto', 'active')
              | map(attribute='item') | list }}; containers still on the host:
           {{ molecule_absent_containers.stdout_lines
-             | intersect(molecule_fixture_apps | map(attribute='name') | list) }}.
+             | intersect(molecule_fixture_apps | map(attribute='name') | list) }};
+          dangling: {{ molecule_absent_dangling.stdout_lines }}.
         quiet: true
 
     # Nothing owns it, so nothing in the role will ever remove it.

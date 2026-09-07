@@ -74,25 +74,49 @@
 # files. The record is read for either kind, which is what makes a change of kind converge.
 # A pruned unit keeps running until stopped by hand, once (see README).
 #
+# Asked in check mode first, for the units the prune is about to take the files of: enabling
+# a plain unit wrote a symlink into a `.wants/` directory, and `systemctl disable` can only
+# remove it while the unit file that names the target still exists. The same shape absent.yml
+# uses to learn what to stop.
+- name: "Plan the install manifest reconciliation of app {{ systemd_app_name }}"
+  binarycodes.homelab.install_manifest:
+    path: "{{ systemd_app_manifest_file }}"
+    installed: "{{ systemd_app_installed_paths }}"
+    system_dir: "{{ systemd_app_system_dir }}"
+    unit_dir: "{{ systemd_app_unit_dir }}"
+    config_dir: "{{ systemd_app_home }}/config"
+  check_mode: true
+  changed_when: false
+  register: systemd_app_manifest_plan
+
+# Disable, not stop: the process is the caller's to stop (see README), but a unit whose file
+# is about to go must not leave a `.wants/` symlink to a unit systemd can no longer find. The
+# tolerated failures are the enable task's — a Quadlet-generated service cannot be disabled
+# any more than enabled, and a plain unit without [Install] was never enabled to begin with.
+- name: "Disable the units no longer shipped by app {{ systemd_app_name }}"
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+  loop: "{{ systemd_app_manifest_plan.pruned_units | default([]) }}"
+  register: systemd_app_disable_result
+  failed_when:
+    - systemd_app_disable_result is failed
+    - "'transient or generated' not in (systemd_app_disable_result.msg | default(''))"
+    - "'no installation config' not in (systemd_app_disable_result.msg | default('') | lower)"
+
 # The Caddy route is not recorded: it lives in the reverse proxy's tree, outside what the
 # module admits, and absent.yml removes it by name. The reload is for a pruned unit file; a
 # record-only change reloads once for nothing, cheaper than a second task to tell them apart.
 - name: "Reconcile the install manifest of app {{ systemd_app_name }}"
   binarycodes.homelab.install_manifest:
     path: "{{ systemd_app_manifest_file }}"
-    installed: >-
-      {{ systemd_app_inline_installed_paths if systemd_app_kind == 'inline'
-         else systemd_app_source_tree.installed }}
+    installed: "{{ systemd_app_installed_paths }}"
     system_dir: "{{ systemd_app_system_dir }}"
     unit_dir: "{{ systemd_app_unit_dir }}"
     config_dir: "{{ systemd_app_home }}/config"
     owner: "{{ systemd_app_owner }}"
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_file_mode }}"
-  vars:
-    # 'inline': the one rendered Quadlet. 'source': what the tree says it installed.
-    systemd_app_inline_installed_paths:
-      - "{{ systemd_app_system_dir }}/{{ systemd_app_name }}.container"
   register: systemd_app_manifest
   notify: systemd_app reload systemd
 

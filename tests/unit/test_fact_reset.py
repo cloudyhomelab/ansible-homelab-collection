@@ -23,6 +23,7 @@ RESET_TASK = "Reset install path facts"
 EXEMPT = {
     "systemd_app_stop_result": "read only by its own task's failed_when",
     "systemd_app_enable_result": "read only by its own task's failed_when",
+    "systemd_app_disable_result": "read only by its own task's failed_when",
 }
 
 

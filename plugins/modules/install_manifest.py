@@ -114,6 +114,14 @@ config_changed:
   description: Whether any pruned path was under O(config_dir) - a change a running app still reads.
   type: bool
   returned: always
+pruned_units:
+  description:
+    - The units the pruned paths implied, mapped as RV(units) is, so a deploy can disable a
+      unit the app stopped shipping while its file still exists to be disabled - in check
+      mode, before the call that removes it. On O(state=absent) this is every unit recorded.
+  type: list
+  elements: str
+  returned: always
 units:
   description:
     - The systemd units the record implied when read, so a decommission can stop them without
@@ -323,6 +331,7 @@ def reconcile(files, path, installed, system_dir, unit_dir, config_dir, state, c
         "pruned": pruned,
         "recorded": recorded_after,
         "config_changed": any(entry.startswith(config_prefix) for entry in pruned),
+        "pruned_units": units_of(pruned, system_dir, unit_dir),
         "units": units_of(recorded_before, system_dir, unit_dir),
         "diff": {"before": _text(recorded_before), "after": _text(recorded_after)},
     }

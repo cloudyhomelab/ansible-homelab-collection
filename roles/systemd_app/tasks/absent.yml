@@ -51,6 +51,26 @@
     - "'not loaded' not in (systemd_app_stop_result.msg | default('') | lower)"
     - "'could not find' not in (systemd_app_stop_result.msg | default('') | lower)"
 
+# While the unit files still exist: `systemctl disable` removes the `.wants/` symlinks the
+# file's [Install] section names, and can only do so while it can read that file. A separate
+# task from the stop, because the systemd module disables before it stops and fails out on
+# the first refusal, which for a Quadlet service would leave it running. The same tolerated
+# failures as present.yml's enable and disable, plus a unit already gone: a repeat
+# decommission has nothing to disable and must stay green.
+- name: "Disable units for app {{ systemd_app_name }}"
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+  loop: "{{ (systemd_app_managed_units + (systemd_app_manifest.units | default([]))) | unique | sort }}"
+  register: systemd_app_disable_result
+  failed_when:
+    - systemd_app_disable_result is failed
+    - "'transient or generated' not in (systemd_app_disable_result.msg | default(''))"
+    - "'no installation config' not in (systemd_app_disable_result.msg | default('') | lower)"
+    - "'not loaded' not in (systemd_app_disable_result.msg | default('') | lower)"
+    - "'could not find' not in (systemd_app_disable_result.msg | default('') | lower)"
+    - "'does not exist' not in (systemd_app_disable_result.msg | default('') | lower)"
+
 # Kept alongside the manifest removal below, rather than folded into it: an 'inline' app
 # last deployed before the role recorded manifests for that kind has none, and its
 # rendered Quadlet would otherwise be left behind on the host forever. Removing a path

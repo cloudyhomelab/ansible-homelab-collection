@@ -149,6 +149,7 @@
 - name: "Reset install path facts for app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_manifest: {}
+    systemd_app_manifest_plan: {}
     systemd_app_route_clash: {}
     systemd_app_secrets: {}
     systemd_app_quadlet_render: {}

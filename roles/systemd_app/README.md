@@ -103,8 +103,9 @@ it an image (and usually a domain). The container is named
 
 ### `absent`
 
-1. Stops the managed units, and every unit its [install manifest](#install-manifest)
-   implies (a Quadlet service's `ExecStopPost` also removes its container). You do **not**
+1. Stops and disables the managed units, and every unit its
+   [install manifest](#install-manifest) implies (a Quadlet service's `ExecStopPost` also
+   removes its container). You do **not**
    have to repeat `systemd_app_enable_units` at teardown: the manifest is on the host, so
    the role can work out what the app is running without being told.
 2. Removes exactly the paths in the app's [install manifest](#install-manifest) — its
@@ -547,7 +548,8 @@ in the `absent` list above).
 Quadlet-generated services live under `/run` and cannot be `systemctl enable`d
 directly. The role tolerates that specific failure and relies on an `[Install]`
 section in the Quadlet (e.g. `WantedBy=multi-user.target`) for boot startup.
-Plain units in `unit/` are enabled normally.
+Plain units in `unit/` are enabled normally, and disabled again before their file is
+pruned or the app decommissioned, so no `.wants` symlink outlives the unit it names.
 
 ## Examples
 

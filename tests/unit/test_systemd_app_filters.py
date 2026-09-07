@@ -205,11 +205,16 @@ def test_a_source_app_needs_no_image(apps_dir):
 
 
 @pytest.mark.parametrize("apps_dir", ["", None])
-def test_a_source_app_needs_the_apps_directory(apps_dir):
+def test_a_source_app_being_deployed_needs_the_apps_directory(apps_dir):
     got = errors(kind="source", apps_dir=apps_dir)
-    assert any(p.startswith("systemd_app_apps_dir") for p in got)
-    # Either state: a decommission still looks there for the app's secrets file.
-    assert errors(kind="source", state="absent", apps_dir=apps_dir) != []
+    assert len(got) == 1 and got[0].startswith("systemd_app_apps_dir")
+
+
+@pytest.mark.parametrize("apps_dir", ["", None])
+def test_a_decommission_needs_no_apps_directory(apps_dir):
+    # It works from the host alone, and has to once the controller's tree is gone. This is
+    # also what absent.yml's guard relies on, passing only the kind and the state.
+    assert errors(kind="source", state="absent", apps_dir=apps_dir) == []
 
 
 def test_an_inline_app_needs_no_apps_directory():

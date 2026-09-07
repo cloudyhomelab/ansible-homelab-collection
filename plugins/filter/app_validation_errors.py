@@ -27,7 +27,8 @@ description:
     written into would fail on one.
   - The conditional requirements live here because a role argument spec can only mark an
     option required outright, and C(systemd_app_image) is required only for an C(inline) app
-    being deployed, C(systemd_app_apps_dir) only for a C(source) one.
+    being deployed, C(systemd_app_apps_dir) only for a C(source) one being deployed. A
+    decommission of either kind works from the host alone and needs neither.
   - A C(source) app being deployed must also have its directory under O(apps_dir), checked on
     the controller where that directory is. Deploying without one would install nothing and
     still report success, and on an app already on the host would prune every file the last
@@ -64,7 +65,7 @@ options:
     type: str
     default: ''
   apps_dir:
-    description: The controller directory holding the app definitions, required when O(kind=source).
+    description: The controller directory holding the app definitions, required when O(kind=source) and O(state=present).
     type: str
     default: ''
   data_dirs:
@@ -135,11 +136,12 @@ def app_validation_errors(name, kind="", state="present", image="", apps_dir="",
             "systemd_app_image is required for an 'inline' app being deployed (state=present)"
         )
 
-    # 'source' installs from a directory under apps_dir, which has no default.
-    if kind == "source" and not _present(apps_dir):
+    # 'source' installs from a directory under apps_dir, which has no default; a decommission
+    # reads nothing from the controller, and has to keep working once the tree is gone.
+    if kind == "source" and state == "present" and not _present(apps_dir):
         problems.append(
-            "systemd_app_apps_dir is required for a 'source' app: the directory the app's "
-            "own directory sits in, normally set once as a play variable"
+            "systemd_app_apps_dir is required to deploy a 'source' app: the directory the "
+            "app's own directory sits in, normally set once as a play variable"
         )
     elif kind == "source" and state == "present" and _NAME_RE.fullmatch(name):
         app_dir = os.path.join(str(apps_dir), name)

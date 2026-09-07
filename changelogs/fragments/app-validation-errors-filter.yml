@@ -8,6 +8,10 @@ minor_changes:
     values). The ``systemd_app`` role now validates its input through it, in one task,
     reporting every problem at once.
   - >-
+    Decommissioning a ``source`` app no longer requires ``systemd_app_apps_dir``. A
+    decommission works from the host alone and never read the controller's tree; the
+    requirement was a leftover of the deploy path's.
+  - >-
     The ``systemd_app`` role reconciles an app's podman secrets before installing any of its
     files, so a value the store refuses fails the deploy with nothing on the host, as a
     refused name already did.

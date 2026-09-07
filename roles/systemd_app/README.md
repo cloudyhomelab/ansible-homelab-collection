@@ -177,8 +177,8 @@ line per list entry, which is why an entry may not contain a newline of its own.
 | `systemd_app_caddy_confd` | `{{ systemd_app_root }}/reverse_proxy/config/conf.d` | Dir for generated route snippets. |
 
 `systemd_app_apps_dir` has no default — where a fleet keeps its app definitions is a
-property of that repository, not of this role — and a `source` app fails the run without
-it. Set it once as a play variable, since every app in a play reads the same tree:
+property of that repository, not of this role — and deploying a `source` app fails the run
+without it. Set it once as a play variable, since every app in a play reads the same tree:
 
 ```yaml
   vars:
@@ -191,7 +191,8 @@ nothing would install nothing, report success, and prune every file the last one
 (see [install manifest](#install-manifest)).
 
 An `inline` app needs the variable only to be found by the secrets lookup below; without
-it that lookup is skipped, and the app is deployed as one that ships no secrets.
+it that lookup is skipped, and the app is deployed as one that ships no secrets. A
+decommission of either kind never reads it: it works from the host alone.
 
 ## Install manifest
 

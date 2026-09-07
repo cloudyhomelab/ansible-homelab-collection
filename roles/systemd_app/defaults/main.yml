@@ -27,8 +27,9 @@ systemd_app_state: present
 # Deliberately no default: where a fleet keeps its app definitions is a property of that
 # fleet's repository, not of this role, and a guess here is one that silently installs
 # nothing (see the source-directory check in tasks/main.yml). Set it once as a play
-# variable — every app in a play shares it. A 'source' app requires it; an 'inline' app
-# needs it only to be found by the secrets lookup, which is skipped without it.
+# variable — every app in a play shares it. Deploying a 'source' app requires it; an
+# 'inline' app needs it only to be found by the secrets lookup, which is skipped without
+# it; a decommission of either kind never reads it.
 # systemd_app_apps_dir: /path/to/apps
 
 # Destinations on the target host.

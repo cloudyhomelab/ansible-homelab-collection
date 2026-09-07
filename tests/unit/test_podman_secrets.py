@@ -82,9 +82,12 @@ def owned(name, value, app="myapp"):
     return (value, {APP: app, DIGEST: sha(value)})
 
 
-def run(podman, secrets=None, state="present", adopt=(), check_mode=False, app="myapp"):
+def run(podman, secrets=None, state="present", adopt=(), check_mode=False, app="myapp", adopt_file=None):
     store = mod.Store(podman)
-    return mod.reconcile(store, app, dict(secrets or {}), list(adopt), state, check_mode)
+    return mod.reconcile(
+        store, app, dict(secrets or {}), list(adopt), state, check_mode,
+        adopt_file=str(adopt_file) if adopt_file else None,
+    )
 
 
 def test_an_empty_store_gets_every_declared_secret_with_both_labels():
@@ -207,6 +210,50 @@ def test_absent_refuses_to_adopt_another_app_s_secret():
     podman = FakePodman({"other-token": owned("other-token", "x", app="other")})
     with pytest.raises(mod.PodmanSecretsError) as exc:
         run(podman, state="absent", adopt=["other-token"])
+
+    assert "other-token" in exc.value.msg and "other" in exc.value.msg
+    assert podman.writes() == []
+
+
+def test_absent_adopts_the_names_a_pre_1_1_0_record_file_holds(tmp_path):
+    record = tmp_path / ".secret-digests"
+    record.write_text(json.dumps({"legacy-token": "sha256:abc", "legacy-key": "sha256:def"}))
+    podman = FakePodman({"legacy-token": ("l", {}), "legacy-key": ("k", {}), "loose": ("x", {})})
+    result = run(podman, state="absent", adopt_file=record)
+
+    assert result["removed"] == ["legacy-key", "legacy-token"]
+    assert set(podman.secrets) == {"loose"}
+
+
+def test_a_missing_record_file_adopts_nothing(tmp_path):
+    podman = FakePodman({"loose": ("x", {})})
+    result = run(podman, state="absent", adopt_file=tmp_path / "never-written")
+
+    assert result["changed"] is False
+    assert set(podman.secrets) == {"loose"}
+
+
+@pytest.mark.parametrize("content", ["not json", "[]", '"a string"', "null", b"\xff\xfe"])
+def test_a_record_file_that_is_not_a_json_object_is_refused_before_podman_is_asked(tmp_path, content):
+    record = tmp_path / ".secret-digests"
+    record.write_bytes(content if isinstance(content, bytes) else content.encode())
+    podman = FakePodman({"legacy-token": ("l", {})})
+    with pytest.raises(mod.PodmanSecretsError) as exc:
+        run(podman, state="absent", adopt_file=record)
+
+    # The operator's way out is named along with the file: nothing else in the failure says
+    # what to do with a decommission that has already stopped the units.
+    assert str(record) in exc.value.msg and "remove it" in exc.value.msg.lower()
+    assert exc.value.fields["adopt_file"] == str(record)
+    assert podman.calls == []
+
+
+def test_a_record_file_naming_another_app_s_secret_is_refused(tmp_path):
+    record = tmp_path / ".secret-digests"
+    record.write_text(json.dumps({"other-token": "sha256:abc"}))
+    podman = FakePodman({"other-token": owned("other-token", "x", app="other")})
+    with pytest.raises(mod.PodmanSecretsError) as exc:
+        run(podman, state="absent", adopt_file=record)
 
     assert "other-token" in exc.value.msg and "other" in exc.value.msg
     assert podman.writes() == []
@@ -343,4 +390,4 @@ def test_ansible_doc_renders_the_module(collection_path):
     assert result.returncode == 0, result.stderr
     doc = json.loads(result.stdout)[f"{COLLECTION}.podman_secrets"]["doc"]
     assert doc["short_description"]
-    assert set(doc["options"]) == {"app", "secrets", "adopt", "state", "executable"}
+    assert set(doc["options"]) == {"app", "secrets", "adopt", "adopt_file", "state", "executable"}

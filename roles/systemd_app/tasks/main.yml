@@ -151,7 +151,6 @@
     systemd_app_manifest: {}
     systemd_app_route_clash: {}
     systemd_app_secrets: {}
-    systemd_app_secret_digest_slurp: {}
     systemd_app_quadlet_render: {}
     systemd_app_quadlet_install: {}
     systemd_app_unit_install: {}

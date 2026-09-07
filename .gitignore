@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+# The development tools' virtual environment (see README, Tests).
+.venv/
 # Built collection artifacts and whatever ansible-lint or molecule leave behind.
 *.tar.gz
 .ansible/

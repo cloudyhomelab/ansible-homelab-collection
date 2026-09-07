@@ -35,7 +35,8 @@ written by `prepare.yml`.
 ## Running it
 
 ```sh
-pip install -r requirements-dev.txt         # into the environment holding ansible-core
+python3 -m venv .venv && . .venv/bin/activate
+pip install ansible-core -r requirements-dev.txt   # molecule and its podman driver, pinned
 molecule test                               # Fedora
 MOLECULE_DISTRO=debian MOLECULE_IMAGE=docker.io/library/debian:13 molecule test
 ```

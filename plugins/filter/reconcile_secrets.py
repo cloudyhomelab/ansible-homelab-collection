@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import Callable, Iterable, Mapping
 
 from ansible.errors import AnsibleFilterError
 
@@ -90,7 +91,8 @@ EXAMPLES = r"""
 """
 
 
-def reconcile_secrets(digests, recorded_b64="", stored=None):
+def reconcile_secrets(digests: Mapping[str, str] | None, recorded_b64: str = "",
+                      stored: Iterable[str] | None = None) -> dict[str, list[str]]:
     """Work out which podman secrets to store and which to drop."""
     digests = digests or {}
     recorded = _recorded_digests(recorded_b64)
@@ -104,7 +106,7 @@ def reconcile_secrets(digests, recorded_b64="", stored=None):
     return {"store": sorted(store), "drop": sorted(drop), "remove": sorted(store | drop)}
 
 
-def _recorded_digests(recorded_b64):
+def _recorded_digests(recorded_b64: str) -> dict[str, str]:
     """The recorded digest file as a dict, empty when there is no file to read."""
     if not recorded_b64:
         return {}
@@ -131,5 +133,5 @@ def _recorded_digests(recorded_b64):
 class FilterModule:
     """Reconciliation of an app's declared secrets against the store."""
 
-    def filters(self):
+    def filters(self) -> dict[str, Callable[..., object]]:
         return {"reconcile_secrets": reconcile_secrets}

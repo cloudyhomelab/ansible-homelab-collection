@@ -55,8 +55,8 @@ jobs:
 
     # ansible-test derives the collection's package name from this layout — which is the
     # point: the 'import' sanity test loads each plugin as ansible would, through
-    # binarycodes.homelab, rather than as a file the unit tests import by path. That is the
-    # coverage tests/unit/ cannot give, because its conftest.py loads plugins by file path.
+    # binarycodes.homelab, rather than through the checkout root as the unit tests do
+    # (pytest.ini). That is the coverage tests/unit/ cannot give.
     defaults:
       run:
         working-directory: ansible_collections/binarycodes/homelab

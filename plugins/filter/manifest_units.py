@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import posixpath
+from collections.abc import Callable, Iterable, Mapping
 
 
 DOCUMENTATION = r"""
@@ -102,7 +103,7 @@ _PLAIN_UNIT_SUFFIXES = (
 )
 
 
-def _unit_for(name, suffixes):
+def _unit_for(name: str, suffixes: Mapping[str, str]) -> str | None:
     """The unit `name` implies, or None when this filter does not map it."""
     for suffix, unit_suffix in suffixes.items():
         if name.endswith(suffix) and len(name) > len(suffix):
@@ -110,9 +111,9 @@ def _unit_for(name, suffixes):
     return None
 
 
-def manifest_units(paths, system_dir, unit_dir):
+def manifest_units(paths: Iterable[object] | None, system_dir: str, unit_dir: str) -> list[str]:
     """The systemd units a recorded install manifest implies."""
-    units = set()
+    units: set[str] = set()
 
     for path in paths or []:
         parent, name = posixpath.split(str(path))
@@ -135,5 +136,5 @@ def manifest_units(paths, system_dir, unit_dir):
 class FilterModule:
     """What a decommission has to stop, read from the host rather than from the caller."""
 
-    def filters(self):
+    def filters(self) -> dict[str, Callable[..., object]]:
         return {"manifest_units": manifest_units}

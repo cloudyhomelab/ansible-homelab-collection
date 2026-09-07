@@ -36,6 +36,10 @@ jobs:
       - name: Unit-test the filter plugins
         run: pytest tests/unit -q
 
+      # mypy.ini names the files; the plugins are held to annotated, the tests only checked.
+      - name: Type-check the plugins
+        run: mypy
+
       - name: Lint
         run: ansible-lint
 

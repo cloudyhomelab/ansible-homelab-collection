@@ -27,13 +27,14 @@ _ROW_RE = re.compile(r"^\| `([a-z_]+)`\s*\|", re.MULTILINE)
 
 
 def documentation(path):
-    """A plugin's DOCUMENTATION, read from the source rather than imported: a module imports
-    ansible.module_utils, which the filters' loader in conftest does not set up."""
+    """A plugin's DOCUMENTATION, read from the source rather than imported: the question is
+    what the file declares, whether or not the plugin imports."""
     tree = ast.parse(path.read_text())
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(
             isinstance(t, ast.Name) and t.id == "DOCUMENTATION" for t in node.targets
         ):
+            assert isinstance(node.value, ast.Constant)
             return yaml.safe_load(node.value.value)
     raise AssertionError(f"{path.name} has no DOCUMENTATION")
 
@@ -77,5 +78,8 @@ def test_a_deprecated_filter_is_marked_as_such_in_the_root_readme():
     text = ROOT_README.read_text()
     for path in FILTER_FILES:
         if is_deprecated(path):
-            row = re.search(rf"^\| `{path.stem}`.*$", text, re.MULTILINE).group(0)
-            assert "Deprecated" in row, f"{path.stem} is deprecated but its README row does not say so"
+            row = re.search(rf"^\| `{path.stem}`.*$", text, re.MULTILINE)
+            assert row is not None, f"{path.stem} has no row in the root README"
+            assert "Deprecated" in row.group(0), (
+                f"{path.stem} is deprecated but its README row does not say so"
+            )

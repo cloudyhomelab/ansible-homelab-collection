@@ -16,26 +16,31 @@ scenario checks that the store carries what the module wrote, and a module that 
 algorithm would otherwise fail it for the wrong reason.
 """
 
+from __future__ import annotations
+
 import importlib.util
 import json
 import pathlib
+from collections.abc import Callable, Mapping
+from typing import Any
 
 _MODULE_PATH = (
     pathlib.Path(__file__).resolve().parents[4] / "plugins" / "modules" / "podman_secrets.py"
 )
 _spec = importlib.util.spec_from_file_location("molecule_podman_secrets", _MODULE_PATH)
+assert _spec is not None and _spec.loader is not None
 podman_secrets = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(podman_secrets)
 
 
-def secret_state(inspect_json):
+def secret_state(inspect_json: str | list[Any]) -> dict[str, dict[str, Any]]:
     """`{name: {owner, digest, value}}` from `podman secret inspect --showsecret` output.
 
     A label podman does not have, or a value it was not asked to show, reads as None
     rather than raising, so a secret created by hand without labels can be asserted on.
     """
     entries = json.loads(inspect_json) if isinstance(inspect_json, str) else inspect_json
-    state = {}
+    state: dict[str, dict[str, Any]] = {}
     for entry in entries:
         spec = entry.get("Spec") or {}
         labels = spec.get("Labels") or {}
@@ -47,7 +52,7 @@ def secret_state(inspect_json):
     return state
 
 
-def declared_secret_state(secrets, app):
+def declared_secret_state(secrets: Mapping[str, str], app: str) -> dict[str, dict[str, Any]]:
     """What `secret_state` must read back once `app`'s declared `secrets` are stored."""
     return {
         name: {"owner": app, "digest": podman_secrets.digest(value), "value": value}
@@ -55,8 +60,8 @@ def declared_secret_state(secrets, app):
     }
 
 
-class FilterModule(object):
-    def filters(self):
+class FilterModule:
+    def filters(self) -> dict[str, Callable[..., object]]:
         return {
             "secret_state": secret_state,
             "declared_secret_state": declared_secret_state,

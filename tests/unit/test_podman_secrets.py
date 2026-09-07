@@ -15,9 +15,8 @@ import json
 
 import pytest
 
-from conftest import COLLECTION, MODULE_DIR, ansible_doc, load_plugin
-
-mod = load_plugin(MODULE_DIR / "podman_secrets.py", "systemd_app_module_")
+from conftest import COLLECTION, ansible_doc
+from plugins.modules import podman_secrets as mod
 
 APP = mod.LABEL_APP
 DIGEST = mod.LABEL_DIGEST

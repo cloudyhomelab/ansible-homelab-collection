@@ -42,12 +42,13 @@ and carries one.
 
 ## Gates
 
-All four must pass before a change lands. `.github/workflows/checks.yml` runs them on every
+All of these must pass before a change lands. `.github/workflows/checks.yml` runs them on every
 pull request: it calls the three gate workflows and ends in one job, `All gates passed`, the only status
 check branch protection needs to require.
 
 ```sh
 pytest tests/unit -q                  # the filter plugins, as plain Python
+mypy                                  # the plugins' annotations, strict; mypy.ini names the files
 ansible-lint                          # profile: production, no rules skipped
 ansible-test sanity --local           # needs the collection at ansible_collections/binarycodes/homelab/
 ansible-galaxy collection build       # catches metadata Galaxy would refuse
@@ -68,9 +69,9 @@ CI additionally lints the changelog and checks that the generated `CHANGELOG.md`
 matches `changelogs/changelog.yaml` (see Releasing); `ansible-test sanity` validates
 `changelog.yaml` on its own account.
 
-Locally these run against whatever ansible-core is installed. CI runs the first three, plus
-a syntax check of a play that uses the role, once per supported ansible-core — the floor
-`meta/runtime.yml` declares and the current release
+Locally these run against whatever ansible-core is installed. CI runs pytest and sanity,
+plus a syntax check of a play that uses the role, once per supported ansible-core — the
+floor `meta/runtime.yml` declares and the current release
 (`.github/workflows/supported-versions.yml`). Raising the floor means changing
 `meta/runtime.yml`, `roles/systemd_app/meta/main.yml` and that matrix together.
 

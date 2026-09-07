@@ -139,7 +139,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable, Mapping
-from typing import Protocol, TypedDict
+from typing import Any, Protocol, TypedDict
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -186,7 +186,7 @@ class Result(TypedDict):
 class PodmanSecretsError(Exception):
     """A failure the module reports with fail_json; carries the fields to report."""
 
-    def __init__(self, msg: str, **fields: object) -> None:
+    def __init__(self, msg: str, **fields: Any) -> None:
         super().__init__(msg)
         self.msg = msg
         self.fields = fields
@@ -262,7 +262,7 @@ class Store:
         )
 
 
-def _normalise(secrets: Mapping[object, object]) -> dict[str, str]:
+def _normalise(secrets: Mapping[Any, object]) -> dict[str, str]:
     """The declared secrets as name -> string value, refusing what podman or the app would."""
     bad_names = sorted(str(n) for n in secrets if not _NAME_RE.fullmatch(str(n)))
     if bad_names:
@@ -351,7 +351,7 @@ def plan(app: str, secrets: Mapping[str, str], adopt: list[str], state: str,
     return sorted(remove), sorted(create), sorted(unchanged)
 
 
-def reconcile(store: Store, app: str, secrets: Mapping[object, object], adopt: Iterable[str],
+def reconcile(store: Store, app: str, secrets: Mapping[Any, object], adopt: Iterable[str],
               state: str, check_mode: bool, adopt_file: str | None = None) -> Result:
     """Apply the plan to the store and describe what was done, in the module's return shape."""
     values = _normalise(secrets) if state == "present" else {}

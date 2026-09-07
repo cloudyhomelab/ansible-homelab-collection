@@ -2,26 +2,25 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Makes the collection's plugins importable by the tests below.
+"""What the tests share: where the plugins are, and a tree `ansible-doc` can resolve them in.
 
-`plugins/filter/` and `plugins/modules/` are not packages -- ansible loads those files
-itself -- and the tests run as plain pytest rather than through `ansible-test units`, so
-there is no `ansible_collections.` import path to reach them by. Each file is therefore
-loaded from its path and registered under a prefixed module name: importing `secrets` by its
-own name would put a module ahead of the standard library's on `sys.path`.
+The tests run as plain pytest rather than through `ansible-test units`, so there is no
+`ansible_collections.` import path to reach a plugin by. They import each one through the
+checkout root instead -- `plugins.filter.<name>`, `plugins.modules.<name>` -- which
+pytest.ini puts on `sys.path`, and which mypy resolves to the same file, so the calls a test
+makes are checked against the plugin's own signature.
 
 Filters are discovered rather than listed, so a filter added to the collection is picked up
-here without editing this file -- and so test_filter_docs.py can check the full set. The
-`collection_path` fixture is the tree `ansible-doc` resolves the collection through: it only
-finds a plugin under an `ansible_collections/<ns>/<name>/` path, so the checkout is symlinked
-into a throwaway tree rather than moved.
+by test_filter_docs.py without editing this file. The `collection_path` fixture is the tree
+`ansible-doc` resolves the collection through: it only finds a plugin under an
+`ansible_collections/<ns>/<name>/` path, so the checkout is symlinked into a throwaway tree
+rather than moved.
 """
 
-import importlib.util
+import importlib
 import os
 import pathlib
 import subprocess
-import sys
 
 import pytest
 
@@ -30,26 +29,12 @@ FILTER_DIR = ROOT / "plugins" / "filter"
 MODULE_DIR = ROOT / "plugins" / "modules"
 COLLECTION = "binarycodes.homelab"
 
-
-def load_filter_module(path):
-    """Load one plugins/filter/*.py under a prefixed module name."""
-    return load_plugin(path, "systemd_app_")
-
-
-def load_plugin(path, prefix):
-    """Load one plugin file by path under a prefixed module name."""
-    spec = importlib.util.spec_from_file_location(f"{prefix}{path.stem}", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 FILTER_FILES = sorted(p for p in FILTER_DIR.glob("*.py") if not p.name.startswith("_"))
 
-for _path in FILTER_FILES:
-    load_filter_module(_path)
+
+def import_filter(path):
+    """The module of one plugins/filter/*.py, under the name every other test imports it by."""
+    return importlib.import_module(f"plugins.filter.{path.stem}")
 
 
 @pytest.fixture(scope="session")

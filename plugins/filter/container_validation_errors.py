@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable, Mapping
+from typing import Any
 
 
 DOCUMENTATION = r"""
@@ -129,7 +130,7 @@ _ENV_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
-def container_validation_errors(env: Mapping[object, object] | None, description: object = "",
+def container_validation_errors(env: Mapping[Any, object] | None, description: object = "",
                                 volumes: Iterable[object] | None = None,
                                 publish_ports: Iterable[object] | None = None,
                                 container_options: Iterable[object] | None = None,

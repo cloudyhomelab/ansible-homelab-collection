@@ -137,7 +137,7 @@ import os
 import stat
 import tempfile
 from collections.abc import Iterable, Mapping
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -187,7 +187,7 @@ class Result(TypedDict):
 class InstallManifestError(Exception):
     """A failure the module reports with fail_json; carries the fields to report."""
 
-    def __init__(self, msg: str, **fields: object) -> None:
+    def __init__(self, msg: str, **fields: Any) -> None:
         super().__init__(msg)
         self.msg = msg
         self.fields = fields

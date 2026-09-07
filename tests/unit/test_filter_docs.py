@@ -19,7 +19,7 @@ import json
 import pytest
 import yaml
 
-from conftest import COLLECTION, FILTER_FILES, ansible_doc as _ansible_doc, load_filter_module
+from conftest import COLLECTION, FILTER_FILES, ansible_doc as _ansible_doc, import_filter
 
 
 def ansible_doc(collection_path, *args):
@@ -28,7 +28,7 @@ def ansible_doc(collection_path, *args):
 
 def registered_filters(path):
     """The filter names a plugin file registers through its FilterModule."""
-    return sorted(load_filter_module(path).FilterModule().filters())
+    return sorted(import_filter(path).FilterModule().filters())
 
 
 ALL_FILTERS = sorted(n for p in FILTER_FILES for n in registered_filters(p))
@@ -47,7 +47,7 @@ def test_each_file_registers_exactly_one_filter(path):
 
 @pytest.mark.parametrize("path", FILTER_FILES, ids=lambda p: p.name)
 def test_documentation_names_the_filter_the_file_registers(path):
-    module = load_filter_module(path)
+    module = import_filter(path)
     doc = getattr(module, "DOCUMENTATION", None)
     assert doc, f"{path.name} has no DOCUMENTATION"
     parsed = yaml.safe_load(doc)
@@ -61,7 +61,7 @@ def test_documentation_names_the_filter_the_file_registers(path):
 
 @pytest.mark.parametrize("path", FILTER_FILES, ids=lambda p: p.name)
 def test_return_and_examples_are_present_and_parse(path):
-    module = load_filter_module(path)
+    module = import_filter(path)
     assert yaml.safe_load(module.RETURN)["_value"]["description"]
     assert yaml.safe_load(module.EXAMPLES), f"{path.name} has no EXAMPLES"
 

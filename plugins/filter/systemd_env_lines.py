@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
+from typing import Any
 
 from ansible.errors import AnsibleFilterError
 
@@ -57,7 +58,7 @@ EXAMPLES = r"""
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
-def systemd_env_lines(env: Mapping[object, object] | None) -> list[str]:
+def systemd_env_lines(env: Mapping[Any, object] | None) -> list[str]:
     """``Environment=`` lines for a Quadlet, quoted and escaped."""
     normalised = {str(key): str(value) for key, value in (env or {}).items()}
     lines: list[str] = []

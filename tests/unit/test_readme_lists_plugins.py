@@ -27,8 +27,8 @@ _ROW_RE = re.compile(r"^\| `([a-z_]+)`\s*\|", re.MULTILINE)
 
 
 def documentation(path):
-    """A plugin's DOCUMENTATION, read from the source rather than imported: a module imports
-    ansible.module_utils, which the filters' loader in conftest does not set up."""
+    """A plugin's DOCUMENTATION, read from the source rather than imported: the question is
+    what the file declares, whether or not the plugin imports."""
     tree = ast.parse(path.read_text())
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(

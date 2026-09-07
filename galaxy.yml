@@ -46,6 +46,7 @@ build_ignore:
   - requirements-dev.txt
   - requirements-test.txt
   - mypy.ini
+  - pytest.ini
   - docs
   - .ansible
   - .cache

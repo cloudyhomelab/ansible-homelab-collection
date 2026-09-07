@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable, Mapping
+from typing import Any
 
 
 DOCUMENTATION = r"""
@@ -54,7 +55,7 @@ EXAMPLES = r"""
 """
 
 
-def secret_digests(values: Mapping[object, object] | None) -> dict[str, str]:
+def secret_digests(values: Mapping[Any, object] | None) -> dict[str, str]:
     """SHA-256 of each secret's value, keyed by secret name."""
     return {
         str(name): hashlib.sha256(str(value).encode("utf-8")).hexdigest()

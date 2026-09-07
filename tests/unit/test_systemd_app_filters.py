@@ -19,17 +19,16 @@ import pytest
 import yaml
 from ansible.errors import AnsibleFilterError
 
-# Registered by conftest.py, which loads them from plugins/filter/ by path -- one module
-# per filter, each named systemd_app_<filter name>. mypy resolves imports from files, not
-# from sys.modules, so it cannot see these; the filters are checked in their own files.
-from systemd_app_app_validation_errors import app_validation_errors  # type: ignore[import-not-found]
-from systemd_app_container_validation_errors import container_validation_errors  # type: ignore[import-not-found]
-from systemd_app_manifest_units import manifest_units  # type: ignore[import-not-found]
-from systemd_app_reconcile_secrets import reconcile_secrets  # type: ignore[import-not-found]
-from systemd_app_route_validation_errors import route_validation_errors  # type: ignore[import-not-found]
-from systemd_app_secret_digests import secret_digests  # type: ignore[import-not-found]
-from systemd_app_source_tree import source_tree  # type: ignore[import-not-found]
-from systemd_app_systemd_env_lines import systemd_env_lines  # type: ignore[import-not-found]
+# Through the checkout root, which pytest.ini puts on sys.path; mypy resolves the same
+# names to the same files, so every call below is checked against the filter's signature.
+from plugins.filter.app_validation_errors import app_validation_errors
+from plugins.filter.container_validation_errors import container_validation_errors
+from plugins.filter.manifest_units import manifest_units
+from plugins.filter.reconcile_secrets import reconcile_secrets
+from plugins.filter.route_validation_errors import route_validation_errors
+from plugins.filter.secret_digests import secret_digests
+from plugins.filter.source_tree import source_tree
+from plugins.filter.systemd_env_lines import systemd_env_lines
 
 
 def digest(value):

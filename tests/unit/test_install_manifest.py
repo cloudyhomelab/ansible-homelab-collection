@@ -13,9 +13,8 @@ import os
 
 import pytest
 
-from conftest import COLLECTION, MODULE_DIR, ansible_doc, load_plugin
-
-mod = load_plugin(MODULE_DIR / "install_manifest.py", "systemd_app_module_")
+from conftest import COLLECTION, ansible_doc
+from plugins.modules import install_manifest as mod
 
 
 class Host:

@@ -11,13 +11,8 @@ a scenario that failed because of a parsing slip here would look like a role reg
 import json
 from typing import Any
 
-from conftest import MODULE_DIR, ROOT, load_plugin
-
-filters = load_plugin(
-    ROOT / "extensions" / "molecule" / "default" / "filter_plugins" / "secret_state.py",
-    "molecule_",
-)
-mod = load_plugin(MODULE_DIR / "podman_secrets.py", "systemd_app_module_")
+from extensions.molecule.default.filter_plugins import secret_state as filters
+from plugins.modules import podman_secrets as mod
 
 
 def inspect_entry(name, value=None, labels=None):

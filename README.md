@@ -79,14 +79,18 @@ effect: [`roles/systemd_app/README.md`](roles/systemd_app/README.md).
 ## Tests
 
 ```sh
-pip install -r requirements-dev.txt   # the tools, pinned; into the env that holds ansible-core
+python3 -m venv .venv && . .venv/bin/activate
+pip install ansible-core -r requirements-dev.txt   # the tools, pinned, beside ansible-core
 pytest tests/unit -q     # the filters, as Python
 ansible-lint             # roles, playbooks and the molecule scenario
 antsibull-changelog lint # the changelog fragments
 molecule test            # the role against a systemd container (see extensions/molecule/default/)
 ```
 
-`molecule test` also needs `sops` on PATH and a checkout laid out as
+Python is externally managed on current distributions, so the tools go in a virtual
+environment. `.venv` is in `.gitignore` and in `galaxy.yml`'s `build_ignore`, which is what
+keeps `ansible-lint` and the collection build out of it. `molecule test` also needs `sops`
+on PATH and a checkout laid out as
 `ansible_collections/binarycodes/homelab/`; the scenario's README says why.
 
 ## Versioning and changes

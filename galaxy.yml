@@ -49,6 +49,7 @@ build_ignore:
   - .ansible
   - .cache
   - .pytest_cache
+  - .venv
   - __pycache__
   - "*.pyc"
   - "*.tar.gz"

@@ -148,25 +148,11 @@
 
     # --showsecret rather than the digest record alone: the record says what the last
     # deploy meant to store, and the point of this assertion is that the store agrees.
-    - name: Read back every stored secret value
-      ansible.builtin.command:
-        argv:
-          - podman
-          - secret
-          - inspect
-          - --showsecret
-          - --format
-          - "{{ '{{' }}.SecretData{{ '}}' }}"
-          - "{{ item }}"
-      loop: "{{ molecule_secrets | dict2items | map(attribute='key') | list }}"
-      changed_when: false
-      register: molecule_secret_data
-
     # Ownership and digest live on the secrets themselves, as labels, so the store is the
-    # only record. Inspected as JSON: `Spec.Labels` is where podman keeps them.
-    - name: Read the labels of every stored secret
+    # only record; the same JSON carries both, and secret_state (filter_plugins/) reads it.
+    - name: Inspect every declared secret, value included
       ansible.builtin.command:
-        argv: "{{ ['podman', 'secret', 'inspect'] + (molecule_secrets | list) }}"
+        argv: "{{ ['podman', 'secret', 'inspect', '--showsecret'] + (molecule_secrets | list) }}"
       changed_when: false
       register: molecule_secret_inspect
 
@@ -179,42 +165,19 @@
       ansible.builtin.assert:
         that:
           - molecule_secret_names.stdout_lines | sort == molecule_secrets | list | sort
-          # The values sops decrypted, as podman now holds them: this is the whole path
-          # end to end, from the encrypted file to the store.
-          - molecule_stored_values == molecule_secrets
-          # Each secret carries its owner and the digest of its value, which is what a
-          # later deploy compares against and what a decommission removes by.
-          - molecule_secret_owners == dict(molecule_secrets | list | zip(['molsecret'] * (molecule_secrets | length)))
-          - molecule_recorded_digests == molecule_expected_digests
+          # The values sops decrypted, as podman now holds them, each carrying its owner
+          # and the digest of its value — what a later deploy compares against and what a
+          # decommission removes by. The whole path end to end, from the encrypted file to
+          # the store; the digest is the module's own, so an algorithm change cannot fail
+          # this for the wrong reason.
+          - molecule_secret_state == molecule_secrets | declared_secret_state('molsecret')
           # No record beside the store: a backup of the app carries no digest of anything.
           - not molecule_digest_stat.stat.exists
         fail_msg: >-
-          Stored {{ molecule_secret_names.stdout_lines | sort }}, owners
-          {{ molecule_secret_owners }}, digests {{ molecule_recorded_digests }}.
+          Stored {{ molecule_secret_names.stdout_lines | sort }}: {{ molecule_secret_state }}.
         quiet: true
       vars:
-        molecule_stored_values: >-
-          {{ dict(molecule_secret_data.results | map(attribute='item')
-             | zip(molecule_secret_data.results | map(attribute='stdout'))) }}
-        molecule_secret_labels: >-
-          {{ dict(molecule_secret_inspect.stdout | from_json | map(attribute='Spec.Name')
-             | zip(molecule_secret_inspect.stdout | from_json | map(attribute='Spec.Labels'))) }}
-        # extract, not map(attribute=): Jinja reads a dotted attribute as a path and would
-        # look for labels.io.binarycodes..., while extract indexes with the key as one string.
-        molecule_secret_owners: >-
-          {{ dict(molecule_secret_labels | list
-             | zip(molecule_secret_labels | list
-                   | map('extract', molecule_secret_labels, 'io.binarycodes.homelab.app'))) }}
-        molecule_recorded_digests: >-
-          {{ dict(molecule_secret_labels | list
-             | zip(molecule_secret_labels | list
-                   | map('extract', molecule_secret_labels, 'io.binarycodes.homelab.digest'))) }}
-        # OCI form, algorithm first, which is what lets the module change algorithm later
-        # without rotating every secret.
-        molecule_expected_digests: >-
-          {{ dict(molecule_secrets | list
-             | zip(molecule_secrets.values() | list | map('hash', 'sha256')
-                   | map('regex_replace', '^', 'sha256:') | list)) }}
+        molecule_secret_state: "{{ molecule_secret_inspect.stdout | secret_state }}"
 
     - name: Read the rendered Quadlet of the secrets app
       ansible.builtin.slurp:

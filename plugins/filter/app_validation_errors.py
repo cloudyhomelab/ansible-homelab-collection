@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable, Iterable
 
 
 DOCUMENTATION = r"""
@@ -110,10 +111,12 @@ _FORBIDDEN_SEGMENTS = frozenset(["", ".", ".."])
 _INLINE_SECRET_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]*")
 
 
-def app_validation_errors(name, kind="", state="present", image="", apps_dir="",
-                          data_dirs=None, secret_names=None):
+def app_validation_errors(name: object, kind: object = "", state: object = "present",
+                          image: object = "", apps_dir: object = "",
+                          data_dirs: Iterable[object] | None = None,
+                          secret_names: Iterable[object] | None = None) -> list[str]:
     """Why this app cannot be deployed or decommissioned as named, one string per problem."""
-    problems = []
+    problems: list[str] = []
 
     name = "" if name is None else str(name)
     if not _NAME_RE.fullmatch(name):
@@ -186,7 +189,7 @@ def app_validation_errors(name, kind="", state="present", image="", apps_dir="",
     return problems
 
 
-def _present(value):
+def _present(value: object) -> bool:
     """Whether a required scalar was given: not None, and not empty once stringified."""
     return value is not None and str(value) != ""
 
@@ -194,5 +197,5 @@ def _present(value):
 class FilterModule:
     """Input checks for the app an invocation of the role acts on."""
 
-    def filters(self):
+    def filters(self) -> dict[str, Callable[..., object]]:
         return {"app_validation_errors": app_validation_errors}

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable, Mapping
 
 
 DOCUMENTATION = r"""
@@ -128,12 +129,17 @@ _ENV_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
-def container_validation_errors(env, description="", volumes=None, publish_ports=None,
-                                container_options=None, service_options=None, image="",
-                                network="", health_cmd="", health_interval="",
-                                health_retries="", health_start_period="", start_timeout=""):
+def container_validation_errors(env: Mapping[object, object] | None, description: object = "",
+                                volumes: Iterable[object] | None = None,
+                                publish_ports: Iterable[object] | None = None,
+                                container_options: Iterable[object] | None = None,
+                                service_options: Iterable[object] | None = None,
+                                image: object = "", network: object = "", health_cmd: object = "",
+                                health_interval: object = "", health_retries: object = "",
+                                health_start_period: object = "",
+                                start_timeout: object = "") -> list[str]:
     """Why this app's Quadlet cannot be rendered, one string per problem."""
-    problems = []
+    problems: list[str] = []
 
     for key, value in (env or {}).items():
         if not _ENV_KEY_RE.fullmatch(str(key)):
@@ -150,7 +156,7 @@ def container_validation_errors(env, description="", volumes=None, publish_ports
 
     # One directive each, so a control character in any of them ends its line and makes
     # the remainder a further directive.
-    scalars = [
+    scalars: list[tuple[str, object]] = [
         ("systemd_app_description", description),
         ("systemd_app_image", image),
         ("systemd_app_network", network),
@@ -191,5 +197,5 @@ def container_validation_errors(env, description="", volumes=None, publish_ports
 class FilterModule:
     """Input checks for an app's rendered Quadlet."""
 
-    def filters(self):
+    def filters(self) -> dict[str, Callable[..., object]]:
         return {"container_validation_errors": container_validation_errors}

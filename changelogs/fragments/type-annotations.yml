@@ -1,0 +1,4 @@
+trivial:
+  - >-
+    The filter and module plugins are type-annotated and checked with ``mypy`` as part of the
+    gates. The modules drop their Python 2 import boilerplate; nothing a consumer sees changes.

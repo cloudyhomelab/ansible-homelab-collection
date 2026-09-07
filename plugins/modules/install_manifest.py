@@ -5,9 +5,7 @@
 
 """The ``install_manifest`` module. Runs on the managed host, where the record is."""
 
-from __future__ import absolute_import, division, print_function
-
-__metaclass__ = type
+from __future__ import annotations
 
 DOCUMENTATION = r"""
 module: install_manifest
@@ -138,6 +136,8 @@ import errno
 import os
 import stat
 import tempfile
+from collections.abc import Iterable, Mapping
+from typing import Literal, TypedDict
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -163,20 +163,40 @@ _PLAIN_UNIT_SUFFIXES = (
 # other two are how a path climbs out of its root.
 _FORBIDDEN_SEGMENTS = frozenset(["", ".", ".."])
 
+# What sits at a path, as `Files.kind` reports it.
+Kind = Literal["file", "link", "missing", "other"]
+
+
+class Diff(TypedDict):
+    before: str
+    after: str
+
+
+class Result(TypedDict):
+    """The module's return, less the fields AnsibleModule adds; see RETURN."""
+
+    changed: bool
+    pruned: list[str]
+    recorded: list[str]
+    config_changed: bool
+    pruned_units: list[str]
+    units: list[str]
+    diff: Diff
+
 
 class InstallManifestError(Exception):
     """A failure the module reports with fail_json; carries the fields to report."""
 
-    def __init__(self, msg, **fields):
-        super(InstallManifestError, self).__init__(msg)
+    def __init__(self, msg: str, **fields: object) -> None:
+        super().__init__(msg)
         self.msg = msg
         self.fields = fields
 
 
-class Files(object):
+class Files:
     """Everything the module does to the host, so `reconcile` can be driven against a tmp dir."""
 
-    def read_lines(self, path):
+    def read_lines(self, path: str) -> list[str] | None:
         """The record's non-blank lines, or None when there is no record."""
         try:
             with open(path, "rb") as handle:
@@ -187,7 +207,7 @@ class Files(object):
             raise
         return [line.strip() for line in text.splitlines() if line.strip()]
 
-    def kind(self, path):
+    def kind(self, path: str) -> Kind:
         """What sits at `path`: 'file', 'link', 'missing' or 'other' (a directory, a device...)."""
         try:
             mode = os.lstat(path).st_mode
@@ -199,7 +219,7 @@ class Files(object):
             return "link"
         return "other"
 
-    def unlink(self, path):
+    def unlink(self, path: str) -> None:
         """Remove one file or symlink; a path already gone is not an error."""
         try:
             os.unlink(path)
@@ -207,7 +227,7 @@ class Files(object):
             if exc.errno != errno.ENOENT:
                 raise
 
-    def write(self, path, text):
+    def write(self, path: str, text: str) -> None:
         """Replace the record atomically; a replaced one keeps its mode, a new one is 0644."""
         existing = self.kind(path)
         fd, tmp = tempfile.mkstemp(prefix=".install-manifest.", dir=os.path.dirname(path) or ".")
@@ -225,7 +245,7 @@ class Files(object):
                 os.unlink(tmp)
 
 
-def _under(path, root):
+def _under(path: str, root: str) -> list[str] | None:
     """The segments of `path` below `root`, or None when it does not sit under it."""
     prefix = root.rstrip("/") + "/"
     if not path.startswith(prefix):
@@ -233,7 +253,7 @@ def _under(path, root):
     return path[len(prefix):].split("/")
 
 
-def check_shape(path, system_dir, unit_dir, config_dir):
+def check_shape(path: str, system_dir: str, unit_dir: str, config_dir: str) -> str | None:
     """Why `path` may not be recorded, or None when it is one of the two legal shapes."""
     if not path.startswith("/"):
         return "is not an absolute path"
@@ -251,9 +271,10 @@ def check_shape(path, system_dir, unit_dir, config_dir):
     return "is outside %s, %s and %s" % (system_dir, unit_dir, config_dir)
 
 
-def validate(paths, files, system_dir, unit_dir, config_dir, what):
+def validate(paths: Iterable[str], files: Files, system_dir: str, unit_dir: str, config_dir: str,
+             what: str) -> None:
     """Refuse the whole list if any path is the wrong shape or names something not a file."""
-    refused = []
+    refused: list[str] = []
     for path in paths:
         why = check_shape(path, system_dir, unit_dir, config_dir)
         if why is None and files.kind(path) == "other":
@@ -268,7 +289,7 @@ def validate(paths, files, system_dir, unit_dir, config_dir, what):
         )
 
 
-def _unit_for(name, suffixes):
+def _unit_for(name: str, suffixes: Mapping[str, str]) -> str | None:
     """The unit `name` implies, or None when this module does not map it."""
     for suffix, unit_suffix in suffixes.items():
         if name.endswith(suffix) and len(name) > len(suffix):
@@ -276,9 +297,9 @@ def _unit_for(name, suffixes):
     return None
 
 
-def units_of(paths, system_dir, unit_dir):
+def units_of(paths: Iterable[str], system_dir: str, unit_dir: str) -> list[str]:
     """The systemd units a set of recorded paths implies, sorted and deduplicated."""
-    units = set()
+    units: set[str] = set()
     for path in paths:
         parent, name = os.path.split(path)
         if parent == unit_dir.rstrip("/"):
@@ -293,11 +314,12 @@ def units_of(paths, system_dir, unit_dir):
     return sorted(units)
 
 
-def _text(paths):
+def _text(paths: Iterable[str]) -> str:
     return "".join(path + "\n" for path in paths)
 
 
-def reconcile(files, path, installed, system_dir, unit_dir, config_dir, state, check_mode):
+def reconcile(files: Files, path: str, installed: Iterable[object], system_dir: str, unit_dir: str,
+              config_dir: str, state: str, check_mode: bool) -> Result:
     """Prune, record or remove, and describe what was done, in the module's return shape."""
     recorded_before = files.read_lines(path)
     had_record = recorded_before is not None
@@ -337,7 +359,7 @@ def reconcile(files, path, installed, system_dir, unit_dir, config_dir, state, c
     }
 
 
-def main():
+def main() -> None:
     module = AnsibleModule(
         argument_spec=dict(
             path=dict(type="path", required=True),

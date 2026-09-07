@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 
 DOCUMENTATION = r"""
@@ -93,7 +94,7 @@ _LABEL_MAX = 63
 _PORT_RE = re.compile(r"[0-9]+")
 
 
-def _port_number(port):
+def _port_number(port: object) -> int | None:
     """The port as an int, or None when the value is not one.
 
     Not `int()`: bool is a subclass of int, so True would pass as port 1; a float would be
@@ -109,9 +110,10 @@ def _port_number(port):
     return None
 
 
-def route_validation_errors(domain, upstream=None, port=None):
+def route_validation_errors(domain: object, upstream: object = None,
+                            port: object = None) -> list[str]:
     """Why this app cannot be routed, one string per problem; empty means it can."""
-    problems = []
+    problems: list[str] = []
 
     domain = "" if domain is None else str(domain)
     if not _HOSTNAME_RE.fullmatch(domain):
@@ -146,5 +148,5 @@ def route_validation_errors(domain, upstream=None, port=None):
 class FilterModule:
     """Input checks for an app's Caddy route."""
 
-    def filters(self):
+    def filters(self) -> dict[str, Callable[..., object]]:
         return {"route_validation_errors": route_validation_errors}

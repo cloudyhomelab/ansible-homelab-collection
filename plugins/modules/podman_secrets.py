@@ -5,9 +5,7 @@
 
 """The ``podman_secrets`` module. Runs on the managed host, where the store is."""
 
-from __future__ import absolute_import, division, print_function
-
-__metaclass__ = type
+from __future__ import annotations
 
 DOCUMENTATION = r"""
 module: podman_secrets
@@ -140,6 +138,8 @@ import errno
 import hashlib
 import json
 import re
+from collections.abc import Iterable, Mapping
+from typing import Protocol, TypedDict
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -158,22 +158,46 @@ _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # Enough stderr to diagnose a podman failure, not enough to flood a task result.
 _STDERR_LIMIT = 300
 
+# One stored secret's labels, as `podman secret inspect` reports them.
+Labels = dict[str, str]
+
+
+class Runner(Protocol):
+    """What `Store` calls podman through: `module.run_command`, or a fake in the tests."""
+
+    def __call__(self, argv: list[str], stdin: bytes | None) -> tuple[int, str, str]: ...
+
+
+class Diff(TypedDict):
+    before: str
+    after: str
+
+
+class Result(TypedDict):
+    """The module's return, less the fields AnsibleModule adds; see RETURN."""
+
+    changed: bool
+    stored: list[str]
+    removed: list[str]
+    unchanged: list[str]
+    diff: Diff
+
 
 class PodmanSecretsError(Exception):
     """A failure the module reports with fail_json; carries the fields to report."""
 
-    def __init__(self, msg, **fields):
-        super(PodmanSecretsError, self).__init__(msg)
+    def __init__(self, msg: str, **fields: object) -> None:
+        super().__init__(msg)
         self.msg = msg
         self.fields = fields
 
 
-def digest(value, algorithm=DIGEST_ALGORITHM):
+def digest(value: str, algorithm: str = DIGEST_ALGORITHM) -> str:
     """The value's digest as recorded on a secret: `<algorithm>:<hex>`."""
     return "%s:%s" % (algorithm, hashlib.new(algorithm, value.encode("utf-8")).hexdigest())
 
 
-def matches(recorded, value):
+def matches(recorded: str | None, value: str) -> bool:
     """Whether a recorded digest is the declared value's, under whatever algorithm it names.
 
     A digest with no algorithm, or under one this Python cannot compute, cannot be verified
@@ -185,17 +209,17 @@ def matches(recorded, value):
     return recorded == digest(value, algorithm)
 
 
-class Store(object):
+class Store:
     """The podman secret store, seen through a runner so the logic can be tested without podman.
 
     `run(argv, stdin)` returns `(rc, stdout, stderr)`; stdin is bytes or None.
     """
 
-    def __init__(self, run, executable="podman"):
+    def __init__(self, run: Runner, executable: str = "podman") -> None:
         self._run = run
         self._exe = executable
 
-    def _podman(self, args, stdin=None, what=None):
+    def _podman(self, args: list[str], stdin: bytes | None = None, what: str | None = None) -> str:
         argv = [self._exe, "secret"] + list(args)
         rc, out, err = self._run(argv, stdin)
         if rc != 0:
@@ -205,7 +229,7 @@ class Store(object):
             )
         return out
 
-    def labels(self):
+    def labels(self) -> dict[str, Labels]:
         """Every stored secret's labels, by name; {} for a secret with none."""
         out = self._podman(["ls", "--format", "{{.Name}}"], what="podman secret ls")
         names = [line.strip() for line in out.splitlines() if line.strip()]
@@ -216,7 +240,7 @@ class Store(object):
             entries = json.loads(raw)
         except ValueError as exc:
             raise PodmanSecretsError("podman secret inspect returned something other than JSON: %s" % exc)
-        stored = {}
+        stored: dict[str, Labels] = {}
         for entry in entries:
             spec = entry.get("Spec") or {}
             name = spec.get("Name") or entry.get("Name")
@@ -224,10 +248,10 @@ class Store(object):
                 stored[name] = dict(spec.get("Labels") or {})
         return stored
 
-    def remove(self, name):
+    def remove(self, name: str) -> None:
         self._podman(["rm", name], what="podman secret rm %s" % name)
 
-    def create(self, name, value, app):
+    def create(self, name: str, value: str, app: str) -> None:
         self._podman(
             ["create",
              "--label", "%s=%s" % (LABEL_APP, app),
@@ -238,7 +262,7 @@ class Store(object):
         )
 
 
-def _normalise(secrets):
+def _normalise(secrets: Mapping[object, object]) -> dict[str, str]:
     """The declared secrets as name -> string value, refusing what podman or the app would."""
     bad_names = sorted(str(n) for n in secrets if not _NAME_RE.fullmatch(str(n)))
     if bad_names:
@@ -255,7 +279,7 @@ def _normalise(secrets):
     return {str(n): str(v) for n, v in secrets.items()}
 
 
-def recorded_names(path):
+def recorded_names(path: str | None) -> list[str]:
     """The keys of the JSON object at `path`; [] when there is no file.
 
     The record a pre-1.1.0 release kept. Read before the store is listed, so a record that
@@ -281,7 +305,8 @@ def recorded_names(path):
     return sorted(str(name) for name in record)
 
 
-def plan(app, secrets, adopt, state, stored):
+def plan(app: str, secrets: Mapping[str, str], adopt: list[str], state: str,
+         stored: Mapping[str, Labels]) -> tuple[list[str], list[str], list[str]]:
     """What to remove and what to create, from the declared set and the store's labels.
 
     Returns (remove, create, unchanged): `remove` and `unchanged` are sorted name lists,
@@ -310,7 +335,9 @@ def plan(app, secrets, adopt, state, stored):
             names=foreign,
         )
 
-    remove, create, unchanged = set(), set(), set()
+    remove: set[str] = set()
+    create: set[str] = set()
+    unchanged: set[str] = set()
     for name, value in secrets.items():
         if name not in stored:
             create.add(name)
@@ -324,18 +351,19 @@ def plan(app, secrets, adopt, state, stored):
     return sorted(remove), sorted(create), sorted(unchanged)
 
 
-def reconcile(store, app, secrets, adopt, state, check_mode, adopt_file=None):
+def reconcile(store: Store, app: str, secrets: Mapping[object, object], adopt: Iterable[str],
+              state: str, check_mode: bool, adopt_file: str | None = None) -> Result:
     """Apply the plan to the store and describe what was done, in the module's return shape."""
-    secrets = _normalise(secrets) if state == "present" else {}
+    values = _normalise(secrets) if state == "present" else {}
     adopt = sorted(set(adopt) | set(recorded_names(adopt_file)))
     stored = store.labels()
-    remove, create, unchanged = plan(app, secrets, adopt, state, stored)
+    remove, create, unchanged = plan(app, values, adopt, state, stored)
 
     if not check_mode:
         for name in remove:
             store.remove(name)
         for name in create:
-            store.create(name, secrets[name], app)
+            store.create(name, values[name], app)
 
     owned_before = sorted(n for n, labels in stored.items() if labels.get(LABEL_APP) == app)
     owned_after = sorted((set(owned_before) - set(remove)) | set(create))
@@ -348,18 +376,19 @@ def reconcile(store, app, secrets, adopt, state, check_mode, adopt_file=None):
     }
 
 
-def _runner(module):
+def _runner(module: AnsibleModule) -> Runner:
     """module.run_command, in the (argv, stdin) shape Store expects.
 
     binary_data, because run_command appends a newline to text data and a secret value must
     be stored byte for byte.
     """
-    def run(argv, stdin):
-        return module.run_command(argv, data=stdin, binary_data=True)
+    def run(argv: list[str], stdin: bytes | None) -> tuple[int, str, str]:
+        rc, out, err = module.run_command(argv, data=stdin, binary_data=True)
+        return rc, out, err
     return run
 
 
-def main():
+def main() -> None:
     module = AnsibleModule(
         argument_spec=dict(
             app=dict(type="str", required=True),

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import posixpath
+from collections.abc import Callable
+from typing import TypedDict
 
 from ansible.errors import AnsibleFilterError
 
@@ -98,7 +100,22 @@ EXAMPLES = r"""
 """
 
 
-def source_tree(app_dir, system_dir, unit_dir, config_dir):
+class ConfigFile(TypedDict):
+    src: str
+    path: str
+
+
+class SourceTree(TypedDict):
+    """The filter's return; see RETURN."""
+
+    quadlet_files: list[str]
+    unit_files: list[str]
+    config_files: list[ConfigFile]
+    config_dir: str | None
+    installed: list[str]
+
+
+def source_tree(app_dir: object, system_dir: str, unit_dir: str, config_dir: str) -> SourceTree:
     """What a source app ships, grouped as it is installed, with the host paths it lands at."""
     app_dir = str(app_dir)
     if not os.path.isdir(app_dir):
@@ -127,7 +144,7 @@ def source_tree(app_dir, system_dir, unit_dir, config_dir):
     }
 
 
-def _flat_files(directory):
+def _flat_files(directory: str) -> list[str]:
     """The files one level down, hidden ones excluded: what a `*` glob returns."""
     if not os.path.isdir(directory):
         return []
@@ -138,9 +155,9 @@ def _flat_files(directory):
     )
 
 
-def _tree_files(directory):
+def _tree_files(directory: str) -> list[ConfigFile]:
     """Every file under `directory`, hidden ones included, with its path relative to it."""
-    entries = []
+    entries: list[ConfigFile] = []
     for root, _dirs, files in os.walk(directory):
         for name in files:
             src = os.path.join(root, name)
@@ -154,5 +171,5 @@ def _tree_files(directory):
 class FilterModule:
     """Discovery of what a source app ships."""
 
-    def filters(self):
+    def filters(self) -> dict[str, Callable[..., object]]:
         return {"source_tree": source_tree}

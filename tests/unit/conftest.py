@@ -39,6 +39,7 @@ def load_filter_module(path):
 def load_plugin(path, prefix):
     """Load one plugin file by path under a prefixed module name."""
     spec = importlib.util.spec_from_file_location(f"{prefix}{path.stem}", path)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)

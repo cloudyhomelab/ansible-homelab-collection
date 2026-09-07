@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable, Mapping
 
 
 DOCUMENTATION = r"""
@@ -53,7 +54,7 @@ EXAMPLES = r"""
 """
 
 
-def secret_digests(values):
+def secret_digests(values: Mapping[object, object] | None) -> dict[str, str]:
     """SHA-256 of each secret's value, keyed by secret name."""
     return {
         str(name): hashlib.sha256(str(value).encode("utf-8")).hexdigest()
@@ -64,5 +65,5 @@ def secret_digests(values):
 class FilterModule:
     """Digest bookkeeping for podman secrets."""
 
-    def filters(self):
+    def filters(self) -> dict[str, Callable[..., object]]:
         return {"secret_digests": secret_digests}

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Mapping
 
 from ansible.errors import AnsibleFilterError
 
@@ -56,10 +57,10 @@ EXAMPLES = r"""
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
-def systemd_env_lines(env):
+def systemd_env_lines(env: Mapping[object, object] | None) -> list[str]:
     """``Environment=`` lines for a Quadlet, quoted and escaped."""
     normalised = {str(key): str(value) for key, value in (env or {}).items()}
-    lines = []
+    lines: list[str] = []
     for key in sorted(normalised):
         value = normalised[key]
         # Unreachable through the role, which validates before rendering (see
@@ -73,7 +74,7 @@ def systemd_env_lines(env):
     return lines
 
 
-def _escape_in_quotes(value):
+def _escape_in_quotes(value: str) -> str:
     """A value as it must appear inside a double-quoted systemd directive."""
     return (
         value.replace("\\", "\\\\")   # first, or the escapes added below get doubled
@@ -85,5 +86,5 @@ def _escape_in_quotes(value):
 class FilterModule:
     """Rendering of systemd unit directives."""
 
-    def filters(self):
+    def filters(self) -> dict[str, Callable[..., object]]:
         return {"systemd_env_lines": systemd_env_lines}

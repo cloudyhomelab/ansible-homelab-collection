@@ -82,6 +82,7 @@ effect: [`roles/systemd_app/README.md`](roles/systemd_app/README.md).
 python3 -m venv .venv && . .venv/bin/activate
 pip install ansible-core -r requirements-dev.txt   # the tools, pinned, beside ansible-core
 pytest tests/unit -q     # the filters, as Python
+mypy                     # the plugins' type annotations
 ansible-lint             # roles, playbooks and the molecule scenario
 antsibull-changelog lint # the changelog fragments
 molecule test            # the role against a systemd container (see extensions/molecule/default/)

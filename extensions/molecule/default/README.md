@@ -96,6 +96,14 @@ environment rather than as a task parameter, because the call that needs it is t
 own and a consumer supplies the key the same way. `prepare.yml` asserts the file is really
 there, so a scenario that cannot decrypt says so before the role runs.
 
+The secrets assertions go through the scenario's own filters in `filter_plugins/`, which
+Ansible loads from the play's directory and `build_ignore` keeps out of the built
+collection: `secret_state` reads `podman secret inspect --showsecret` output into
+`{name: {owner, digest, value}}`, and `declared_secret_state` builds the same shape from
+the plaintext above, calling the `podman_secrets` module's own `digest()` so a change of
+algorithm there cannot fail the scenario for the wrong reason. Each stage's check is then
+one equality between the two. `tests/unit/test_molecule_filters.py` covers the parsing.
+
 The scenario deliberately does not run the fixture containers on a podman network
 (`Network=none`, `systemd_app_network: none`): joining one would put netavark in the
 critical path of every run without covering anything the role does. Its fixture apps are

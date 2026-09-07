@@ -177,16 +177,12 @@
     - name: Assert the changed value was re-stored and the dropped name removed
       ansible.builtin.assert:
         that:
-          - molecule_stored_names == molecule_secrets_rotated | list | sort
           # The value podman holds is the new one, so the rm-then-create ran rather than
-          # the create being refused for a name that already existed.
-          - molecule_stored_values == molecule_secrets_rotated
-          # Dropped from the record too: its key set is what a later deploy — and the
-          # decommission below — works from to know which secrets this app owns.
-          - molecule_recorded_digests | list | sort == molecule_secrets_rotated | list | sort
-        fail_msg: >-
-          Stored {{ molecule_stored_names }}, recorded
-          {{ molecule_recorded_digests | list | sort }}.
+          # the create being refused for a name that already existed — and the dropped
+          # name is gone from the store, whose key set is what a later deploy and the
+          # decommission below work from to know which secrets this app owns.
+          - molecule_secret_state == molecule_secrets_rotated | declared_secret_state('molsecret')
+        fail_msg: "After the rotation: {{ molecule_secret_state }}."
         quiet: true
 
     # The store is the only record, so a secret removed by hand — or lost with a store
@@ -213,8 +209,8 @@
     - name: Assert the secret the host had lost was stored again
       ansible.builtin.assert:
         that:
-          - molecule_stored_values == molecule_secrets_rotated
-        fail_msg: "After re-deploying over a hand-removed secret: {{ molecule_stored_names }}."
+          - molecule_secret_state == molecule_secrets_rotated | declared_secret_state('molsecret')
+        fail_msg: "After re-deploying over a hand-removed secret: {{ molecule_secret_state }}."
         quiet: true
 
     # --- a secret another app owns ----------------------------------------------------------
@@ -271,14 +267,7 @@
 
     - name: Read back the other app's secret
       ansible.builtin.command:
-        argv:
-          - podman
-          - secret
-          - inspect
-          - --showsecret
-          - --format
-          - "{{ '{{' }}index .Spec.Labels \"io.binarycodes.homelab.app\"{{ '}}' }} {{ '{{' }}.SecretData{{ '}}' }}"
-          - molclaim-token
+        argv: [podman, secret, inspect, --showsecret, molclaim-token]
       changed_when: false
       register: molecule_claim_secret
 
@@ -288,12 +277,16 @@
           - molecule_claim_deployed is not defined
           - "'molclaim-token' in molecule_claim_refusal | default('')"
           - "'molother' in molecule_claim_refusal | default('')"
-          - molecule_claim_secret.stdout == 'molother not-ours'
+          # Still the other app's, still the hand-stored value, and still without a digest
+          # label: the module wrote nothing on it.
+          - "molecule_claim_state == {'molclaim-token': {'owner': 'molother', 'digest': none, 'value': 'not-ours'}}"
         fail_msg: >-
           Deployed: {{ molecule_claim_deployed | default(false) }}; refusal:
           {{ molecule_claim_refusal | default('(none)') }}; the secret now reads
-          '{{ molecule_claim_secret.stdout }}'.
+          {{ molecule_claim_state }}.
         quiet: true
+      vars:
+        molecule_claim_state: "{{ molecule_claim_secret.stdout | secret_state }}"
 
     # --- a domain another app already routes --------------------------------------------
     # The role sees one app at a time, so this is the one route problem it has to ask the

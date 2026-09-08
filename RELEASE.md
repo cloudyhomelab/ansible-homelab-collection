@@ -1,13 +1,47 @@
 # Releasing `binarycodes.homelab`
 
-Everything in a release is reversible except the last step. A version published to Ansible
-Galaxy **cannot be replaced and cannot be deleted** — a mistake is not rolled back, it is
-superseded, and the wrong artefact stays visible for good. That single fact is why this
-procedure is longer than "tag and push", and why the machinery spends most of its effort
-refusing to publish.
+A version published to Ansible Galaxy **cannot be replaced and cannot be deleted**: a mistake
+is superseded, never rolled back, and the wrong artefact stays visible for good. So two
+scripts and the release workflow spend most of their effort refusing to publish, and the
+release itself is the six steps below. Everything after them is what each step does and why.
 
-Read this top to bottom the first time. The checklist in [Doing the release](#doing-the-release)
-is the part you come back to.
+## The steps
+
+1. **Land the release summary.** A `release_summary` fragment on `main`, through a pull
+   request, on its own or with the last change going in.
+   → [The release summary](#the-release-summary)
+
+2. **Prepare the release commit**, from a clean, up-to-date `main`:
+
+   ```sh
+   git switch main && git pull --ff-only
+   ./prepare-release.sh --bump minor      # major | minor | patch, or an explicit X.Y.Z
+   ```
+
+   Read the notes it shows, answer yes, and it opens the release PR.
+   → [Choosing the version number](#choosing-the-version-number)
+   · [What prepare-release.sh does](#what-prepare-releasesh-does)
+
+3. **Rehearse**, optional: run **Release** from the Actions tab against `release/X.Y.Z`.
+   → [Rehearsing](#rehearsing)
+
+4. **Merge the release PR** once its checks pass.
+
+5. **Tag**:
+
+   ```sh
+   git switch main && git pull --ff-only
+   ./tag-release.sh
+   ```
+
+   Answer yes; the pushed tag starts the release.
+   → [What tag-release.sh does](#what-tag-releasesh-does)
+
+6. **Approve the publish** on the run's page, after reading its summary, then check it
+   landed. → [Approving the publish](#approving-the-publish)
+
+First time here, or been a while? → [Before you start](#before-you-start). Something
+failed? → [When something goes wrong](#when-something-goes-wrong).
 
 ## Before you start
 
@@ -54,9 +88,7 @@ Two traps worth naming, both **breaking**:
 - raising the ansible-core floor, since a consumer on the old floor can no longer install
   the collection — see [Raising the ansible-core floor](#raising-the-ansible-core-floor).
 
-## Doing the release
-
-### 1. Write the release summary
+## The release summary
 
 One fragment for the release as a whole, not for any single change:
 
@@ -69,17 +101,13 @@ release_summary: >-
 
 This is the paragraph a consumer reads first, so it is reviewed like anything else a
 consumer reads: it lands on `main` through a pull request, on its own or with the last
-change going into the release. The per-change fragments are already there: CI refuses a
-pull request that adds none, so every change since the last release carries one;
-`changelogs/README.md` has the sections and the markup.
+change going into the release. `prepare-release.sh` refuses to run without it.
 
-### 2. Prepare the release commit
+The per-change fragments need no step: CI refuses a pull request that adds none, so every
+change since the last release already carries one. `changelogs/README.md` has the sections
+and the markup.
 
-```sh
-git switch main
-git pull --ff-only
-./prepare-release.sh --bump minor      # or an explicit X.Y.Z
-```
+## What prepare-release.sh does
 
 The bump is yours to choose, per [Choosing the version number](#choosing-the-version-number).
 The script refuses if:
@@ -126,7 +154,7 @@ Two lines of output to ignore: `ansible-lint`'s one `Unable to parse documentati
 file` per filter, which `tests/unit/test_filter_docs.py` covers, and `ansible-test sanity`
 skipping `compile` and `import` on Python versions the machine lacks.
 
-### 3. Rehearse (optional, recommended after a long gap)
+## Rehearsing
 
 Run **Release** from the Actions tab against the `release/X.Y.Z` branch. From a branch the
 run is a rehearsal:
@@ -143,24 +171,13 @@ previous release tag and the release notes, then the built tarball's listing.
 What separates a rehearsal from a release is `github.ref_type`, not an input, so nothing
 published can come from a branch.
 
-### 4. Merge the release pull request
+## What tag-release.sh does
 
-Once its checks pass, like any other change. What gets tagged next is the merge commit on
-`main`, not the commit on the branch. A change with a fragment that lands on `main` in
-between is covered in [When something goes wrong](#when-something-goes-wrong).
-
-### 5. Tag and push
-
-```sh
-git switch main
-git pull --ff-only
-./tag-release.sh
-```
-
-The script tags `HEAD` as `vX.Y.Z` from `galaxy.yml`'s `version`, with that version's
-section of `CHANGELOG.md` as the annotated tag message, shows you the result and asks
-before pushing. Answer no at the prompt to keep the local tag and push it yourself;
-`git tag -d vX.Y.Z` undoes it.
+The script tags `HEAD` — the merge commit of the release PR, which is why the pull comes
+first — as `vX.Y.Z` from `galaxy.yml`'s `version`, with that version's section of
+`CHANGELOG.md` as the annotated tag message, shows you the result and asks before pushing.
+Answer no at the prompt to keep the local tag and push it yourself; `git tag -d vX.Y.Z`
+undoes it.
 
 It refuses if:
 
@@ -175,7 +192,7 @@ Each is a mistake the workflow would otherwise report only after the gates.
 The pushed tag is what triggers the release. Note the `v` prefix, and that only
 `v[0-9]+.[0-9]+.[0-9]+` matches — a prerelease tag like `v1.0.0-rc1` triggers nothing.
 
-### 6. Approve the publish, then check it landed
+## Approving the publish
 
 The workflow runs the checks, then the three gate workflows (which take the better part of
 half an hour), then waits on the `release` environment for a reviewer.
@@ -231,7 +248,7 @@ the gates than to supersede afterwards:
 If a release is abandoned after `antsibull-changelog release` has run, the fragments are
 gone from the working tree. Before the release commit, the undo command `prepare-release.sh`
 prints brings them back; after it, revert the commit — the fragments are in git history,
-which is the reason step 2 commits them as one unit.
+which is the reason the release commit carries them as one unit.
 
 ## Special cases
 

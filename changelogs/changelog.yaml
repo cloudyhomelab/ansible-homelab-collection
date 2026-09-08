@@ -171,6 +171,7 @@ releases:
       - podman-secrets-module.yml
       - readme-lists-every-plugin.yml
       - refuse-duplicate-domain.yml
+      - release-approval-summary.yml
       - release-procedure-doc.yml
       - release-summary.yml
       - requirements-dev.yml

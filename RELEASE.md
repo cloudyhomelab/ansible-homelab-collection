@@ -224,6 +224,7 @@ the gates than to supersede afterwards:
 | --- | --- |
 | A check failed before the gates | Fix it on `main`, delete the tag locally and remotely (`git tag -d vX.Y.Z; git push --delete origin vX.Y.Z`), commit, re-tag. Nothing has been published. |
 | A gate failed | Same. A tag that never published can be moved freely. |
+| A change with a fragment lands after the release commit, before the tag | Run `antsibull-changelog release --version X.Y.Z` again. It warns that the version exists, folds the fragment into that entry, keeps the date, and regenerates `CHANGELOG.md`. Commit the result before tagging; a fragment left behind is swept into the *next* release's entry instead. |
 | The publish itself failed — network, Galaxy outage, missing secret | The tag is already pushed and there is nothing to re-tag. Fix the cause, then run **Release** from the Actions tab **against the tag**, which repeats the whole thing including the gates. |
 | The publish succeeded but the GitHub release step failed | Only the announcement is missing. Create the release by hand, or re-run the job — the publish step refuses a duplicate, so it cannot double-upload. |
 | Published the wrong content | It cannot be fixed in place. Publish `X.Y.Z+1` with the correction, and say so in its release summary. The bad version stays visible. |

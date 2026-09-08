@@ -1,0 +1,4 @@
+release_summary: >-
+  Nothing in the collection changes: the role, filters and modules are those of 1.1.0. This
+  release exercises the release procedure itself, which is now driven from a pull-request
+  label and two approvals rather than scripts run by hand.

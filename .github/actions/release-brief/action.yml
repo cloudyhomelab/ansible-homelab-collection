@@ -1,0 +1,69 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The brief a reviewer approves a release on: every commit since the previous release tag,
+# with a compare link, and the version's notes as the GitHub release will carry them, all
+# written to the step summary of the job that runs it. Two approvals read it — the
+# `prepare` environment on the release pull request's Checks run and the `release`
+# environment on the Release run — and the two runs must show the same picture, so the
+# brief is composed once, here. The caller decides the heading: what approving means
+# differs between the two, the facts under it do not.
+#
+# Needs the whole history and every tag checked out, and antsibull-changelog on PATH.
+name: Write the release brief
+description: >-
+  Append the commits since the previous release tag and this version's release notes to the
+  step summary.
+
+inputs:
+  version:
+    description: The version being released, plain X.Y.Z, as galaxy.yml declares it.
+    required: true
+  heading:
+    description: The summary's title, without the leading `## `.
+    required: true
+  intro:
+    description: One line under the title, saying what the run is looking at.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Write the brief
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        HEADING: ${{ inputs.heading }}
+        INTRO: ${{ inputs.intro }}
+      run: |
+        # The release this one follows is the tag just below v$VERSION in version order,
+        # not the highest tag: a patch on an older line compares against its own line. The
+        # version is added to the list because its own tag does not exist yet, except on a
+        # re-run from the tag. Release tags only: a prerelease tag is not a release this one
+        # follows.
+        previous="$( { git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$'; echo "v$VERSION"; } \
+          | sort -uV | grep -Fx -B1 "v$VERSION" | head -1)"
+        [ "$previous" = "v$VERSION" ] && previous=""
+        sha="$(git rev-parse HEAD)"
+        antsibull-changelog generate "$VERSION" --only-latest --output "$RUNNER_TEMP/brief-notes.md"
+        {
+          echo "## $HEADING"
+          echo
+          echo "$INTRO"
+          echo
+          if [ -n "$previous" ]; then
+            echo "### Commits since $previous"
+            echo
+            echo "[Compare $previous...${sha:0:12}]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$previous...$sha)"
+            echo
+            git log --no-decorate --format='- %h %s' "$previous..HEAD"
+          else
+            echo "No earlier release tag: this is the first release."
+          fi
+          echo
+          echo "### Release notes"
+          echo
+          cat "$RUNNER_TEMP/brief-notes.md"
+        } >> "$GITHUB_STEP_SUMMARY"

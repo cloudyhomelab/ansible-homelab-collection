@@ -8,7 +8,8 @@ name: Release
 # A published Galaxy version is immutable: it cannot be overwritten and it cannot be
 # deleted. A mistake is not rolled back, it is superseded, and the wrong artefact stays
 # visible for good. So this workflow spends most of its length refusing to publish — the
-# upload itself is one command at the end.
+# upload itself is one command near the end, followed only by a look at what a consumer
+# now sees.
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
@@ -95,8 +96,8 @@ jobs:
       # A version with nothing written about it would publish with an empty release note.
       # Rendering its section is the check: `generate <version>` exits non-zero on a version
       # changelog.yaml does not know, and an entry that renders to nothing is caught here
-      # too. The file this produces goes into the summary below; the publish job renders
-      # its own, on its own runner, from the same tagged commit.
+      # too. The brief below and the publish job each render their own copy, from the same
+      # commit, so nothing is carried between jobs that a runner could have altered.
       - name: Check the changelog describes this version
         run: |
           antsibull-changelog generate "${{ steps.version.outputs.version }}" \
@@ -139,44 +140,20 @@ jobs:
       # and commit, every commit since the previous release, and the notes as the GitHub
       # release will carry them. It comes from this job so it is on the page while publish
       # is still waiting, and a rehearsal gets it too, since an empty or wrong-looking note
-      # is the one thing the checks above cannot judge.
+      # is the one thing the checks above cannot judge. The same action writes the brief the
+      # release pull request is approved on, so the two approvals read the same picture.
       - name: Summarise what approving this run would publish
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          RELEASE: ${{ steps.version.outputs.release }}
-        run: |
-          # The release this one follows is the tag just below v$VERSION in version order,
-          # not the highest tag: a patch on an older line compares against its own line. The
-          # version is added to the list because on a rehearsal its tag does not exist yet.
-          previous="$( { git tag --list 'v[0-9]*.[0-9]*.[0-9]*'; echo "v$VERSION"; } \
-            | sort -uV | grep -Fx -B1 "v$VERSION" | head -1)"
-          [ "$previous" = "v$VERSION" ] && previous=""
-          sha="$(git rev-parse HEAD)"
-          {
-            if [ "$RELEASE" = true ]; then
-              echo "## Approving publishes $VERSION"
-              echo
-              echo "Tag \`$GITHUB_REF_NAME\` at \`$sha\`."
-            else
-              echo "## Rehearsal of $VERSION"
-              echo
-              echo "From branch \`$GITHUB_REF_NAME\` at \`$sha\`. Nothing is published."
-            fi
-            echo
-            if [ -n "$previous" ]; then
-              echo "### Commits since $previous"
-              echo
-              echo "[Compare $previous...${sha:0:12}]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$previous...$sha)"
-              echo
-              git log --no-decorate --format='- %h %s' "$previous..HEAD"
-            else
-              echo "No earlier release tag: this is the first release."
-            fi
-            echo
-            echo "### Release notes"
-            echo
-            cat /tmp/release-notes.md
-          } >> "$GITHUB_STEP_SUMMARY"
+        uses: ./.github/actions/release-brief
+        with:
+          version: ${{ steps.version.outputs.version }}
+          heading: >-
+            ${{ steps.version.outputs.release == 'true'
+                && format('Approving publishes {0}', steps.version.outputs.version)
+                || format('Rehearsal of {0}', steps.version.outputs.version) }}
+          intro: >-
+            ${{ steps.version.outputs.release == 'true'
+                && format('Tag `{0}` at `{1}`.', github.ref_name, github.sha)
+                || format('From branch `{0}` at `{1}`. Nothing is published.', github.ref_name, github.sha) }}
 
   # The same definitions main runs, against the tagged commit. Called rather than trusted:
   # a green tick on main is a statement about whatever main was then, and a tag can point
@@ -285,5 +262,79 @@ jobs:
             echo
             echo '```'
             tar tzf "dist/binarycodes-homelab-$VERSION.tar.gz" | head -20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # What a consumer sees, from a runner that has none of this checkout: the version installs
+  # from Galaxy, its plugins document themselves from the install, and the GitHub release
+  # carries the tarball. Galaxy's index lags its import by minutes, so the install retries
+  # for a while before a miss counts. Nothing here can be rolled back — the publish is done —
+  # so a failure is a note to look by hand, not a reason to redo anything.
+  verify-published:
+    name: Verify ${{ needs.verify.outputs.version }} is installable
+    needs: [verify, publish]
+    if: needs.verify.outputs.release == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install the collection from Galaxy
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          installed=false
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if ansible-galaxy collection install "binarycodes.homelab:==$VERSION" \
+                 -p "$RUNNER_TEMP/collections" > "$RUNNER_TEMP/install.log" 2>&1; then
+              installed=true
+              break
+            fi
+            echo "Attempt $attempt: not installable yet; Galaxy's index may not carry it. Waiting a minute."
+            sleep 60
+          done
+          cat "$RUNNER_TEMP/install.log"
+          if [ "$installed" != true ]; then
+            echo "::error::binarycodes.homelab $VERSION did not install from Galaxy after ten attempts." >&2
+            exit 1
+          fi
+
+      # One filter and one module, named from the install rather than here, so a plugin
+      # renamed or removed in some later release does not break this job for that release.
+      - name: Read a filter's and a module's documentation from the install
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/collections
+        run: |
+          root="$RUNNER_TEMP/collections/ansible_collections/binarycodes/homelab/plugins"
+          filter="$(find "$root/filter" -maxdepth 1 -name '*.py' ! -name '__init__.py' | sort | head -1)"
+          module="$(find "$root/modules" -maxdepth 1 -name '*.py' ! -name '__init__.py' | sort | head -1)"
+          ansible-doc -t filter "binarycodes.homelab.$(basename "$filter" .py)" | head -20
+          ansible-doc -t module "binarycodes.homelab.$(basename "$module" .py)" | head -20
+
+      - name: Check the GitHub release carries the tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          assets="$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          if ! grep -qFx "binarycodes-homelab-$VERSION.tar.gz" <<< "$assets"; then
+            echo "::error::Release v$VERSION has no asset binarycodes-homelab-$VERSION.tar.gz; it has: $assets" >&2
+            exit 1
+          fi
+
+      # The record of a release ends with what a consumer sees.
+      - name: Summarise what a consumer sees
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          {
+            echo "## $VERSION is published"
+            echo
+            echo "On Galaxy: https://galaxy.ansible.com/ui/repo/published/binarycodes/homelab/"
+            echo
+            echo "GitHub release: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$VERSION"
+            echo
+            echo "### Installed from Galaxy"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/install.log"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

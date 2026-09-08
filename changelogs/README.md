@@ -67,7 +67,8 @@ CI runs all three, and `ansible-test sanity` validates `changelog.yaml` as well.
 
 `antsibull-changelog release --version X.Y.Z` folds every fragment into
 `changelogs/changelog.yaml`, deletes the fragments (`keep_fragments: false`) and
-regenerates `CHANGELOG.md`. Commit all of it together with the `galaxy.yml` version bump,
-then tag — `release.yml` reads the version's notes straight out of `changelog.yaml` for the
-GitHub release body, so a version with no entry there fails the release rather than
-publishing with an empty note. `RELEASE.md` at the repository root is the procedure.
+regenerates `CHANGELOG.md`. The Prepare release workflow runs it and commits all of it
+together with the `galaxy.yml` version bump as the release PR; the Release run reads the
+version's notes straight out of `changelog.yaml` for the GitHub release body, so a version
+with no entry there fails the release rather than publishing with an empty note.
+`RELEASE.md` at the repository root is the procedure.

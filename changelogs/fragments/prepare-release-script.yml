@@ -1,6 +1,0 @@
-trivial:
-  - >-
-    ``prepare-release.sh`` folds the fragments, bumps ``galaxy.yml``, runs the fast gates and
-    opens the release pull request, refusing a missing release summary, a bump smaller than the
-    fragments imply and a plugin ``version_added`` that names no release; ``RELEASE.md`` uses it.
-    Maintainer tooling, excluded from the built collection; nothing a consumer sees changes.

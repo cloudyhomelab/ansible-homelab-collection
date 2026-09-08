@@ -1,69 +1,74 @@
 # Releasing `binarycodes.homelab`
 
 A version published to Ansible Galaxy **cannot be replaced and cannot be deleted**: a mistake
-is superseded, never rolled back, and the wrong artefact stays visible for good. So two
-scripts and the release workflow spend most of their effort refusing to publish, and the
-release itself is the six steps below. Everything after them is what each step does and why.
+is superseded, never rolled back, and the wrong artefact stays visible for good. So three
+workflows spend most of their effort refusing to publish, and the release itself is the
+three steps below — one label and two approvals, nothing typed locally and nothing merged
+by hand. Everything after them is what each step does and why.
 
 ## The steps
 
-1. **Land the release summary.** A `release_summary` fragment on `main`, through a pull
-   request, on its own or with the last change going in.
+1. **Land the release summary** through a pull request labelled `prepare-release`, on its
+   own or with the last change going in. **Label before merging.** The merge runs
+   **Prepare release**, which comments on that PR with the release PR's address — or with
+   why it refused.
    → [The release summary](#the-release-summary)
+   · [Choosing the version number](#choosing-the-version-number)
+   · [What Prepare release does](#what-prepare-release-does)
 
-2. **Prepare the release commit**, from a clean, up-to-date `main`:
+2. **Approve the release PR.** On its Checks run's summary page, read the brief the
+   `Release brief` job wrote, then **Review deployments**, tick `prepare`, **Approve and
+   deploy**. The PR merges itself, **Tag release** tags the merge `vX.Y.Z` and comments on
+   the PR, and the tag starts the **Release** run.
+   → [Approving the release PR](#approving-the-release-pr)
+   · [What Tag release does](#what-tag-release-does)
 
-   ```sh
-   git switch main && git pull --ff-only
-   ./prepare-release.sh --bump minor      # major | minor | patch, or an explicit X.Y.Z
-   ```
-
-   Read the notes it shows, answer yes, and it opens the release PR.
-   → [Choosing the version number](#choosing-the-version-number)
-   · [What prepare-release.sh does](#what-prepare-releasesh-does)
-
-3. **Rehearse**, optional: run **Release** from the Actions tab against `release/X.Y.Z`.
-   → [Rehearsing](#rehearsing)
-
-4. **Merge the release PR** once its checks pass.
-
-5. **Tag**:
-
-   ```sh
-   git switch main && git pull --ff-only
-   ./tag-release.sh
-   ```
-
-   Answer yes; the pushed tag starts the release.
-   → [What tag-release.sh does](#what-tag-releasesh-does)
-
-6. **Approve the publish** on the run's page, after reading its summary, then check it
-   landed. → [Approving the publish](#approving-the-publish)
+3. **Approve the publish** on the Release run's summary page, after reading its brief:
+   **Review deployments**, tick `release`, **Approve and deploy**. The run's last job then
+   confirms the version installs from Galaxy.
+   → [Approving the publish](#approving-the-publish)
 
 First time here, or been a while? → [Before you start](#before-you-start). Something
 failed? → [When something goes wrong](#when-something-goes-wrong).
 
 ## Before you start
 
-You need, once:
+Once, on the GitHub repository:
 
-- **`antsibull-changelog`**, which writes the changelog, at the version CI uses. It is in
-  `requirements-dev.txt` with the other tools; install that file into the environment that
-  holds ansible-core.
+- **A `GALAXY_API_KEY` secret**, from your Galaxy account's namespace. Without it the
+  publish step fails with a clear message rather than uploading nothing.
+- **The GitHub App**, whose credentials are the `CLOUDYHOME_BOT_CLIENT_ID` and
+  `CLOUDYHOME_BOT_PRIVATE_KEY` secrets, installed on the repository with **Contents:
+  write**, **Pull requests: write** and **Issues: write** (labels live under Issues). It is
+  the identity that pushes the release branch and the tag, opens the release PR and comments
+  on the PR you labelled. It has to be a second identity: an event caused by the workflow's
+  own `GITHUB_TOKEN` starts no workflow, so a release PR opened with it would get no Checks
+  run and a tag pushed with it would start no Release.
+- **Two environments, each with a required reviewer**: `prepare`, which holds the release
+  PR until someone has read its brief, and `release`, which holds the publish. Each is the
+  stop button before something that cannot be undone. Without the protection rule the job
+  simply runs, so each guard is only as real as its environment — check both are still
+  there if it has been a while. Neither may restrict deployment branches: `prepare` is
+  reached from `release/X.Y.Z` branches and `release` from a tag.
+- **Branch protection on `main` requiring the `All gates passed` check.** Auto-merge waits
+  on it, and it waits on the `prepare` approval; without a required check nothing would
+  block the release PR, so Prepare release does not enable auto-merge on a PR nothing
+  blocks. If the protection also requires an approving review, that review is a further
+  act before the PR can merge.
+- **Allow auto-merge** enabled in the repository's settings, with squash an allowed merge
+  method. Without it the release PR waits to be merged by hand once approved, and Prepare
+  release's comment says so.
+- **No ruleset on `v*` tags or `release/**` branches** that the App cannot bypass: it
+  pushes both. Today nothing protects either.
+- **The label** `prepare-release`, and `prepare-release-major`, `-minor` and `-patch` for
+  when the bump is chosen by hand. A `prepare-release-X.Y.Z` label is created when an
+  explicit version is wanted; the `release-X.Y.Z` labels are created by Prepare release
+  itself.
 
-- **The GitHub CLI, `gh`, logged in** to an account that can push a branch and open a pull
-  request here. `prepare-release.sh` opens the release PR with it.
-- **A `GALAXY_API_KEY` secret** on the GitHub repository, from your Galaxy account's
-  namespace. Without it the publish step fails with a clear message rather than uploading
-  nothing.
-- **A `release` environment** configured in the repository's settings **with a required
-  reviewer**. This is the stop button between "every gate passed" and the irreversible
-  upload. Without the protection rule the job simply runs, so the guard is only as real as
-  the environment — check it is still there if it has been a while.
-
-You also need push access for a tag, and a clean, up-to-date `main`. `main` is protected,
-so the release commit lands through a pull request like any other change, which
-`prepare-release.sh` opens; only the tag is pushed directly.
+For a release that goes to plan, nothing needs installing on your machine and nothing needs
+push access: each step is a label or an approval, and most recoveries are a run of the same
+workflow from the Actions tab. The few that need `antsibull-changelog` locally or push access
+for a tag say so where they are described.
 
 ## Choosing the version number
 
@@ -71,7 +76,7 @@ so the release commit lands through a pull request like any other change, which
 
 - every `systemd_app_*` role variable, as documented in
   `roles/systemd_app/meta/argument_specs.yml`;
-- the filters' names, their arguments, and the shape of what they return.
+- the filters' and modules' names, their arguments, and the shape of what they return.
 
 So:
 
@@ -88,6 +93,14 @@ Two traps worth naming, both **breaking**:
 - raising the ansible-core floor, since a consumer on the old floor can no longer install
   the collection — see [Raising the ansible-core floor](#raising-the-ansible-core-floor).
 
+The fragments already say which: any `breaking_changes`, `major_changes` or
+`removed_features` section means major, any `minor_changes` or `deprecated_features` means
+minor, anything else is a patch. The bare `prepare-release` label takes that bump. A bigger
+one can be asked for with `prepare-release-major`, `-minor` or `-patch`, and
+`prepare-release-2.0.0` names the version outright: it has to sort above the current one,
+and the component it moves is the bump the fragments are held to. A smaller bump than the
+fragments imply is refused.
+
 ## The release summary
 
 One fragment for the release as a whole, not for any single change:
@@ -101,24 +114,29 @@ release_summary: >-
 
 This is the paragraph a consumer reads first, so it is reviewed like anything else a
 consumer reads: it lands on `main` through a pull request, on its own or with the last
-change going into the release. `prepare-release.sh` refuses to run without it.
+change going into the release. Prepare release refuses to run without it.
 
 The per-change fragments need no step: CI refuses a pull request that adds none, so every
 change since the last release already carries one. `changelogs/README.md` has the sections
 and the markup.
 
-## What prepare-release.sh does
+## What Prepare release does
 
-The bump is yours to choose, per [Choosing the version number](#choosing-the-version-number).
-The script refuses if:
+`.github/workflows/prepare-release.yml` runs when a pull request into `main` merges carrying
+a `prepare-release` label, bare or with a bump. It works from `main`'s tip, not from the
+commit that merged, since a release folds everything on `main`. It refuses — and quotes the
+reason in a comment on the PR you labelled — if:
 
-- you are not on a clean, up-to-date `main`;
+- the PR carries more than one `prepare-release` label, or one in a shape it does not
+  know;
+- `galaxy.yml`'s version is not plain `X.Y.Z`, or an explicit version is not above it;
+- the branch `release/X.Y.Z` already exists on `origin`: a release PR for it is open, or
+  was abandoned without deleting the branch;
 - no fragment is waiting, or none carries `release_summary`;
-- the fragments call for a bigger bump than asked: any `breaking_changes`, `major_changes`
-  or `removed_features` section means major, any `minor_changes` or `deprecated_features`
-  means minor. A bigger bump than they imply is allowed;
+- the fragments call for a bigger bump than the label asks — see [Choosing the version
+  number](#choosing-the-version-number). A bigger bump than they imply is allowed;
 - a filter or module carries a `version_added` that names neither a released version nor
-  this one, or is new since the last release and does not name this one.
+  this one, or is new since the last release's tag and does not name this one.
 
 That last check is not cosmetic: `antsibull-changelog` builds the New Plugins and New
 Modules sections from `version_added`, so a wrong value mis-records what the release adds.
@@ -129,126 +147,170 @@ Then, on a new `release/X.Y.Z` branch, it:
 
 1. runs `antsibull-changelog release --version X.Y.Z`, which folds every fragment into
    `changelogs/changelog.yaml`, **deletes the fragments**, and regenerates `CHANGELOG.md`;
-2. sets `version: X.Y.Z` in `galaxy.yml`, the only file carrying the version and the one the
-   release workflow believes;
+2. sets `version: X.Y.Z` in `galaxy.yml`, the only file carrying the version and the one
+   the Release run believes;
 3. runs the gates that take seconds — the changelog lints, the `CHANGELOG.md` sync check
-   and `ansible-galaxy collection build`; sanity and molecule run on the pull request;
-4. shows the release notes and asks.
+   and `ansible-galaxy collection build`; sanity and molecule run on the release PR;
+4. commits `chore(release): X.Y.Z` — the version bump, the folded `changelog.yaml`, the
+   emptied `changelogs/fragments/` and the regenerated `CHANGELOG.md` as one commit, which
+   is what the Release run checks the tagged commit for — pushes the branch, creates the
+   label `release-X.Y.Z` and opens the pull request with that label and the release notes
+   as its body;
+5. enables auto-merge (squash) on the PR, so it merges the moment `All gates passed` is
+   green — which it cannot be before the `prepare` approval. Only while the required check
+   blocks the PR: auto-merge asked for on a PR nothing blocks would merge it on the spot;
+6. comments on the PR you labelled with the release PR's address and whether it merges
+   itself. Run from the Actions tab instead, there is no PR to comment on and the address is
+   in the run's summary; the branch the Run workflow dialog asks for is ignored, since the
+   fold is always from `main`.
 
-**Read the notes before answering.** Wording, a missing entry, a summary that does not read
-like one — this is the cheapest moment to fix any of it: answer no, edit the fragments, undo
-with the command it prints and run it again. The `\.` and `<code>` escaping in the raw
-`CHANGELOG.md` is normal antsibull-changelog output that renders correctly on GitHub;
-hand-tidying it fails CI.
+**The release PR is where the notes are read.** Its body is one line saying which PR it was
+prepared from, then the release notes as the GitHub release will carry them. The `\.` and
+`<code>` escaping in the raw text is normal
+`antsibull-changelog` output that renders correctly on GitHub; hand-tidying it in
+`CHANGELOG.md` fails CI. A note that reads wrong is fixed where it was written: close the
+release PR, delete its branch — `main` is untouched and every fragment still waits there —
+fix the fragment through a pull request, and give that PR the `prepare-release` label
+so its merge prepares the release again. A release nobody wants is the same PR closed and
+its branch deleted, and nothing more.
 
-Answer yes and it commits `chore(release): X.Y.Z` — the version bump, the folded
-`changelog.yaml`, the emptied `changelogs/fragments/` and the regenerated `CHANGELOG.md` as
-one commit, which is what the release workflow checks the tagged commit for — pushes the
-branch and opens the pull request with the notes as its body. Answer no and everything is
-left uncommitted on the branch, with the commands to finish or undo by hand.
+## Approving the release PR
 
-To run the slow gates locally before opening the PR, see the Gates section of `CLAUDE.md`:
-`ansible-test sanity --local` and `molecule test` need the checkout at
-`ansible_collections/binarycodes/homelab/`, and `molecule test` needs `sops` on `PATH`.
-Two lines of output to ignore: `ansible-lint`'s one `Unable to parse documentation in python
-file` per filter, which `tests/unit/test_filter_docs.py` covers, and `ansible-test sanity`
-skipping `compile` and `import` on Python versions the machine lacks.
+The release PR's Checks run has two jobs no other PR has. **`Release brief`** makes the
+cheap checks the Release run's first job makes — the changelog lints, an entry for this
+version, `CHANGELOG.md` in sync with `changelog.yaml`, the version not yet on Galaxy —
+builds the collection, and writes the brief to its summary: every commit since the previous
+release tag with a compare link, the release notes as the GitHub release will carry them,
+and the built tarball's listing. **`Approve the release`** then waits on the `prepare`
+environment.
 
-## Rehearsing
+**Read the brief before approving.** It is on the run's summary page, under the job. A
+commit you did not expect or a note that reads wrong is the moment to stop: nothing has been
+tagged, and the PR can be closed as described above.
 
-Run **Release** from the Actions tab against the `release/X.Y.Z` branch. From a branch the
-run is a rehearsal:
+The approval is the decision to release: **Review deployments** on that page, tick
+`prepare`, **Approve and deploy**. `All gates passed` waits on it, auto-merge waits on
+`All gates passed`, the merge runs Tag release, and the tag runs Release; nobody presses
+Merge. A push to the release branch starts a new Checks run, which asks again.
 
-- the version comes from `galaxy.yml`;
-- every check and every gate runs, including whether the version number is still free on
-  Galaxy — often the real question;
-- the collection is built;
-- the two steps that reach outside the runner are skipped.
+To stop a release once its PR is open:
 
-The run's summary shows what a release would have published: the commits since the
-previous release tag and the release notes, then the built tarball's listing.
+- **close the PR and delete its branch.** `main` is untouched; the fragments still wait
+  there for the next attempt;
+- or **remove the `release-X.Y.Z` label** before the merge. The PR then merges, once
+  approved, and is not tagged: the release commit lands on `main` and can be tagged later by
+  running Tag release from the Actions tab.
 
-What separates a rehearsal from a release is `github.ref_type`, not an input, so nothing
-published can come from a branch.
+## What Tag release does
 
-## What tag-release.sh does
+`.github/workflows/tag-release.yml` runs when a pull request into `main` merges carrying a
+`release-X.Y.Z` label. It works on the merge commit and never on wherever `main` has moved
+since. It refuses if:
 
-The script tags `HEAD` — the merge commit of the release PR, which is why the pull comes
-first — as `vX.Y.Z` from `galaxy.yml`'s `version`, with that version's section of
-`CHANGELOG.md` as the annotated tag message, shows you the result and asks before pushing.
-Answer no at the prompt to keep the local tag and push it yourself; `git tag -d vX.Y.Z`
-undoes it.
+- the PR carries more than one `release-` label, or one that is not `release-X.Y.Z`;
+- the label's version is not exactly `galaxy.yml`'s: a release branch edited after it was
+  labelled, or a label on the wrong PR;
+- a fragment is still waiting in `changelogs/fragments/`: a change with a fragment merged
+  after the release PR was opened, so the changelog does not describe everything the tag
+  would publish;
+- `vX.Y.Z` already exists on `origin`;
+- Galaxy already has the version, or answers anything but 404 for it.
 
-It refuses if:
-
-- the working tree is dirty;
-- a fragment is still waiting in `changelogs/fragments/`;
-- `HEAD` is not on `origin/main`;
-- the tag already exists, locally or on `origin`;
-- Galaxy already has the version.
-
-Each is a mistake the workflow would otherwise report only after the gates.
-
-The pushed tag is what triggers the release. Note the `v` prefix, and that only
-`v[0-9]+.[0-9]+.[0-9]+` matches — a prerelease tag like `v1.0.0-rc1` triggers nothing.
+Then it writes the tag message — `binarycodes.homelab X.Y.Z`, then the version's notes from
+`changelog.yaml` with antsibull's Markdown escaping undone for reading in a terminal — tags
+the merge commit `vX.Y.Z` as the App, pushes the tag and writes the message to the run's
+summary. Either way it comments on the release PR — the tag and where to approve the
+publish, or that it refused and where to read why — since that PR is merged and closed by
+then and its page is where anyone following the release is looking. The pushed tag is what
+starts Release. Note the `v` prefix, and that only `v[0-9]+.[0-9]+.[0-9]+` matches: a
+prerelease tag like `v1.0.0-rc1` triggers nothing.
 
 ## Approving the publish
 
-The workflow runs the checks, then the three gate workflows (which take the better part of
-half an hour), then waits on the `release` environment for a reviewer.
+The Release run checks the tag against `galaxy.yml` and the changelog, then runs the three
+gate workflows (which take the better part of half an hour), then waits on the `release`
+environment for a reviewer.
 
 **Read the run's summary before approving.** The first job writes it while the gates are
-still running, so it is on the run's page by the time the publish is waiting:
+still running, so it is on the run's page by the time the publish is waiting: the same
+brief as on the release PR, written by the same action, now headed by the tag and the commit
+it points at. A commit you did not expect or a note that reads wrong is the moment to
+reject: nothing has been published, and a tag that never published can be deleted and
+moved.
 
-- the tag and the commit it points at;
-- every commit since the previous release tag, with a compare link;
-- the release notes exactly as the GitHub release will carry them.
-
-That summary is what you are approving. A commit you did not expect or a note that reads
-wrong is the moment to reject, fix and re-tag — nothing has been published yet.
-
-Then approve, and watch the publish step: Galaxy accepts the tarball and imports it
+Then approve — **Review deployments**, tick `release`, **Approve and deploy** — and watch
+the publish step: Galaxy accepts the tarball and imports it
 asynchronously, and the import is what actually validates the collection, so the step stays
-for the verdict.
+for the verdict. The GitHub release is created after the upload, so a failed publish leaves
+no release announcing a version that is not there.
 
-Afterwards:
+Afterwards the run's last job, **`Verify X.Y.Z is installable`**, confirms from a runner
+that has none of this checkout:
 
-- the version is on Galaxy at
-  `https://galaxy.ansible.com/ui/repo/published/binarycodes/homelab/`;
-- a GitHub release exists for the tag, with the changelog section as its body and the
-  built tarball attached — byte-for-byte the file that went to Galaxy;
-- `ansible-galaxy collection install binarycodes.homelab:==X.Y.Z` works from a clean
-  machine.
+- `ansible-galaxy collection install binarycodes.homelab:==X.Y.Z` works from Galaxy,
+  retrying for up to ten minutes while Galaxy's index catches up with its import;
+- `ansible-doc` reads a filter and a module from the install;
+- the GitHub release for the tag carries the built tarball, byte-for-byte the file that
+  went to Galaxy, since one job built, uploaded and attached it.
 
-## What the workflow checks, and why
+Its summary ends the run with the Galaxy page,
+`https://galaxy.ansible.com/ui/repo/published/binarycodes/homelab/`, and the install
+output. A failure there is a note to look by hand, not a rollback: there is none, and the
+publish is done.
 
-Every one of these is a way to ship the wrong thing, and each is cheaper to catch before
-the gates than to supersede afterwards:
+## What the workflows check, and why
 
-| Check | Catches |
-| --- | --- |
-| tag `vX.Y.Z` equals `galaxy.yml`'s `version` | the two being edited at different moments — the classic way a collection is published under a number nobody meant |
-| this version has an entry in `changelogs/changelog.yaml` | tagging before running `antsibull-changelog release`, which would publish with an empty release note |
-| `CHANGELOG.md` matches what `changelog.yaml` renders to | someone hand-editing the generated file, or running `release` without committing what it rewrote |
-| the version is not already on Galaxy | a duplicate, half an hour before the publish would have refused it anyway |
-| CI, supported-versions and molecule, **called against the tagged commit** | a green tick on `main` being a statement about whatever `main` was then; a tag can point anywhere |
+Every one of these is a way to ship the wrong thing, and each is made where it is cheapest:
+before the branch exists, before the tag exists, before the gates, or — the last row —
+after the publish, where the alternative is the first consumer finding out.
+
+| Check | Where | Catches |
+| --- | --- | --- |
+| a fragment with `release_summary` is waiting | Prepare release | a release with no changes, or one whose notes have no opening paragraph — antsibull only warns |
+| the fragments imply no bigger bump than the label asks | Prepare release | a breaking change shipped as a minor, a feature as a patch |
+| every `version_added` names a release | Prepare release | New Plugins and New Modules sections that mis-record what the release adds |
+| `release/X.Y.Z` does not exist | Prepare release | two labelled PRs merged back to back, which would be two release PRs for one set of fragments |
+| the changelog lints, `CHANGELOG.md` matches what `changelog.yaml` renders to | Prepare release, Release brief, Release | a fragment that will not parse; someone hand-editing the generated file |
+| this version has an entry in `changelogs/changelog.yaml` | Prepare release, Release brief, Tag release, Release | tagging before the fold, which would publish with an empty release note |
+| the release label's version is `galaxy.yml`'s | Tag release | a release branch edited after it was labelled; a label on the wrong PR |
+| no fragment is waiting | Tag release | a change merged after the release PR opened, whose note the tag would leave out |
+| `vX.Y.Z` does not exist on `origin` | Tag release | a version tagged twice |
+| Galaxy does not have the version | Tag release, Release brief, Release | a duplicate, before the gates would have run for half an hour |
+| tag `vX.Y.Z` equals `galaxy.yml`'s `version` | Release | a tag pushed by hand on the wrong commit — the classic way a collection is published under a number nobody meant |
+| CI, supported-versions and molecule, **called against the tagged commit** | Release | a green tick on `main` being a statement about whatever `main` was then; a tag can point anywhere |
+| the version installs from Galaxy; the release carries the tarball | Release, after the publish | an import Galaxy accepted and then dropped; an announcement without its file |
 
 ## When something goes wrong
 
+Most recoveries are a run of the same workflow from the Actions tab; the rest are a tag
+pushed by hand, which the Release run checks like any other, or a fold run by hand. Nothing
+here is a script.
+
+One rule underlies the rows about a release commit already on `main`: every later pull
+request adds a fragment, and a waiting fragment stops Tag release. So a fix that has to go
+into `X.Y.Z` folds its own fragment into that version's entry in the same PR —
+`antsibull-changelog release --version X.Y.Z` run by hand, which warns that the version
+exists, folds into it and keeps the date, then commit `changelog.yaml`, `CHANGELOG.md` and
+the deleted fragment together. CI accepts the changed `changelog.yaml` in place of a
+fragment. This is the one recovery that needs the tool installed locally.
+
 | Situation | What to do |
 | --- | --- |
-| A check failed before the gates | Fix it on `main`, delete the tag locally and remotely (`git tag -d vX.Y.Z; git push --delete origin vX.Y.Z`), commit, re-tag. Nothing has been published. |
-| A gate failed | Same. A tag that never published can be moved freely. |
-| A change with a fragment lands on `main` after the release PR, before the tag | Run `antsibull-changelog release --version X.Y.Z` again, by hand. It warns that the version exists, folds the fragment into that entry, keeps the date, and regenerates `CHANGELOG.md`. Commit the result before tagging; a fragment left behind is swept into the *next* release's entry instead. |
+| The summary PR merged without its `prepare-release` label | Run **Prepare release** from the Actions tab; the bump field may stay empty for the one the fragments imply. It folds from `main`'s tip; nothing was consumed. |
+| Prepare release refused | Its comment on the PR quotes why. Fix it on `main` through a pull request and give that PR the `prepare-release` label, or run Prepare release from the Actions tab once it is fixed. No comment at all means the App's token could not be minted; the run says so. |
+| A change with a fragment lands on `main` after the release PR opened; or two labelled PRs merged back to back and the second refused | Close the release PR and delete its branch: `main` is untouched, nothing was consumed. Then label the next PR, or run Prepare release from the Actions tab. Merged anyway, Tag release refuses on the waiting fragment — see the next row. |
+| The release PR merged but was not tagged: label removed, a refusal, a failure | Tag release's comment on the release PR points at the run. The release commit is on `main`, untagged. Fix the cause on `main` through a pull request, folding its fragment as described above. Then run **Tag release** from the Actions tab, which tags `main`'s tip, or tag by hand (push access needed): `git tag -a vX.Y.Z -m "binarycodes.homelab X.Y.Z" <sha> && git push origin vX.Y.Z`. |
+| Auto-merge was not enabled | Prepare release's comment says so, with the PR's merge state. Either **Allow auto-merge** is off in the repository's settings, or no required check blocked the PR — check both. Then `gh pr merge --auto --squash <url>`, or press Merge once the `prepare` approval is given and the checks are green. A merge by hand runs Tag release all the same. |
+| A check or a gate failed on the Release run | Nothing is published; a tag that never published can be moved. Fix it on `main` through a pull request, folding its fragment as described above, delete the tag (`git push --delete origin vX.Y.Z`, push access needed), and run Tag release from the Actions tab. |
 | The publish itself failed — network, Galaxy outage, missing secret | The tag is already pushed and there is nothing to re-tag. Fix the cause, then run **Release** from the Actions tab **against the tag**, which repeats the whole thing including the gates. |
-| The publish succeeded but the GitHub release step failed | Only the announcement is missing. Create the release by hand, or re-run the job — the publish step refuses a duplicate, so it cannot double-upload. |
+| The publish succeeded but the GitHub release step failed | Only the announcement is missing, and re-running the job does not add it: the publish step comes first and refuses the duplicate. Create the release by hand: `antsibull-changelog generate X.Y.Z --only-latest --output notes.md` for the body, and for the asset download the file Galaxy holds, which is the one that was uploaded — `https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/binarycodes-homelab-X.Y.Z.tar.gz`. Then `gh release create vX.Y.Z --title vX.Y.Z --notes-file notes.md binarycodes-homelab-X.Y.Z.tar.gz`, and re-run `Verify X.Y.Z is installable`. |
+| `Verify X.Y.Z is installable` failed | The publish is done. Look at the Galaxy page and the release's assets by hand; Galaxy's index may simply have been slower than ten minutes, in which case re-running the job says so. |
 | Published the wrong content | It cannot be fixed in place. Publish `X.Y.Z+1` with the correction, and say so in its release summary. The bad version stays visible. |
 | Published a version whose number was wrong | Same answer. Do not try to reuse the number. |
 
-If a release is abandoned after `antsibull-changelog release` has run, the fragments are
-gone from the working tree. Before the release commit, the undo command `prepare-release.sh`
-prints brings them back; after it, revert the commit — the fragments are in git history,
-which is the reason the release commit carries them as one unit.
+Before the release PR merges, the fragments are still on `main` and nothing is lost by
+closing it. After it merges they are in the release commit, which is why that commit carries
+them as one unit: a revert brings them back.
 
 ## Special cases
 

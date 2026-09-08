@@ -1,0 +1,387 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Prepare release
+
+# Opens the release pull request. When a pull request labelled `prepare-release` merges
+# into main, this folds the waiting fragments into the changelog for the next version,
+# bumps galaxy.yml to match, runs the gates that take seconds, and opens a PR from
+# `release/X.Y.Z` with the notes as its body, the label `release-X.Y.Z` that tag-release.yml
+# looks for, and auto-merge enabled — so approving the `prepare` environment on that PR's
+# Checks run is what releases. The label on the origin PR is the decision to release; the
+# bare label takes the bump the fragments' sections imply, `prepare-release-<bump>` names
+# one. The version is decided here, and the release PR's label names it.
+#
+# Most of this workflow is refusals. A release commit that mis-describes the release is
+# cheap to refuse before the branch exists and expensive to notice after Galaxy has the
+# version: no summary to head the notes, a bump smaller than the fragments call for, a
+# `version_added` that names a version nobody released. The origin PR gets a comment either
+# way, with the release PR's address or the refusal.
+on:
+  # `closed` rather than a push to main: the event carries the labels as they were at the
+  # merge, whether the PR merged or was merely closed, and the PR's number to comment on.
+  # The branch filter is on the base, which is the one we want.
+  pull_request:
+    types: [closed]
+    branches: [main]
+  # The recovery when the label was forgotten, or a refusal has been fixed on main: the
+  # same fold from main's tip, with no origin PR to comment on.
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "major, minor, patch, or an explicit X.Y.Z; empty for the bump the fragments imply"
+        required: false
+        type: string
+
+# Two labelled PRs merged back to back are two releases asked for at once; the second
+# waits, then refuses on the branch the first pushed rather than opening a second PR for
+# the same fragments.
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+# The push, the label, the PR, the comment: all made by the App's token, not the workflow's.
+# A PR opened with GITHUB_TOKEN starts no workflow (GitHub's rule against runs that trigger
+# themselves), so it would get no Checks run and could never merge.
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare the release pull request
+    # A PR closed without merging prepares nothing, and neither does an ordinary PR: the
+    # label test here is only what keeps every other merge from showing up as a refusal;
+    # the step below holds the label to the exact form.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.pull_request.merged == true
+          && contains(format(' {0} ', join(github.event.pull_request.labels.*.name, ' ')), ' prepare-release'))
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mint a token for the App
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.CLOUDYHOME_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.CLOUDYHOME_BOT_PRIVATE_KEY }}
+
+      # Every refusal below goes through this: the reason to the log, as the step's error,
+      # and to a file the comment on the origin PR quotes at the end, so that the person
+      # who labelled the PR reads why nothing was opened without opening the run.
+      - name: Provide the refuse command
+        run: |
+          cat > "$RUNNER_TEMP/refuse" <<'EOF'
+          #!/usr/bin/env bash
+          printf '%s\n' "$@" | tee -a "$RUNNER_TEMP/refusal.md" >&2
+          echo "::error::$1"
+          exit 1
+          EOF
+          chmod +x "$RUNNER_TEMP/refuse"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Exactly one `prepare-release` label, bare or with a bump, since two are two opinions
+      # about the bump. Bare means "what the fragments imply", left empty here and filled in
+      # once the fragments have been read. On dispatch the bump is the input, checked to the
+      # same shape, and empty means the same.
+      - name: Read the bump from the label
+        id: bump
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          INPUT: ${{ inputs.bump }}
+        run: |
+          shape='(major|minor|patch|[0-9]+\.[0-9]+\.[0-9]+)'
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            grep -qE "^$shape?\$" <<< "$INPUT" \
+              || refuse "The bump input is '$INPUT'; it must be major, minor, patch, X.Y.Z or empty."
+            bump="$INPUT"
+          else
+            matches="$(tr ' ' '\n' <<< "$LABELS" | grep -E "^prepare-release(-$shape)?\$" || true)"
+            case "$(wc -w <<< "$matches")" in
+              1) bump="${matches#prepare-release}"; bump="${bump#-}" ;;
+              0) refuse "No label prepare-release or prepare-release-<major|minor|patch|X.Y.Z> on this pull request; its labels are: $LABELS" ;;
+              *) refuse "More than one prepare-release label on this pull request: $(tr '\n' ' ' <<< "$matches")" ;;
+            esac
+          fi
+          echo "bump=${bump:-implied}"
+          echo "bump=$bump" >> "$GITHUB_OUTPUT"
+
+      # A release folds everything on main, so main's tip is what is checked out, whatever
+      # commit the origin PR merged as. Whole history: the version_added check reaches back
+      # to the previous release's tag. The App's token is what the checkout leaves in the
+      # remote's credentials, so the push below is the App's.
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.ref || 'main' }}
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+
+      # The release commit's author is the App, which is the identity that pushes it. The
+      # noreply address is the form GitHub attributes to the App's account.
+      - name: Set the App as the git identity
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          id="$(gh api "/users/${SLUG}[bot]" --jq .id)"
+          git config user.name "${SLUG}[bot]"
+          git config user.email "${id}+${SLUG}[bot]@users.noreply.github.com"
+
+      - name: Install the development tools
+        uses: ./.github/actions/install-dev-tools
+
+      # The summary is the paragraph a consumer reads first, and antsibull-changelog only
+      # warns when it is missing, which is how a release ships without one.
+      - name: Check a fragment with a release summary is waiting
+        run: |
+          fragments="$(find changelogs/fragments -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)"
+          [ -n "$fragments" ] || refuse "No fragment is waiting in changelogs/fragments/; nothing to release."
+          grep -qE '^release_summary:' $fragments \
+            || refuse "No waiting fragment carries release_summary:; land one first."
+
+      # Sections that stop a call site working mean major; ones that add mean minor; the rest
+      # is a patch. Section keys sit at column 0, so a grep is the parse; a fragment malformed
+      # enough to fool it fails the lint later.
+      - name: Read the bump the fragments imply
+        id: implied
+        run: |
+          fragments="$(find changelogs/fragments -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)"
+          if   grep -qE '^(breaking_changes|major_changes|removed_features):' $fragments; then implied=major
+          elif grep -qE '^(minor_changes|deprecated_features):' $fragments; then implied=minor
+          else implied=patch
+          fi
+          echo "The fragments imply a $implied bump."
+          echo "bump=$implied" >> "$GITHUB_OUTPUT"
+          grep -lE '^(breaking_changes|major_changes|removed_features|minor_changes|deprecated_features):' $fragments \
+            > "$RUNNER_TEMP/bump-fragments.txt" || true
+
+      # Current version from galaxy.yml, read as release.yml reads it. `major|minor|patch`
+      # moves that component; an explicit version is taken as given, must sort above the
+      # current one, and the component it moves is the bump the fragments are then held to.
+      # No bump asked for means the one the fragments imply.
+      - name: Resolve the version
+        id: version
+        env:
+          BUMP: ${{ steps.bump.outputs.bump || steps.implied.outputs.bump }}
+        run: |
+          current="$(sed -n 's/^version:[[:space:]]*//p' galaxy.yml | head -1 | tr -d "\"' ")"
+          grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$current" \
+            || refuse "galaxy.yml's version '$current' is not plain X.Y.Z."
+          IFS=. read -r major minor patch <<< "$current"
+          case "$BUMP" in
+            major) new="$((major + 1)).0.0" ;;
+            minor) new="$major.$((minor + 1)).0" ;;
+            patch) new="$major.$minor.$((patch + 1))" ;;
+            *)
+              new="$BUMP"
+              if [ "$new" = "$current" ] \
+                 || [ "$(printf '%s\n%s\n' "$current" "$new" | sort -V | tail -1)" != "$new" ]; then
+                refuse "$new is not above the current version $current."
+              fi
+              IFS=. read -r new_major new_minor _ <<< "$new"
+              if   [ "$new_major" != "$major" ]; then BUMP=major
+              elif [ "$new_minor" != "$minor" ]; then BUMP=minor
+              else BUMP=patch
+              fi
+              ;;
+          esac
+          echo "Releasing $new after $current: a $BUMP bump."
+          {
+            echo "current=$current"
+            echo "version=$new"
+            echo "bump=$BUMP"
+          } >> "$GITHUB_OUTPUT"
+
+      # Two labelled PRs merged back to back: the first pushed this branch and opened its
+      # PR, and everything the second would fold is already in it.
+      - name: Check the release branch does not exist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -n "$(git ls-remote --heads origin "refs/heads/release/$VERSION")" ]; then
+            refuse "Branch release/$VERSION already exists on origin; a release PR for it is open or was abandoned without deleting the branch."
+          fi
+
+      # A bigger bump than the fragments imply is allowed; a smaller one ships a breaking
+      # change as a minor, or a feature as a patch.
+      - name: Check the fragments do not call for a bigger bump
+        env:
+          BUMP: ${{ steps.version.outputs.bump }}
+          IMPLIED: ${{ steps.implied.outputs.bump }}
+        run: |
+          rank() { case "$1" in major) echo 3 ;; minor) echo 2 ;; patch) echo 1 ;; esac; }
+          if [ "$(rank "$BUMP")" -lt "$(rank "$IMPLIED")" ]; then
+            refuse "The fragments call for a $IMPLIED bump, not $BUMP:" $(cat "$RUNNER_TEMP/bump-fragments.txt")
+          fi
+
+      # antsibull-changelog builds the New Plugins and New Modules sections from
+      # version_added, so a value that names neither a released version nor this one
+      # mis-records what the release adds, and a plugin added since the last release that
+      # does not name this one is left out of them.
+      - name: Check every version_added names a release
+        env:
+          CURRENT: ${{ steps.version.outputs.current }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          released="$(sed -nE 's/^  ([0-9]+\.[0-9]+\.[0-9]+):$/\1/p' changelogs/changelog.yaml)"
+          for file in plugins/filter/*.py plugins/modules/*.py; do
+            while read -r value; do
+              [ "$value" = "$VERSION" ] || grep -qFx "$value" <<< "$released" \
+                || refuse "$file: version_added $value is neither a released version nor $VERSION."
+            done < <(sed -nE "s/^[[:space:]]*version_added:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?.*/\1/p" "$file")
+          done
+          if git rev-parse -q --verify "refs/tags/v$CURRENT" >/dev/null; then
+            while read -r file; do
+              grep -qE "^[[:space:]]*version_added:[[:space:]]*['\"]?${VERSION}['\"]?[[:space:]]*\$" "$file" \
+                || refuse "$file is new since v$CURRENT but does not carry version_added: $VERSION."
+            done < <(git diff --name-only --diff-filter=A "v$CURRENT" HEAD -- 'plugins/filter/*.py' 'plugins/modules/*.py')
+          fi
+
+      # `release` folds every fragment into changelog.yaml, deletes them and regenerates
+      # CHANGELOG.md. galaxy.yml is the only file carrying the version and the one
+      # release.yml believes, so it moves in the same commit.
+      - name: Fold the fragments and bump the version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git switch -c "release/$VERSION"
+          antsibull-changelog release --version "$VERSION"
+          sed -i -E "s/^version:[[:space:]]*.*/version: $VERSION/" galaxy.yml
+          grep -qx "version: $VERSION" galaxy.yml || refuse "Could not set version: $VERSION in galaxy.yml."
+
+      # The gates that take seconds, as ci.yml runs them; sanity and molecule run on the
+      # release PR. The sync check compares against what `release` just wrote, since the
+      # committed CHANGELOG.md predates it.
+      - name: Run the fast gates
+        run: |
+          antsibull-changelog lint
+          antsibull-changelog lint-changelog-yaml changelogs/changelog.yaml
+          cp CHANGELOG.md "$RUNNER_TEMP/CHANGELOG.released.md"
+          antsibull-changelog generate
+          cmp -s CHANGELOG.md "$RUNNER_TEMP/CHANGELOG.released.md" \
+            || refuse "CHANGELOG.md is not what changelogs/changelog.yaml renders to after the fold."
+          ansible-galaxy collection build --output-path "$RUNNER_TEMP/dist" </dev/null
+
+      # The release PR's body: one line saying where it came from, then the notes as
+      # antsibull-changelog wrote them — the escaping renders correctly on GitHub. The same
+      # rendering becomes the GitHub release body, so this is the notes' review.
+      - name: Write the release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ORIGIN: >-
+            ${{ github.event_name == 'pull_request'
+                && format('Prepared from #{0} by Prepare release.', github.event.pull_request.number)
+                || 'Prepared by a dispatch of Prepare release.' }}
+        run: |
+          antsibull-changelog generate "$VERSION" --only-latest --output "$RUNNER_TEMP/notes.md"
+          [ -s "$RUNNER_TEMP/notes.md" ] || refuse "changelogs/changelog.yaml has no entry for $VERSION after the fold."
+          {
+            echo "$ORIGIN"
+            echo
+            cat "$RUNNER_TEMP/notes.md"
+          } > "$RUNNER_TEMP/body.md"
+
+      # One commit: the version bump, the folded changelog.yaml, the deleted fragments and
+      # the regenerated CHANGELOG.md, which is the unit release.yml checks the tagged commit
+      # for and the unit a revert brings the fragments back with. The `release-X.Y.Z` label
+      # is created here because it names a version that did not exist until this run;
+      # --force so a re-run after a closed PR finds it already there without failing.
+      - name: Commit, push and open the release pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git add galaxy.yml changelogs CHANGELOG.md
+          git commit -m "chore(release): $VERSION"
+          git push -u origin "release/$VERSION"
+          gh label create "release-$VERSION" --force --color 0e8a16 \
+            --description "Merging this release pull request tags v$VERSION"
+          url="$(gh pr create --base main --head "release/$VERSION" \
+            --title "chore(release): $VERSION" --body-file "$RUNNER_TEMP/body.md" \
+            --label "release-$VERSION")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      # Squash, which is how main's history reads. Auto-merge waits for `All gates passed`,
+      # and that check waits for the `prepare` approval, so the approval is the act that
+      # releases. The merge is attributed to the App, which enabled it, so it counts as an
+      # event the App caused and starts tag-release.yml.
+      #
+      # Only enabled while something blocks the PR. `gh pr merge --auto` on a PR nothing
+      # blocks merges it on the spot, which would skip the `prepare` approval altogether; the
+      # state is BLOCKED only when branch protection requires a check that has not reported,
+      # and is UNKNOWN for a moment after the PR is opened, while GitHub computes it. Not a
+      # refusal either way: the PR is open and correct, and merging it by hand once approved
+      # is the same release; the comment below says which it is.
+      - name: Enable auto-merge on the release pull request
+        id: automerge
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          URL: ${{ steps.pr.outputs.url }}
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            state="$(gh pr view "$URL" --json mergeStateStatus --jq .mergeStateStatus)"
+            [ "$state" = UNKNOWN ] || break
+            sleep 10
+          done
+          echo "Merge state: $state"
+          if [ "$state" = BLOCKED ] && gh pr merge --auto --squash "$URL"; then
+            merges="itself once the \`prepare\` environment is approved on its Checks run and every check is green"
+          else
+            echo "::warning::Auto-merge not enabled (merge state $state): either the repository does not" \
+                 "allow it, or no required check blocks the PR. Merge by hand once the \`prepare\`" \
+                 "environment is approved."
+            merges="by hand: auto-merge was not enabled (merge state $state), so once the \`prepare\` environment is approved on its Checks run, press Merge"
+          fi
+          echo "merges=$merges" >> "$GITHUB_OUTPUT"
+
+      - name: Report the release pull request
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          URL: ${{ steps.pr.outputs.url }}
+          MERGES: ${{ steps.automerge.outputs.merges }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ORIGIN: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo "Release pull request for $VERSION: $URL"
+            echo
+            echo "It merges $MERGES. The merge is tagged \`v$VERSION\`, and the tag starts the"
+            echo "Release run, where the publish itself is approved."
+          } > "$RUNNER_TEMP/comment.md"
+          cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$ORIGIN" ]; then
+            gh pr comment "$ORIGIN" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+          fi
+
+      # The refusal, quoted, so the person who labelled the origin PR reads it there. A
+      # failure that was not a refusal has no message of its own and points at the run. The
+      # repository is named because a refusal before the checkout leaves gh nothing to
+      # infer it from. If minting the token was what failed, this cannot post either, and
+      # the red run is the only word.
+      - name: Report the refusal
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          ORIGIN: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo "Prepare release did not open a release pull request."
+            echo
+            if [ -s "$RUNNER_TEMP/refusal.md" ]; then
+              echo "It refused:"
+              echo
+              sed 's/^/> /' "$RUNNER_TEMP/refusal.md"
+              echo
+              echo "Fix this on \`main\`, then dispatch Prepare release from the Actions tab."
+            else
+              echo "A step failed; see the run. Once the cause is fixed, dispatch Prepare release from the Actions tab."
+            fi
+            echo
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > "$RUNNER_TEMP/comment.md"
+          cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
+          gh pr comment "$ORIGIN" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"

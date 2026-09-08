@@ -1,0 +1,7 @@
+trivial:
+  - >-
+    Releases are driven from pull-request labels and two environment approvals: a
+    ``prepare-release`` label opens the release pull request, approving it tags the
+    merge, and the tag runs the publish, which now ends by installing the published version
+    from Galaxy. The two release scripts are gone. Maintainer tooling, excluded from the built
+    collection; nothing a consumer sees changes.

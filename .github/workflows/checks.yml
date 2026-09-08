@@ -35,6 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       molecule: ${{ steps.paths.outputs.molecule }}
+      release: ${{ steps.release.outputs.release }}
 
     steps:
       # Full history: a push to main may carry several commits, and the range below reaches
@@ -77,6 +78,22 @@ jobs:
           fi
           echo "molecule=$molecule" >> "$GITHUB_OUTPUT"
 
+      # A release pull request is one that changes galaxy.yml's version: the fact, not the
+      # label prepare-release.yml puts on it, so a release PR opened by hand is gated all
+      # the same. Pull requests only; a push to main is the record of a PR that already
+      # passed here.
+      - name: Check whether this is a release
+        id: release
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          release=false
+          if [ -n "$BASE" ] && git diff "$BASE" "$GITHUB_SHA" -- galaxy.yml | grep -qE '^\+version:'; then
+            release=true
+            echo "galaxy.yml's version changes: this is a release pull request."
+          fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
   # Every pull request records itself: a fragment, however trivial the change, added in the
   # PR that made it — `trivial:` is the section for one nobody needs to read about, and
   # writing that line is the decision, made where the change is. The one exception is the
@@ -86,6 +103,7 @@ jobs:
   # produced it already passed here.
   fragment:
     name: Changelog fragment
+    needs: changes
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
@@ -98,13 +116,14 @@ jobs:
       - name: Require a fragment, or a release
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+          RELEASE: ${{ needs.changes.outputs.release }}
         run: |
           added="$(git diff --name-only --diff-filter=A "$BASE" "$GITHUB_SHA" \
             -- 'changelogs/fragments/*.yml' 'changelogs/fragments/*.yaml')"
           if [ -n "$added" ]; then
             echo "Fragment added:"
             echo "$added"
-          elif git diff "$BASE" "$GITHUB_SHA" -- galaxy.yml | grep -qE '^\+version:'; then
+          elif [ "$RELEASE" = true ]; then
             echo "Release: galaxy.yml's version changes, and the fragments fold into the changelog."
           else
             echo "::error::This pull request adds no changelog fragment. Add one under" \
@@ -127,13 +146,153 @@ jobs:
     if: needs.changes.outputs.molecule == 'true'
     uses: ./.github/workflows/molecule.yml
 
+  # The release pull request is where a release is decided, so its Checks run carries the
+  # decision: this job writes the brief, and `approve` below waits on the `prepare`
+  # environment for someone to read it. Two jobs because an environment's approval gates a
+  # job's start, so the brief has to come from a job without the environment for it to be
+  # on the page while the approval is waiting. Everything the Release run's first job would
+  # refuse is checked here first, so what the reviewer approves is a release that will not
+  # fall at that fence.
+  release-brief:
+    name: Release brief
+    needs: changes
+    if: needs.changes.outputs.release == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      # The branch's own tip, not the merge commit GitHub synthesises for a pull request:
+      # the brief lists the commits since the previous release, and that synthetic merge
+      # would head the list as a commit nobody made. Whole history for the tags.
+      - name: Checkout the pull request's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Install the development tools
+        uses: ./.github/actions/install-dev-tools
+
+      # As release.yml reads it, and held to the plain X.Y.Z that its tag pattern matches.
+      - name: Resolve the version from galaxy.yml
+        id: version
+        run: |
+          declared="$(sed -n 's/^version:[[:space:]]*//p' galaxy.yml | head -1 | tr -d "\"' ")"
+          if ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$declared"; then
+            echo "::error::galaxy.yml's version '$declared' is not plain X.Y.Z." >&2
+            exit 1
+          fi
+          echo "version=$declared" >> "$GITHUB_OUTPUT"
+
+      # The checks release.yml's verify job makes, minus the tag there is not yet. The
+      # comments there say why each exists; here they are simply made earlier, on the PR.
+      - name: Lint the changelog
+        run: |
+          antsibull-changelog lint
+          antsibull-changelog lint-changelog-yaml changelogs/changelog.yaml
+
+      - name: Check the changelog describes this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          antsibull-changelog generate "$VERSION" --only-latest --output /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "::error::changelogs/changelog.yaml has no entry for $VERSION." >&2
+            exit 1
+          fi
+
+      - name: Check CHANGELOG.md is in sync with changelog.yaml
+        run: |
+          antsibull-changelog generate
+          if ! git diff --exit-code -- CHANGELOG.md; then
+            echo "::error::CHANGELOG.md does not match changelogs/changelog.yaml." \
+                 "Run 'antsibull-changelog generate' and commit the result." >&2
+            exit 1
+          fi
+
+      - name: Check the version is not already on Galaxy
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          url="https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/index"
+          url="$url/binarycodes/homelab/versions/$VERSION/"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$url" || echo 000)"
+          case "$code" in
+            404) echo "Not yet published." ;;
+            200) echo "::error::$VERSION is already on Galaxy, and a version cannot be replaced." >&2; exit 1 ;;
+            *)   echo "::warning::Galaxy answered $code; Tag release will refuse if it still does." ;;
+          esac
+
+      - name: Build the collection
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ansible-galaxy collection build --output-path dist
+          ls -l "dist/binarycodes-homelab-$VERSION.tar.gz"
+
+      - name: Summarise what approving this pull request releases
+        uses: ./.github/actions/release-brief
+        with:
+          version: ${{ steps.version.outputs.version }}
+          heading: Merging this PR tags and releases ${{ steps.version.outputs.version }}
+          intro: >-
+            Pull request #${{ github.event.pull_request.number }} at
+            `${{ github.event.pull_request.head.sha }}`. Approving the `prepare` environment
+            lets it merge; the merge is tagged, and the tag starts the Release run, where the
+            publish itself is approved.
+
+      # What the brief cannot show from the changelog: the file a consumer would install.
+      - name: Summarise the built collection
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          {
+            echo
+            echo "### Built collection"
+            echo
+            echo '```'
+            tar tzf "dist/binarycodes-homelab-$VERSION.tar.gz" | head -20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The stop between "the release PR is open" and "the release PR merges itself". Configure
+  # 'prepare' in the repository's environments with a required reviewer and this job waits
+  # for a human who has read the brief above; without that protection rule it simply runs,
+  # so the guard is only as real as the environment. The approval is what releases: `All
+  # gates passed` waits on this job, auto-merge waits on that check, the merge is tagged
+  # and the tag starts the Release run.
+  approve:
+    name: Approve the release
+    needs: [changes, release-brief]
+    if: needs.changes.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: prepare
+    # To read back who approved: the workflow's own context does not carry it.
+    permissions:
+      actions: read
+
+    steps:
+      - name: Record the approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          approver="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" \
+            --jq '[.[] | select(.state == "approved") | .user.login] | join(", ")' 2>/dev/null || true)"
+          {
+            echo "## Release approved"
+            echo
+            echo "Approved${approver:+ by $approver} at $(date -u +%Y-%m-%dT%H:%M:%SZ). The pull request"
+            echo "merges once every other check is green; Tag release then tags the merge commit."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # The one required status check. always(), because a failed gate would otherwise skip
-  # this job, and GitHub shows a skipped required check as pending, not failed. Two jobs may
-  # skip and still pass: molecule, only when `changes` said so on a successful decision, and
-  # fragment, which only runs on a pull request.
+  # this job, and GitHub shows a skipped required check as pending, not failed. Jobs may
+  # skip and still pass, each only for the reason `changes` decided on a successful
+  # decision: molecule when no path it covers changed, fragment on anything but a pull
+  # request, and the two release jobs on anything but a release — where, conversely, both
+  # have to have passed, so that no release PR merges without the `prepare` approval.
   all-gates:
     name: All gates passed
-    needs: [changes, fragment, ci, versions, molecule]
+    needs: [changes, fragment, ci, versions, molecule, release-brief, approve]
     if: always()
     runs-on: ubuntu-latest
 
@@ -141,16 +300,22 @@ jobs:
       - name: Require every gate to have passed
         env:
           RESULTS: ${{ toJSON(needs.*.result) }}
+          RELEASE: ${{ needs.changes.outputs.release }}
           CHANGES: ${{ needs.changes.result }}
           FRAGMENT: ${{ needs.fragment.result }}
           CI: ${{ needs.ci.result }}
           VERSIONS: ${{ needs.versions.result }}
           MOLECULE: ${{ needs.molecule.result }}
+          BRIEF: ${{ needs.release-brief.result }}
+          APPROVE: ${{ needs.approve.result }}
         run: |
-          echo "changes=$CHANGES fragment=$FRAGMENT ci=$CI versions=$VERSIONS molecule=$MOLECULE"
+          echo "changes=$CHANGES fragment=$FRAGMENT ci=$CI versions=$VERSIONS molecule=$MOLECULE" \
+               "release=$RELEASE release-brief=$BRIEF approve=$APPROVE"
+          if [ "$RELEASE" = true ]; then expected=success; else expected=skipped; fi
           if [ "$CHANGES" = success ] && [ "$CI" = success ] && [ "$VERSIONS" = success ] \
              && { [ "$FRAGMENT" = success ] || [ "$FRAGMENT" = skipped ]; } \
-             && { [ "$MOLECULE" = success ] || [ "$MOLECULE" = skipped ]; }; then
+             && { [ "$MOLECULE" = success ] || [ "$MOLECULE" = skipped ]; } \
+             && [ "$BRIEF" = "$expected" ] && [ "$APPROVE" = "$expected" ]; then
             echo "Every gate passed."
           else
             echo "::error::A gate did not pass: $RESULTS" >&2

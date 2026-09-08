@@ -96,14 +96,14 @@ jobs:
 
   # Every pull request records itself: a fragment, however trivial the change, added in the
   # PR that made it — `trivial:` is the section for one nobody needs to read about, and
-  # writing that line is the decision, made where the change is. The one exception is the
-  # release PR, which folds every fragment away and changes galaxy.yml's version instead.
+  # writing that line is the decision, made where the change is. A PR that changes
+  # changelog.yaml itself records itself there instead: the release PR, which folds every
+  # fragment away, and a fix that folds a stray fragment into a version already released.
   # Added files only: editing a fragment someone else added is not recording a new change.
   # Pull requests only, since a push to main has no base to diff against and the PR that
   # produced it already passed here.
   fragment:
     name: Changelog fragment
-    needs: changes
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
@@ -113,18 +113,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Require a fragment, or a release
+      - name: Require a fragment, or a change to the changelog itself
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
-          RELEASE: ${{ needs.changes.outputs.release }}
         run: |
           added="$(git diff --name-only --diff-filter=A "$BASE" "$GITHUB_SHA" \
             -- 'changelogs/fragments/*.yml' 'changelogs/fragments/*.yaml')"
           if [ -n "$added" ]; then
             echo "Fragment added:"
             echo "$added"
-          elif [ "$RELEASE" = true ]; then
-            echo "Release: galaxy.yml's version changes, and the fragments fold into the changelog."
+          elif ! git diff --quiet "$BASE" "$GITHUB_SHA" -- changelogs/changelog.yaml; then
+            echo "changelogs/changelog.yaml changes: the fragments fold into it."
           else
             echo "::error::This pull request adds no changelog fragment. Add one under" \
                  "changelogs/fragments/ — 'trivial:' if nothing a consumer sees changed;" \

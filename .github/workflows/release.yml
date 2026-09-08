@@ -8,7 +8,8 @@ name: Release
 # A published Galaxy version is immutable: it cannot be overwritten and it cannot be
 # deleted. A mistake is not rolled back, it is superseded, and the wrong artefact stays
 # visible for good. So this workflow spends most of its length refusing to publish — the
-# upload itself is one command at the end.
+# upload itself is one command near the end, followed only by a look at what a consumer
+# now sees.
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
@@ -261,5 +262,79 @@ jobs:
             echo
             echo '```'
             tar tzf "dist/binarycodes-homelab-$VERSION.tar.gz" | head -20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # What a consumer sees, from a runner that has none of this checkout: the version installs
+  # from Galaxy, its plugins document themselves from the install, and the GitHub release
+  # carries the tarball. Galaxy's index lags its import by minutes, so the install retries
+  # for a while before a miss counts. Nothing here can be rolled back — the publish is done —
+  # so a failure is a note to look by hand, not a reason to redo anything.
+  verify-published:
+    name: Verify ${{ needs.verify.outputs.version }} is installable
+    needs: [verify, publish]
+    if: needs.verify.outputs.release == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install the collection from Galaxy
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          installed=false
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if ansible-galaxy collection install "binarycodes.homelab:==$VERSION" \
+                 -p "$RUNNER_TEMP/collections" > "$RUNNER_TEMP/install.log" 2>&1; then
+              installed=true
+              break
+            fi
+            echo "Attempt $attempt: not installable yet; Galaxy's index may not carry it. Waiting a minute."
+            sleep 60
+          done
+          cat "$RUNNER_TEMP/install.log"
+          if [ "$installed" != true ]; then
+            echo "::error::binarycodes.homelab $VERSION did not install from Galaxy after ten attempts." >&2
+            exit 1
+          fi
+
+      # One filter and one module, named from the install rather than here, so a plugin
+      # renamed or removed in some later release does not break this job for that release.
+      - name: Read a filter's and a module's documentation from the install
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/collections
+        run: |
+          root="$RUNNER_TEMP/collections/ansible_collections/binarycodes/homelab/plugins"
+          filter="$(find "$root/filter" -maxdepth 1 -name '*.py' ! -name '__init__.py' | sort | head -1)"
+          module="$(find "$root/modules" -maxdepth 1 -name '*.py' ! -name '__init__.py' | sort | head -1)"
+          ansible-doc -t filter "binarycodes.homelab.$(basename "$filter" .py)" | head -20
+          ansible-doc -t module "binarycodes.homelab.$(basename "$module" .py)" | head -20
+
+      - name: Check the GitHub release carries the tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          assets="$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          if ! grep -qFx "binarycodes-homelab-$VERSION.tar.gz" <<< "$assets"; then
+            echo "::error::Release v$VERSION has no asset binarycodes-homelab-$VERSION.tar.gz; it has: $assets" >&2
+            exit 1
+          fi
+
+      # The record of a release ends with what a consumer sees.
+      - name: Summarise what a consumer sees
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          {
+            echo "## $VERSION is published"
+            echo
+            echo "On Galaxy: https://galaxy.ansible.com/ui/repo/published/binarycodes/homelab/"
+            echo
+            echo "GitHub release: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$VERSION"
+            echo
+            echo "### Installed from Galaxy"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/install.log"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

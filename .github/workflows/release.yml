@@ -40,8 +40,12 @@ jobs:
       release: ${{ steps.version.outputs.release }}
 
     steps:
+      # Whole history and every tag, not the default single commit: the summary at the end
+      # of this job lists the commits since the previous release tag.
       - name: Checkout collection
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       # The tag and galaxy.yml are edited at different moments, which is how a collection
       # ends up published under a number nobody meant. The version is read from the file
@@ -91,13 +95,13 @@ jobs:
       # A version with nothing written about it would publish with an empty release note.
       # Rendering its section is the check: `generate <version>` exits non-zero on a version
       # changelog.yaml does not know, and an entry that renders to nothing is caught here
-      # too. The file this produces is thrown away — the publish job renders its own, from
-      # the tagged commit.
+      # too. The file this produces goes into the summary below; the publish job renders
+      # its own, on its own runner, from the same tagged commit.
       - name: Check the changelog describes this version
         run: |
           antsibull-changelog generate "${{ steps.version.outputs.version }}" \
-            --only-latest --output /tmp/release-notes-check.md
-          if [ ! -s /tmp/release-notes-check.md ]; then
+            --only-latest --output /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
             echo "::error::changelogs/changelog.yaml has no entry for ${{ steps.version.outputs.version }}." >&2
             exit 1
           fi
@@ -129,6 +133,50 @@ jobs:
             200) echo "::error::${{ steps.version.outputs.version }} is already on Galaxy, and a version cannot be replaced." >&2; exit 1 ;;
             *)   echo "::warning::Galaxy answered $code; leaving it to the publish step to refuse a duplicate." ;;
           esac
+
+      # The approval is asked for on the run's page, and until this step that page said
+      # nothing about what approving would publish. This is the reviewer's brief: the tag
+      # and commit, every commit since the previous release, and the notes as the GitHub
+      # release will carry them. It comes from this job so it is on the page while publish
+      # is still waiting, and a rehearsal gets it too, since an empty or wrong-looking note
+      # is the one thing the checks above cannot judge.
+      - name: Summarise what approving this run would publish
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASE: ${{ steps.version.outputs.release }}
+        run: |
+          # The release this one follows is the tag just below v$VERSION in version order,
+          # not the highest tag: a patch on an older line compares against its own line. The
+          # version is added to the list because on a rehearsal its tag does not exist yet.
+          previous="$( { git tag --list 'v[0-9]*.[0-9]*.[0-9]*'; echo "v$VERSION"; } \
+            | sort -uV | grep -Fx -B1 "v$VERSION" | head -1)"
+          [ "$previous" = "v$VERSION" ] && previous=""
+          sha="$(git rev-parse HEAD)"
+          {
+            if [ "$RELEASE" = true ]; then
+              echo "## Approving publishes $VERSION"
+              echo
+              echo "Tag \`$GITHUB_REF_NAME\` at \`$sha\`."
+            else
+              echo "## Rehearsal of $VERSION"
+              echo
+              echo "From branch \`$GITHUB_REF_NAME\` at \`$sha\`. Nothing is published."
+            fi
+            echo
+            if [ -n "$previous" ]; then
+              echo "### Commits since $previous"
+              echo
+              echo "[Compare $previous...${sha:0:12}]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$previous...$sha)"
+              echo
+              git log --no-decorate --format='- %h %s' "$previous..HEAD"
+            else
+              echo "No earlier release tag: this is the first release."
+            fi
+            echo
+            echo "### Release notes"
+            echo
+            cat /tmp/release-notes.md
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # The same definitions main runs, against the tagged commit. Called rather than trusted:
   # a green tick on main is a statement about whatever main was then, and a tag can point
@@ -221,31 +269,21 @@ jobs:
             --notes-file release-notes.md \
             "dist/binarycodes-homelab-$VERSION.tar.gz"
 
-      # A rehearsal is only useful if it says what it did not do. The release notes are
-      # rendered here as well, since an empty or wrong-looking body is the one thing the
-      # checks above cannot judge for you.
-      - name: Install the development tools for the rehearsal notes
-        if: needs.verify.outputs.release != 'true'
-        uses: ./.github/actions/install-dev-tools
-
+      # A rehearsal is only useful if it says what it did not do. The commits and notes it
+      # would have published are already in the run summary, from verify; what verify could
+      # not show is the built file, so that is what goes here.
       - name: Report what a release would have done
         if: needs.verify.outputs.release != 'true'
         env:
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          antsibull-changelog generate "$VERSION" --only-latest --output release-notes.md
           {
-            echo "## Rehearsal of $VERSION"
+            echo "## Rehearsal built $VERSION"
             echo
-            echo "Ran from \`$GITHUB_REF_NAME\`, which is a branch, so nothing was published."
-            echo "Every check and every gate ran, and the collection built:"
+            echo "Every check and every gate ran. A \`v$VERSION\` tag would have uploaded this"
+            echo "file to Galaxy and attached it to a GitHub release with the notes above:"
             echo
             echo '```'
             tar tzf "dist/binarycodes-homelab-$VERSION.tar.gz" | head -20
             echo '```'
-            echo
-            echo "A \`v$VERSION\` tag would additionally have uploaded that file to Galaxy"
-            echo "and opened a GitHub release with these notes:"
-            echo
-            cat release-notes.md
           } >> "$GITHUB_STEP_SUMMARY"

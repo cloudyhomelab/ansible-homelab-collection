@@ -1,4 +1,0 @@
-trivial:
-  - >-
-    ``RELEASE.md`` now opens with the six steps of a release and keeps the explanation of each
-    in sections below. Maintainer documentation; nothing a consumer sees changes.

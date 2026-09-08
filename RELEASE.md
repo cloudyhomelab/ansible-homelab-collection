@@ -25,7 +25,9 @@ You need, once:
   upload. Without the protection rule the job simply runs, so the guard is only as real as
   the environment — check it is still there if it has been a while.
 
-You also need push access for a tag, and the working tree on `main`, clean and up to date.
+You also need push access for a tag, and a clean working tree on a branch off an
+up-to-date `main`. `main` is protected, so the release commit lands through a pull
+request like any other change; only the tag is pushed directly.
 
 ## Choosing the version number
 
@@ -159,6 +161,9 @@ regenerated `CHANGELOG.md` are one commit. Splitting them leaves a commit in his
 CI would reject, and the release workflow checks the tagged commit for exactly this
 consistency.
 
+Open a pull request for it and merge once the checks pass. What gets tagged in step 9 is
+the merge commit on `main`, not this one.
+
 Commit messages are Conventional Commits, single-line, no body — `.githooks/commit-msg`
 enforces it. Enable the hooks with `git config core.hooksPath .githooks` if this is a fresh
 clone.
@@ -184,6 +189,7 @@ published can come from a branch.
 
 ```sh
 git switch main
+git pull --ff-only
 ./tag-release.sh
 ```
 

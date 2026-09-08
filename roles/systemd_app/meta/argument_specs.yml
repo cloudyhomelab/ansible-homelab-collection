@@ -106,6 +106,28 @@ argument_specs:
           inline kind only. Raw lines appended to the [Service] section, for unit keys
           this role has no parameter of its own. One line per entry; an entry holding a
           newline is refused.
+      systemd_app_auto_update:
+        type: str
+        required: false
+        default: registry
+        choices: [registry, local, never]
+        description: >-
+          inline kind only. The AutoUpdate= policy: registry enrols the container in
+          podman auto-update, so a moving tag is pulled and the app restarted on it (see
+          the README on what makes that safe to roll back); local follows a locally built
+          image instead; never writes no AutoUpdate= line, for an image pinned by digest.
+          Constrained here because Quadlet copies any value into the container's label
+          unread, and podman auto-update rejects it only when it next runs.
+      systemd_app_restart:
+        type: str
+        required: false
+        default: always
+        choices: ['no', on-success, on-failure, on-abnormal, on-watchdog, on-abort, always]
+        description: >-
+          inline kind only. The unit's Restart= policy. always treats any exit as a fault
+          to recover from, which is right for a service; on-failure suits an app whose
+          clean exit means it is done. Constrained here because systemd ignores an
+          unrecognised value with a warning and runs the unit with no restart at all.
       systemd_app_data_dirs:
         type: list
         elements: dict

@@ -78,8 +78,9 @@ Each subdirectory is optional — an app may ship only a Quadlet, only config, e
 For the common one-image-one-container case, the role renders a single
 `<name>.container` Quadlet from inline parameters — no source directory needed. Just give
 it an image (and usually a domain). The container is named
-`<systemd_app_name>`, joins `systemd_app_network`, and is auto-updated
-(`AutoUpdate=registry`, see [rendered container policy](#rendered-container-policy)).
+`<systemd_app_name>`, joins `systemd_app_network`, and is auto-updated unless
+`systemd_app_auto_update` says otherwise (see
+[rendered container policy](#rendered-container-policy)).
 
 ## What it does
 
@@ -155,6 +156,8 @@ rate-limit.
 | `systemd_app_publish_ports` | no                   | Raw `PublishPort=` values.                         |
 | `systemd_app_container_options` | no               | Raw lines for the `[Container]` section.           |
 | `systemd_app_service_options` | no                 | Raw lines for the `[Service]` section.            |
+| `systemd_app_auto_update`   | no                   | `AutoUpdate=` policy: `registry` (default), `local` or `never`. |
+| `systemd_app_restart`       | no                   | `Restart=` policy (default `always`); quote `'no'`. |
 | `systemd_app_health_cmd`    | no                   | Probe command; enables the health block (see below). |
 
 `systemd_app_env` values are quoted and escaped into the unit, so a value with spaces, a
@@ -163,7 +166,7 @@ whitespace and reads `%` as a specifier, so a bare value would otherwise be trun
 mangled). Keys have to spell legal variable names — letters, digits and underscore, no
 leading digit. A control character is refused rather than written, in any value the unit
 is rendered from — the env values, the description, the raw-line lists, the image, the
-network and the health settings alike: a newline ends the line and turns whatever follows
+network, the two policy values and the health settings alike: a newline ends the line and turns whatever follows
 into another unit directive, and no quoting fixes that. The raw-line parameters are one Quadlet
 line per list entry, which is why an entry may not contain a newline of its own.
 
@@ -347,23 +350,37 @@ about the secret store.
 
 ## Rendered container policy
 
-Beyond the parameters above, an `inline` container is rendered with four directives no
-parameter controls. They are fleet policy rather than mechanism — the defaults for a
-long-running service, not something the role needs in order to work:
+Beyond the parameters above, an `inline` container is rendered with directives that are
+fleet policy rather than mechanism — the defaults for a long-running service, not something
+the role needs in order to work. Two have a parameter, with today's rendering as its default;
+the rest are fixed:
 
 | Directive                                  | Section       | Why                                                                                                                                                                       |
 | ------------------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AutoUpdate=registry`                       | `[Container]` | Enrols the container in `podman auto-update`, so a moving tag is pulled and the app restarted on it without a deploy. Only useful together with the healthcheck below, which is what makes a bad image roll back. |
-| `Restart=always`                            | `[Service]`   | The app is a service: it is expected to stay up, and any exit is a fault to recover from rather than a result. Wrong for a job that should run once and exit — that is a `source` app with its own unit and timer. |
+| `AutoUpdate=registry`                       | `[Container]` | Enrols the container in `podman auto-update`, so a moving tag is pulled and the app restarted on it without a deploy. Only useful together with the healthcheck below, which is what makes a bad image roll back. `systemd_app_auto_update`: `local` follows a locally built image; `never` writes no line at all, which is what an image pinned by digest wants — it has nothing to follow. |
+| `Restart=always`                            | `[Service]`   | The app is a service: it is expected to stay up, and any exit is a fault to recover from rather than a result. `systemd_app_restart` takes any value systemd's `Restart=` does; `on-failure` fits an app whose clean exit means it is done. Quote `'no'`, which YAML otherwise reads as a boolean. |
 | `Notify=healthy`, `TimeoutStartSec=`        | both          | Emitted only when `systemd_app_health_cmd` is set; see below.                                                                                                              |
+| `After=`, `Wants=network-online.target`     | `[Unit]`      | Starts after the network is up, which is what a container that pulls its image or serves a route needs.                                                                  |
 | `WantedBy=multi-user.target default.target` | `[Install]`   | Starts at boot. Both targets are named so the app comes up whether or not the host's `default.target` is `multi-user.target`.                                               |
 
-The first two are overridable without touching the role: a `[Container]` or `[Service]`
-key set twice takes its last value, so an `AutoUpdate=` line in
-`systemd_app_container_options`, or a `Restart=` line in `systemd_app_service_options`,
-wins over the rendered one. `[Install]` has no such list, so an app that wants different
-boot behaviour is a `source` app writing its own Quadlet — as is one that wants none of
-this at all.
+Both parameters are checked against a closed list of values in the argument spec, because
+the target does not reject a typo loudly: Quadlet copies any `AutoUpdate=` value into the
+container's label unread and `podman auto-update` complains only when it next runs, and
+systemd logs a warning for an unknown `Restart=` value and runs the unit with no restart
+at all.
+
+A raw line in `systemd_app_container_options` or `systemd_app_service_options` can still
+carry either key. Quadlet's parser reads a single-valued key through a lookup that returns
+the *last* instance of the key in its section, so a raw `AutoUpdate=` or `Restart=` line —
+appended after the rendered one — wins. The molecule scenario observes this on a host,
+through the label the container ends up with. List-valued keys (`Volume=`, `After=`,
+`Wants=`, `Environment=`, `PublishPort=`) behave differently: every instance counts, so a
+raw line accumulates beside the rendered ones rather than replacing them.
+
+`[Unit]` and `[Install]` have no parameter and no raw-line list. An `inline` app is the
+role's shape for a service that starts at boot, after the network; an app that wants a
+different dependency ordering or boot target is not that shape, and is a `source` app
+writing its own Quadlet — as is one that wants none of this at all.
 
 ## Healthchecks and auto-update rollback
 

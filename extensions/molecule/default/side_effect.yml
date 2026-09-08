@@ -184,6 +184,7 @@
         systemd_app_image: "{{ molecule_image }}"
         systemd_app_container_options:
           - Exec=sleep 86400
+        systemd_app_auto_update: never
 
     - name: Read back the store and the record after the rotation
       ansible.builtin.include_tasks: tasks/read-secret-state.yml
@@ -216,6 +217,7 @@
         systemd_app_image: "{{ molecule_image }}"
         systemd_app_container_options:
           - Exec=sleep 86400
+        systemd_app_auto_update: never
 
     - name: Read back the store and the record after the drift
       ansible.builtin.include_tasks: tasks/read-secret-state.yml

@@ -109,6 +109,15 @@ systemd_app_publish_ports: []                # raw PublishPort= values
 systemd_app_container_options: []            # extra raw [Container] lines
 systemd_app_service_options: []              # extra raw [Service] lines
 
+# Policy the rendered container runs under: fleet-wide defaults for a long-running
+# service, overridden per app. 'registry' enrols the container in `podman auto-update`
+# (see the health defaults below for what makes that safe); 'local' follows a locally
+# built image instead; 'never' writes no AutoUpdate= line, for an image pinned by digest,
+# which has nothing to follow. Restart= takes any value systemd accepts — 'on-failure' for
+# an app whose clean exit means it is done rather than down.
+systemd_app_auto_update: registry
+systemd_app_restart: always
+
 # An app that needs secrets ships one SOPS-encrypted file in its own directory, keyed by
 # the podman secret names its Quadlet references with Secret=:
 #   whichday-oidc-client-secret: ENC[AES256_GCM,...]
@@ -182,6 +191,8 @@ systemd_app_managed_units: >-
 # systemd_app_network/env/volumes/publish_ports: optional — see defaults above.
 # systemd_app_container_options/service_options: optional — raw lines for the
 #   [Container] / [Service] sections, for keys this role has no parameter of its own.
+# systemd_app_auto_update:  optional — AutoUpdate= policy (default registry; never omits it).
+# systemd_app_restart:      optional — Restart= policy (default always).
 # systemd_app_data_dirs:    optional — bind-mount directories to pre-create with a given owner.
 # systemd_app_health_cmd:   optional — probe command; set it to get a healthcheck and
 #   the auto-update rollback that depends on it. See the health defaults above.

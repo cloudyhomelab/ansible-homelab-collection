@@ -54,8 +54,13 @@
       # systemd_env_lines rather than only the trivial path through it.
       systemd_app_env:
         MOLECULE_GREETING: hello world
+      # A second AutoUpdate= behind the rendered one: Quadlet reads the last instance of a
+      # key, which is the README's promise that a raw line overrides a rendered policy
+      # line. Observed in verify.yml on the container's label rather than in the file.
       systemd_app_container_options:
         - Exec=sleep 86400
+        - AutoUpdate=local
+      systemd_app_restart: on-failure
       systemd_app_data_dirs:
         - path: data
           owner: "10001"
@@ -72,6 +77,9 @@
       systemd_app_image: "{{ molecule_image }}"
       systemd_app_container_options:
         - Exec=sleep 86400
+      # The digest-pinned case: no AutoUpdate= line and no label. Repeated by every
+      # redeploy in side_effect.yml.
+      systemd_app_auto_update: never
 
   post_tasks:
     # An idempotence failure names only the task that reported 'changed', and for the

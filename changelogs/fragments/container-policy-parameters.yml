@@ -1,0 +1,9 @@
+minor_changes:
+  - >-
+    The ``systemd_app`` role gained ``systemd_app_auto_update`` and ``systemd_app_restart``,
+    which set an ``inline`` app's ``AutoUpdate=`` and ``Restart=`` directives. The defaults,
+    ``registry`` and ``always``, render exactly what earlier releases did; ``local`` follows a
+    locally built image, and ``never`` writes no ``AutoUpdate=`` line, for an image pinned
+    by digest. Both are checked against systemd's and podman's
+    accepted values in the argument spec, since neither program rejects an unknown value
+    when the unit is loaded.

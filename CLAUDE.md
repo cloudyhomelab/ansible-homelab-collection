@@ -96,7 +96,9 @@ A pushed `vX.Y.Z` tag runs `.github/workflows/release.yml`: it checks the tag ag
 committed `CHANGELOG.md` matches what that file renders to, and checks the version is not
 already on Galaxy — then calls the three gate workflows against the tagged commit and
 publishes. The publish waits behind the `release` environment, which needs a required
-reviewer configured to be a real stop — a Galaxy version cannot be replaced or deleted.
+reviewer configured to be a real stop — a Galaxy version cannot be replaced or deleted. The
+first job writes the run summary that reviewer decides on: the tag and commit, the commits
+since the previous release tag, and the release notes.
 
 So a release is, in outline: `antsibull-changelog release --version X.Y.Z`, bump `version`
 in `galaxy.yml` to match, commit those together with the regenerated `CHANGELOG.md`, tag,

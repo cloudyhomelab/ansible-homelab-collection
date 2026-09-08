@@ -163,6 +163,8 @@ Push the branch and run **Release** from the Actions tab against it. From a bran
 is a rehearsal: the version comes from `galaxy.yml`, every check and every gate runs, the
 collection is built, and the two steps that reach outside the runner are skipped. It also
 tells you whether the version number is still free on Galaxy — often the real question.
+The run's summary shows what a release would have published: the commits since the
+previous release tag and the release notes, then the built tarball's listing.
 
 What separates a rehearsal from a release is `github.ref_type`, not an input, so nothing
 published can come from a branch.
@@ -181,9 +183,18 @@ The tag is what triggers the release. Note the `v` prefix, and that only
 ### 10. Approve the publish, then check it landed
 
 The workflow runs the checks, then the three gate workflows (which take the better part of
-half an hour), then waits on the `release` environment for a reviewer. Approve it, and
-watch the publish step: Galaxy accepts the tarball and imports it asynchronously, and the
-import is what actually validates the collection, so the step stays for the verdict.
+half an hour), then waits on the `release` environment for a reviewer.
+
+**Read the run's summary before approving.** The first job writes it while the gates are
+still running, so it is on the run's page by the time the publish is waiting: the tag and
+the commit it points at, every commit since the previous release tag with a compare link,
+and the release notes exactly as the GitHub release will carry them. That summary is what
+you are approving. A commit you did not expect or a note that reads wrong is the moment to
+reject, fix and re-tag — nothing has been published yet.
+
+Then approve, and watch the publish step: Galaxy accepts the tarball and imports it
+asynchronously, and the import is what actually validates the collection, so the step stays
+for the verdict.
 
 Afterwards:
 

@@ -1,0 +1,5 @@
+trivial:
+  - >-
+    The release workflow writes a run summary before the approval gate - the tag and commit,
+    the commits since the previous release tag and the release notes - so the reviewer sees
+    what approving publishes. Nothing a consumer sees changes.

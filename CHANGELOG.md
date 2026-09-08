@@ -2,8 +2,10 @@
 
 **Topics**
 
-- <a href="#v1-1-0">v1\.1\.0</a>
+- <a href="#v1-1-1">v1\.1\.1</a>
     - <a href="#release-summary">Release Summary</a>
+- <a href="#v1-1-0">v1\.1\.0</a>
+    - <a href="#release-summary-1">Release Summary</a>
     - <a href="#major-changes">Major Changes</a>
     - <a href="#minor-changes">Minor Changes</a>
     - <a href="#breaking-changes--porting-guide">Breaking Changes / Porting Guide</a>
@@ -15,13 +17,21 @@
         - <a href="#filter">Filter</a>
     - <a href="#new-modules">New Modules</a>
 - <a href="#v1-0-0">v1\.0\.0</a>
-    - <a href="#release-summary-1">Release Summary</a>
+    - <a href="#release-summary-2">Release Summary</a>
     - <a href="#minor-changes-1">Minor Changes</a>
+
+<a id="v1-1-1"></a>
+## v1\.1\.1
+
+<a id="release-summary"></a>
+### Release Summary
+
+Nothing in the collection changes\: the role\, filters and modules are those of 1\.1\.0\. This release exercises the release procedure itself\, which is now driven from a pull\-request label and two approvals rather than scripts run by hand\.
 
 <a id="v1-1-0"></a>
 ## v1\.1\.0
 
-<a id="release-summary"></a>
+<a id="release-summary-1"></a>
 ### Release Summary
 
 The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code> reconciles an app\'s secrets from ownership and digest labels on the secrets themselves\, and <code>install\_manifest</code> reconciles the install record on the host\; both support check and diff mode\. Read the major change before upgrading\: the first deploy re\-creates every app\'s secrets to label them and restarts each app with secrets once\. The controller floor rises to ansible\-core 2\.19 and the host floor to podman 4\.5\. New <code>inline</code> parameters set the <code>AutoUpdate\=</code> and <code>Restart\=</code> policy\, the role refuses a domain another app\'s route already claims\, and the filters the modules replace are deprecated ahead of 2\.0\.0\.
@@ -98,7 +108,7 @@ The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code
 <a id="v1-0-0"></a>
 ## v1\.0\.0
 
-<a id="release-summary-1"></a>
+<a id="release-summary-2"></a>
 ### Release Summary
 
 First release\. Extracted from the playbook repository it grew up in\, with the repository\-specific parts removed\.

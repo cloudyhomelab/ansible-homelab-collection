@@ -202,3 +202,16 @@ releases:
           name: source_tree
           namespace: null
     release_date: '2026-09-08'
+  1.1.1:
+    changes:
+      release_summary: 'Nothing in the collection changes: the role, filters and modules
+        are those of 1.1.0. This release exercises the release procedure itself, which
+        is now driven from a pull-request label and two approvals rather than scripts
+        run by hand.'
+    fragments:
+      - release-doc-pr-flow.yml
+      - release-from-pull-requests.yml
+      - release-md-steps-first.yml
+      - release-summary.yml
+      - require-fragment-check.yml
+    release_date: '2026-09-08'

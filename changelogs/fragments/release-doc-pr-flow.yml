@@ -1,5 +1,0 @@
-trivial:
-  - >-
-    ``RELEASE.md`` now says the release commit lands through a pull request, since ``main`` is
-    protected, and ``changelogs/README.md`` points at it as the procedure. Maintainer
-    documentation; nothing a consumer sees changes.

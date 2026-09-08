@@ -1,4 +1,0 @@
-trivial:
-  - >-
-    CI now fails a pull request that adds no changelog fragment, the release PR excepted.
-    Contributor workflow; nothing a consumer sees changes.

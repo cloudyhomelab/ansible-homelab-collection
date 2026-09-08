@@ -109,8 +109,8 @@ folds the fragments on `main`'s tip, bumps `galaxy.yml` and opens the release PR
 `release/X.Y.Z`, labelled `release-X.Y.Z`, with auto-merge enabled; that PR's Checks run
 writes the reviewer's brief and waits on the `prepare` environment, and the approval lets
 it merge itself; the merge runs `tag-release.yml`, which tags the merge commit as the GitHub
-App and pushes the tag; the tag runs `release.yml`, where the publish is approved. Two
-labels and two approvals, nothing typed locally. Anything the workflow's own `GITHUB_TOKEN`
+App and pushes the tag; the tag runs `release.yml`, where the publish is approved. One
+label and two approvals, nothing typed locally. Anything the workflow's own `GITHUB_TOKEN`
 does starts no workflow, which is why the App pushes the branch and the tag. **`RELEASE.md`
 is the procedure** — prerequisites, the steps, what each check catches and what to do when
 a step fails. Keep the steps there and not here, so the two cannot drift.

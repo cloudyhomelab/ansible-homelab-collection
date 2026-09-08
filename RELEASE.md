@@ -8,9 +8,8 @@ by hand. Everything after them is what each step does and why.
 
 ## The steps
 
-1. **Land the release summary** through a pull request labelled
-   `prepare-release-minor` (or `-major`, `-patch`, or `-X.Y.Z` for an explicit version), on
-   its own or with the last change going in. **Label before merging.** The merge runs
+1. **Land the release summary** through a pull request labelled `prepare-release`, on its
+   own or with the last change going in. **Label before merging.** The merge runs
    **Prepare release**, which comments on that PR with the release PR's address — or with
    why it refused.
    → [The release summary](#the-release-summary)
@@ -61,9 +60,10 @@ Once, on the GitHub repository:
   release's comment says so.
 - **No ruleset on `v*` tags or `release/**` branches** that the App cannot bypass: it
   pushes both. Today nothing protects either.
-- **The labels** `prepare-release-major`, `prepare-release-minor` and
-  `prepare-release-patch`. A `prepare-release-X.Y.Z` label is created when an explicit
-  version is wanted; the `release-X.Y.Z` labels are created by Prepare release itself.
+- **The label** `prepare-release`, and `prepare-release-major`, `-minor` and `-patch` for
+  when the bump is chosen by hand. A `prepare-release-X.Y.Z` label is created when an
+  explicit version is wanted; the `release-X.Y.Z` labels are created by Prepare release
+  itself.
 
 For a release that goes to plan, nothing needs installing on your machine and nothing needs
 push access: each step is a label or an approval, and most recoveries are a run of the same
@@ -93,9 +93,13 @@ Two traps worth naming, both **breaking**:
 - raising the ansible-core floor, since a consumer on the old floor can no longer install
   the collection — see [Raising the ansible-core floor](#raising-the-ansible-core-floor).
 
-The bump goes in the label. `prepare-release-2.0.0` names the version outright; it has to
-sort above the current one, and the component it moves is the bump the fragments are held
-to.
+The fragments already say which: any `breaking_changes`, `major_changes` or
+`removed_features` section means major, any `minor_changes` or `deprecated_features` means
+minor, anything else is a patch. The bare `prepare-release` label takes that bump. A bigger
+one can be asked for with `prepare-release-major`, `-minor` or `-patch`, and
+`prepare-release-2.0.0` names the version outright: it has to sort above the current one,
+and the component it moves is the bump the fragments are held to. A smaller bump than the
+fragments imply is refused.
 
 ## The release summary
 
@@ -119,19 +123,18 @@ and the markup.
 ## What Prepare release does
 
 `.github/workflows/prepare-release.yml` runs when a pull request into `main` merges carrying
-a `prepare-release-<bump>` label. It works from `main`'s tip, not from the commit that
-merged, since a release folds everything on `main`. It refuses — and quotes the reason in a
-comment on the PR you labelled — if:
+a `prepare-release` label, bare or with a bump. It works from `main`'s tip, not from the
+commit that merged, since a release folds everything on `main`. It refuses — and quotes the
+reason in a comment on the PR you labelled — if:
 
-- the PR carries more than one `prepare-release-` label, or one in a shape it does not
+- the PR carries more than one `prepare-release` label, or one in a shape it does not
   know;
 - `galaxy.yml`'s version is not plain `X.Y.Z`, or an explicit version is not above it;
 - the branch `release/X.Y.Z` already exists on `origin`: a release PR for it is open, or
   was abandoned without deleting the branch;
 - no fragment is waiting, or none carries `release_summary`;
-- the fragments call for a bigger bump than asked: any `breaking_changes`, `major_changes`
-  or `removed_features` section means major, any `minor_changes` or `deprecated_features`
-  means minor. A bigger bump than they imply is allowed;
+- the fragments call for a bigger bump than the label asks — see [Choosing the version
+  number](#choosing-the-version-number). A bigger bump than they imply is allowed;
 - a filter or module carries a `version_added` that names neither a released version nor
   this one, or is new since the last release's tag and does not name this one.
 
@@ -167,7 +170,7 @@ prepared from, then the release notes as the GitHub release will carry them. The
 `antsibull-changelog` output that renders correctly on GitHub; hand-tidying it in
 `CHANGELOG.md` fails CI. A note that reads wrong is fixed where it was written: close the
 release PR, delete its branch — `main` is untouched and every fragment still waits there —
-fix the fragment through a pull request, and give that PR the `prepare-release-<bump>` label
+fix the fragment through a pull request, and give that PR the `prepare-release` label
 so its merge prepares the release again. A release nobody wants is the same PR closed and
 its branch deleted, and nothing more.
 
@@ -293,8 +296,8 @@ fragment. This is the one recovery that needs the tool installed locally.
 
 | Situation | What to do |
 | --- | --- |
-| The summary PR merged without its `prepare-release` label | Run **Prepare release** from the Actions tab with the bump. It folds from `main`'s tip; nothing was consumed. |
-| Prepare release refused | Its comment on the PR quotes why. Fix it on `main` through a pull request and give that PR the `prepare-release-<bump>` label, or run Prepare release from the Actions tab once it is fixed. No comment at all means the App's token could not be minted; the run says so. |
+| The summary PR merged without its `prepare-release` label | Run **Prepare release** from the Actions tab; the bump field may stay empty for the one the fragments imply. It folds from `main`'s tip; nothing was consumed. |
+| Prepare release refused | Its comment on the PR quotes why. Fix it on `main` through a pull request and give that PR the `prepare-release` label, or run Prepare release from the Actions tab once it is fixed. No comment at all means the App's token could not be minted; the run says so. |
 | A change with a fragment lands on `main` after the release PR opened; or two labelled PRs merged back to back and the second refused | Close the release PR and delete its branch: `main` is untouched, nothing was consumed. Then label the next PR, or run Prepare release from the Actions tab. Merged anyway, Tag release refuses on the waiting fragment — see the next row. |
 | The release PR merged but was not tagged: label removed, a refusal, a failure | Tag release's comment on the release PR points at the run. The release commit is on `main`, untagged. Fix the cause on `main` through a pull request, folding its fragment as described above. Then run **Tag release** from the Actions tab, which tags `main`'s tip, or tag by hand (push access needed): `git tag -a vX.Y.Z -m "binarycodes.homelab X.Y.Z" <sha> && git push origin vX.Y.Z`. |
 | Auto-merge was not enabled | Prepare release's comment says so, with the PR's merge state. Either **Allow auto-merge** is off in the repository's settings, or no required check blocked the PR — check both. Then `gh pr merge --auto --squash <url>`, or press Merge once the `prepare` approval is given and the checks are green. A merge by hand runs Tag release all the same. |

@@ -5,13 +5,14 @@
 
 name: Prepare release
 
-# Opens the release pull request. When a pull request labelled `prepare-release-<bump>`
-# merges into main, this folds the waiting fragments into the changelog for the next
-# version, bumps galaxy.yml to match, runs the gates that take seconds, and opens a PR from
+# Opens the release pull request. When a pull request labelled `prepare-release` merges
+# into main, this folds the waiting fragments into the changelog for the next version,
+# bumps galaxy.yml to match, runs the gates that take seconds, and opens a PR from
 # `release/X.Y.Z` with the notes as its body, the label `release-X.Y.Z` that tag-release.yml
 # looks for, and auto-merge enabled — so approving the `prepare` environment on that PR's
-# Checks run is what releases. The label on the origin PR is the decision to release and
-# the choice of bump; the version is decided here, and the release PR's label names it.
+# Checks run is what releases. The label on the origin PR is the decision to release; the
+# bare label takes the bump the fragments' sections imply, `prepare-release-<bump>` names
+# one. The version is decided here, and the release PR's label names it.
 #
 # Most of this workflow is refusals. A release commit that mis-describes the release is
 # cheap to refuse before the branch exists and expensive to notice after Galaxy has the
@@ -26,12 +27,12 @@ on:
     types: [closed]
     branches: [main]
   # The recovery when the label was forgotten, or a refusal has been fixed on main: the
-  # same fold from main's tip, with the bump given by hand and no origin PR to comment on.
+  # same fold from main's tip, with no origin PR to comment on.
   workflow_dispatch:
     inputs:
       bump:
-        description: "major, minor, patch, or an explicit X.Y.Z"
-        required: true
+        description: "major, minor, patch, or an explicit X.Y.Z; empty for the bump the fragments imply"
+        required: false
         type: string
 
 # Two labelled PRs merged back to back are two releases asked for at once; the second
@@ -56,7 +57,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event.pull_request.merged == true
-          && contains(join(github.event.pull_request.labels.*.name, ' '), 'prepare-release-'))
+          && contains(format(' {0} ', join(github.event.pull_request.labels.*.name, ' ')), ' prepare-release'))
     runs-on: ubuntu-latest
 
     steps:
@@ -81,8 +82,10 @@ jobs:
           chmod +x "$RUNNER_TEMP/refuse"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
-      # Exactly one `prepare-release-<bump>` label, since two are two opinions about the
-      # bump. On dispatch the bump is the input, checked to the same shape.
+      # Exactly one `prepare-release` label, bare or with a bump, since two are two opinions
+      # about the bump. Bare means "what the fragments imply", left empty here and filled in
+      # once the fragments have been read. On dispatch the bump is the input, checked to the
+      # same shape, and empty means the same.
       - name: Read the bump from the label
         id: bump
         env:
@@ -91,17 +94,18 @@ jobs:
         run: |
           shape='(major|minor|patch|[0-9]+\.[0-9]+\.[0-9]+)'
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            grep -qE "^$shape\$" <<< "$INPUT" \
-              || refuse "The bump input is '$INPUT'; it must be major, minor, patch or X.Y.Z."
+            grep -qE "^$shape?\$" <<< "$INPUT" \
+              || refuse "The bump input is '$INPUT'; it must be major, minor, patch, X.Y.Z or empty."
             bump="$INPUT"
           else
-            matches="$(tr ' ' '\n' <<< "$LABELS" | grep -E "^prepare-release-$shape\$" || true)"
+            matches="$(tr ' ' '\n' <<< "$LABELS" | grep -E "^prepare-release(-$shape)?\$" || true)"
             case "$(wc -w <<< "$matches")" in
-              1) bump="${matches#prepare-release-}" ;;
-              0) refuse "No label of the form prepare-release-<major|minor|patch|X.Y.Z> on this pull request; its labels are: $LABELS" ;;
+              1) bump="${matches#prepare-release}"; bump="${bump#-}" ;;
+              0) refuse "No label prepare-release or prepare-release-<major|minor|patch|X.Y.Z> on this pull request; its labels are: $LABELS" ;;
               *) refuse "More than one prepare-release label on this pull request: $(tr '\n' ' ' <<< "$matches")" ;;
             esac
           fi
+          echo "bump=${bump:-implied}"
           echo "bump=$bump" >> "$GITHUB_OUTPUT"
 
       # A release folds everything on main, so main's tip is what is checked out, whatever
@@ -129,13 +133,39 @@ jobs:
       - name: Install the development tools
         uses: ./.github/actions/install-dev-tools
 
+      # The summary is the paragraph a consumer reads first, and antsibull-changelog only
+      # warns when it is missing, which is how a release ships without one.
+      - name: Check a fragment with a release summary is waiting
+        run: |
+          fragments="$(find changelogs/fragments -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)"
+          [ -n "$fragments" ] || refuse "No fragment is waiting in changelogs/fragments/; nothing to release."
+          grep -qE '^release_summary:' $fragments \
+            || refuse "No waiting fragment carries release_summary:; land one first."
+
+      # Sections that stop a call site working mean major; ones that add mean minor; the rest
+      # is a patch. Section keys sit at column 0, so a grep is the parse; a fragment malformed
+      # enough to fool it fails the lint later.
+      - name: Read the bump the fragments imply
+        id: implied
+        run: |
+          fragments="$(find changelogs/fragments -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)"
+          if   grep -qE '^(breaking_changes|major_changes|removed_features):' $fragments; then implied=major
+          elif grep -qE '^(minor_changes|deprecated_features):' $fragments; then implied=minor
+          else implied=patch
+          fi
+          echo "The fragments imply a $implied bump."
+          echo "bump=$implied" >> "$GITHUB_OUTPUT"
+          grep -lE '^(breaking_changes|major_changes|removed_features|minor_changes|deprecated_features):' $fragments \
+            > "$RUNNER_TEMP/bump-fragments.txt" || true
+
       # Current version from galaxy.yml, read as release.yml reads it. `major|minor|patch`
       # moves that component; an explicit version is taken as given, must sort above the
       # current one, and the component it moves is the bump the fragments are then held to.
+      # No bump asked for means the one the fragments imply.
       - name: Resolve the version
         id: version
         env:
-          BUMP: ${{ steps.bump.outputs.bump }}
+          BUMP: ${{ steps.bump.outputs.bump || steps.implied.outputs.bump }}
         run: |
           current="$(sed -n 's/^version:[[:space:]]*//p' galaxy.yml | head -1 | tr -d "\"' ")"
           grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$current" \
@@ -175,31 +205,16 @@ jobs:
             refuse "Branch release/$VERSION already exists on origin; a release PR for it is open or was abandoned without deleting the branch."
           fi
 
-      # The summary is the paragraph a consumer reads first, and antsibull-changelog only
-      # warns when it is missing, which is how a release ships without one.
-      - name: Check a fragment with a release summary is waiting
-        run: |
-          fragments="$(find changelogs/fragments -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)"
-          [ -n "$fragments" ] || refuse "No fragment is waiting in changelogs/fragments/; nothing to release."
-          grep -qE '^release_summary:' $fragments \
-            || refuse "No waiting fragment carries release_summary:; land one first."
-
-      # Sections that stop a call site working mean major; ones that add mean minor. A
-      # bigger bump than the fragments imply is allowed. Section keys sit at column 0, so a
-      # grep is the parse; a fragment malformed enough to fool it fails the lint below.
+      # A bigger bump than the fragments imply is allowed; a smaller one ships a breaking
+      # change as a minor, or a feature as a patch.
       - name: Check the fragments do not call for a bigger bump
         env:
           BUMP: ${{ steps.version.outputs.bump }}
+          IMPLIED: ${{ steps.implied.outputs.bump }}
         run: |
-          fragments="$(find changelogs/fragments -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)"
-          if   grep -qE '^(breaking_changes|major_changes|removed_features):' $fragments; then implied=major
-          elif grep -qE '^(minor_changes|deprecated_features):' $fragments; then implied=minor
-          else implied=patch
-          fi
           rank() { case "$1" in major) echo 3 ;; minor) echo 2 ;; patch) echo 1 ;; esac; }
-          if [ "$(rank "$BUMP")" -lt "$(rank "$implied")" ]; then
-            offending="$(grep -lE '^(breaking_changes|major_changes|removed_features|minor_changes|deprecated_features):' $fragments)"
-            refuse "The fragments call for a $implied bump, not $BUMP:" $offending
+          if [ "$(rank "$BUMP")" -lt "$(rank "$IMPLIED")" ]; then
+            refuse "The fragments call for a $IMPLIED bump, not $BUMP:" $(cat "$RUNNER_TEMP/bump-fragments.txt")
           fi
 
       # antsibull-changelog builds the New Plugins and New Modules sections from
@@ -361,9 +376,9 @@ jobs:
               echo
               sed 's/^/> /' "$RUNNER_TEMP/refusal.md"
               echo
-              echo "Fix this on \`main\`, then dispatch Prepare release from the Actions tab with the bump."
+              echo "Fix this on \`main\`, then dispatch Prepare release from the Actions tab."
             else
-              echo "A step failed; see the run. Once the cause is fixed, dispatch Prepare release from the Actions tab with the bump."
+              echo "A step failed; see the run. Once the cause is fixed, dispatch Prepare release from the Actions tab."
             fi
             echo
             echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

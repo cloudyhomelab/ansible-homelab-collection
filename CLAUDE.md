@@ -104,8 +104,9 @@ run summary that reviewer decides on: the tag and commit, the commits since the 
 release tag, and the release notes.
 
 So a release is, in outline: the PR that lands the release summary is labelled
-`prepare-release-<major|minor|patch|X.Y.Z>`; its merge runs `prepare-release.yml`, which
-folds the fragments on `main`'s tip, bumps `galaxy.yml` and opens the release PR from
+`prepare-release` (or `prepare-release-<major|minor|patch|X.Y.Z>` to override the bump the
+fragments imply); its merge runs `prepare-release.yml`, which folds the fragments on
+`main`'s tip, bumps `galaxy.yml` and opens the release PR from
 `release/X.Y.Z`, labelled `release-X.Y.Z`, with auto-merge enabled; that PR's Checks run
 writes the reviewer's brief and waits on the `prepare` environment, and the approval lets
 it merge itself; the merge runs `tag-release.yml`, which tags the merge commit as the GitHub

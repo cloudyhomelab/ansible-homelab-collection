@@ -1,4 +1,0 @@
-trivial:
-  - The collection README lists the ``app_validation_errors`` filter, and a unit test now holds both
-    READMEs to the set of plugins the collection ships. Repository documentation and tests
-    only.

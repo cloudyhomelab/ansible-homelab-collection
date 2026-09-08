@@ -64,4 +64,4 @@ CI runs all three, and `ansible-test sanity` validates `changelog.yaml` as well.
 regenerates `CHANGELOG.md`. Commit all of it together with the `galaxy.yml` version bump,
 then tag — `release.yml` reads the version's notes straight out of `changelog.yaml` for the
 GitHub release body, so a version with no entry there fails the release rather than
-publishing with an empty note. The root `CLAUDE.md` has the full release sequence.
+publishing with an empty note. `RELEASE.md` at the repository root is the procedure.

@@ -67,7 +67,8 @@ the molecule converge calls the role by FQCN with nothing installing the collect
 
 CI additionally lints the changelog and checks that the generated `CHANGELOG.md` still
 matches `changelogs/changelog.yaml` (see Releasing); `ansible-test sanity` validates
-`changelog.yaml` on its own account.
+`changelog.yaml` on its own account. Every pull request must add a fragment, however trivial
+the change; the release PR, which changes `galaxy.yml`'s version, is the one exception.
 
 Locally these run against whatever ansible-core is installed. CI runs pytest and sanity,
 plus a syntax check of a play that uses the role, once per supported ansible-core — the

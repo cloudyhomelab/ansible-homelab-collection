@@ -69,8 +69,9 @@ release_summary: >-
 
 This is the paragraph a consumer reads first, so it is reviewed like anything else a
 consumer reads: it lands on `main` through a pull request, on its own or with the last
-change going into the release. The per-change fragments should already be there, one per
-change in the commit that made it; `changelogs/README.md` has the sections and the markup.
+change going into the release. The per-change fragments are already there: CI refuses a
+pull request that adds none, so every change since the last release carries one;
+`changelogs/README.md` has the sections and the markup.
 
 ### 2. Prepare the release commit
 

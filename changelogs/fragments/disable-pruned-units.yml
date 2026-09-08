@@ -1,7 +1,0 @@
-bugfixes:
-  - >-
-    The ``systemd_app`` role now disables a plain unit before removing its file, both when a
-    deploy stops shipping it and on decommission. Previously the ``.wants`` symlink that
-    enabling it had created was left behind, and ``systemctl`` reported the unit as
-    ``not-found`` for good. The ``install_manifest`` module returns the units a prune
-    implies as ``pruned_units`` so the role can ask before the files go.

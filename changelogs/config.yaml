@@ -35,7 +35,9 @@ new_plugins_after_name: removed_features
 flatmap: false
 use_fqcn: true
 add_plugin_period: true
-changelog_nice_yaml: false
+# Indents the sequences in changelog.yaml the way ansible-lint's yaml rule wants them;
+# the default dump fails it, and ansible-lint runs over the whole tree.
+changelog_nice_yaml: true
 changelog_sort: alphanumerical
 ignore_other_fragment_extensions: true
 mention_ancestor: true

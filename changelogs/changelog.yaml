@@ -1,22 +1,203 @@
+---
 ancestor: null
 releases:
   1.0.0:
-    release_date: '2026-09-01'
     changes:
-      release_summary: First release. Extracted from the playbook repository it grew
-        up in, with the repository-specific parts removed.
       minor_changes:
-        - The ``systemd_app`` role deploys or decommissions one app, either from a
-          controller directory of Quadlet files, systemd units and config (``source``)
-          or as a single-container Quadlet rendered from call-site parameters
-          (``inline``); install-manifest reconciliation across both kinds;
-          SOPS-encrypted podman secrets with digest-based rotation; an optional Caddy
-          route; pre-created bind-mount directories; healthcheck-gated
-          ``podman auto-update`` rollback.
-        - Filters ``secret_digests``, ``reconcile_secrets``, ``route_problems``,
-          ``container_problems``, ``systemd_env_lines`` and ``manifest_units``,
-          callable independently of the role.
-        - Molecule scenario covering both kinds, idempotence, the manifest prune, a
-          change of kind, the secrets path end to end - decrypted, stored, rotated,
+        - Filters ``secret_digests``, ``reconcile_secrets``, ``route_problems``, ``container_problems``,
+          ``systemd_env_lines`` and ``manifest_units``, callable independently of
+          the role.
+        - Molecule scenario covering both kinds, idempotence, the manifest prune,
+          a change of kind, the secrets path end to end - decrypted, stored, rotated,
           dropped and re-stored after drift - and a repeated decommission that stops
           what an app is running whether or not the call names its units.
+        - The ``systemd_app`` role deploys or decommissions one app, either from a
+          controller directory of Quadlet files, systemd units and config (``source``)
+          or as a single-container Quadlet rendered from call-site parameters (``inline``);
+          install-manifest reconciliation across both kinds; SOPS-encrypted podman
+          secrets with digest-based rotation; an optional Caddy route; pre-created
+          bind-mount directories; healthcheck-gated ``podman auto-update`` rollback.
+      release_summary: First release. Extracted from the playbook repository it grew
+        up in, with the repository-specific parts removed.
+    release_date: '2026-09-01'
+  1.1.0:
+    changes:
+      breaking_changes:
+        - The ``systemd_app`` role now needs podman 4.5 or newer on the host, where
+          ``podman secret create`` learned ``--label``; the previous floor was 4.4.
+          Every platform the role claims ships podman 5.x.
+        - The collection now requires ansible-core 2.19 or newer on the controller;
+          the previous floor was 2.15. The floor is what the oldest claimed platform,
+          Debian 13, ships, and 2.15 through 2.18 are end of life upstream. A controller
+          on an older ansible-core can no longer install the collection.
+      bugfixes:
+        - A symlink to a file under a ``source`` app's ``config/`` is now recorded
+          in the install manifest. The copy that deploys the tree follows it and installs
+          a regular file, but the search that listed the tree did not, so the file
+          was never pruned once the app stopped shipping it.
+        - The ``systemd_app`` role no longer reports storing every declared podman
+          secret when run under ``--check``. The store listing it reconciles against
+          is a read-only command, which Ansible skipped in check mode, leaving the
+          role unable to distinguish an empty store from an unasked question; it now
+          runs in check mode too. Storing and removing a secret still cannot be previewed,
+          and the role's README says so.
+        - The ``systemd_app`` role now disables a plain unit before removing its file,
+          both when a deploy stops shipping it and on decommission. Previously the
+          ``.wants`` symlink that enabling it had created was left behind, and ``systemctl``
+          reported the unit as ``not-found`` for good. The ``install_manifest`` module
+          returns the units a prune implies as ``pruned_units`` so the role can ask
+          before the files go.
+        - The ``systemd_app`` role now refuses a ``systemd_app_name`` with a trailing
+          newline. The check was a ``$``-anchored ``match``, which accepts one, and
+          nothing the name is written into - install paths, ``ContainerName=``, the
+          route snippet's filename - fails on it. No working deploy is affected, since
+          such a container would never have started.
+      deprecated_features:
+        - The ``manifest_units`` filter is deprecated and will be removed in 2.0.0.
+          The ``install_manifest`` module returns the same names as ``units``.
+        - The ``route_problems`` and ``container_problems`` filters are renamed ``route_validation_errors``
+          and ``container_validation_errors``. The old names redirect to the new ones
+          with a deprecation warning and are removed in 2.0.0.
+        - The ``secret_digests`` and ``reconcile_secrets`` filters are deprecated
+          and will be removed in 2.0.0. The ``podman_secrets`` module does their work
+          from labels on the secrets themselves; the role no longer calls either.
+      known_issues:
+        - 'The ``systemd_app`` role''s platform list now names only what its molecule
+          scenario converges: Fedora 43 and Debian 13 (trixie). EL and Ubuntu are
+          no longer listed; they were never tested, and Debian 12 is out because its
+          podman (4.3) predates Quadlet. The role is not distribution-specific and
+          other platforms will likely work, but they are not claimed until something
+          tests them.'
+      major_changes:
+        - On the first deploy after upgrading, the ``systemd_app`` role removes and
+          re-creates every podman secret an app declares, so that each carries its
+          ownership and digest labels, and restarts the app once. Secrets stored by
+          earlier releases carry no labels, so the role cannot tell whether their
+          values still match and treats them as changed. Plan for one restart per
+          app with secrets.
+      minor_changes:
+        - Decommissioning a ``source`` app no longer requires ``systemd_app_apps_dir``.
+          A decommission works from the host alone and never read the controller's
+          tree; the requirement was a leftover of the deploy path's.
+        - 'New filter ``app_validation_errors``: why an app cannot be acted on as
+          named, one string per problem - the name''s shape, the kind and state, the
+          image an ``inline`` deploy requires, the ``systemd_app_apps_dir`` a ``source``
+          app requires and the directory under it a ``source`` deploy reads from,
+          the shape of each ``systemd_app_data_dirs`` entry, and the names in ``secrets.sops.yaml``
+          (never the values). The ``systemd_app`` role now validates its input through
+          it, in one task, reporting every problem at once.'
+        - 'New filter ``source_tree``: what a ``source`` app ships, read from its
+          directory on the controller - the files of ``quadlet/`` and ``unit/``, every
+          file of ``config/`` - and the host path each installs to. The ``systemd_app``
+          role now records its install manifest from it instead of composing the paths
+          in the play.'
+        - 'New module ``install_manifest``: keeps an app''s install manifest on the
+          host, pruning what the last deploy installed and this one does not, recording
+          what this one did, and removing everything recorded on decommission. Every
+          recorded path is checked against the app''s install roots first, and the
+          units the record implies are returned so a decommission need not be told
+          them. Supports check and diff mode. The ``systemd_app`` role now uses it;
+          the record format is unchanged.'
+        - 'New module ``podman_secrets``: reconciles one app''s podman secrets against
+          the store in one call, creating what is missing, rotating what changed,
+          removing what the app stopped declaring, and refusing a name another app
+          owns. Ownership and a digest of each value (``sha256:<hex>``) are recorded
+          as labels on the secret itself, so the store is the only record and a secret
+          removed by hand is re-created on the next run. Supports check mode and diff
+          mode; no return value carries a secret. The ``systemd_app`` role now uses
+          it for its secrets.'
+        - 'The ``podman_secrets`` module gained ``adopt_file``: a file on the host
+          whose JSON object''s keys are added to ``adopt``. The ``systemd_app`` role
+          passes the record releases before 1.1.0 wrote, ``/var/app/<app>/.secret-digests``,
+          instead of reading it on the controller with ``slurp`` and decoding it in
+          Jinja. A record that is not a JSON object now fails the decommission with
+          the file named and what to do about it, where before it failed with a template
+          traceback.'
+        - The ``systemd_app`` role decrypts an app's ``secrets.sops.yaml`` through
+          the ``community.sops.sops`` lookup, evaluated where the values are used,
+          instead of loading them into a fact that persisted for the rest of the play.
+        - The ``systemd_app`` role gained ``systemd_app_auto_update`` and ``systemd_app_restart``,
+          which set an ``inline`` app's ``AutoUpdate=`` and ``Restart=`` directives.
+          The defaults, ``registry`` and ``always``, render exactly what earlier releases
+          did; ``local`` follows a locally built image, and ``never`` writes no ``AutoUpdate=``
+          line, for an image pinned by digest. Both are checked against systemd's
+          and podman's accepted values in the argument spec, since neither program
+          rejects an unknown value when the unit is loaded.
+        - The ``systemd_app`` role now refuses to deploy an app whose ``systemd_app_domain``
+          is already the address of a site block in another app's route snippet under
+          ``systemd_app_caddy_confd``, naming that file. Two site blocks with one
+          address make Caddy refuse the whole imported config, taking every app's
+          route down; the refusal happens before anything is installed on the host.
+        - The ``systemd_app`` role reconciles an app's podman secrets before installing
+          any of its files, so a value the store refuses fails the deploy with nothing
+          on the host, as a refused name already did.
+      release_summary: 'The role''s host-side work moves into two modules. ``podman_secrets``
+        reconciles an app''s secrets from ownership and digest labels on the secrets
+        themselves, and ``install_manifest`` reconciles the install record on the
+        host; both support check and diff mode. Read the major change before upgrading:
+        the first deploy re-creates every app''s secrets to label them and restarts
+        each app with secrets once. The controller floor rises to ansible-core 2.19
+        and the host floor to podman 4.5. New ``inline`` parameters set the ``AutoUpdate=``
+        and ``Restart=`` policy, the role refuses a domain another app''s route already
+        claims, and the filters the modules replace are deprecated ahead of 2.0.0.'
+      security_fixes:
+        - A failed ``podman secret create`` now reports the secret's name, podman's
+          exit code and its stderr. Previously the whole task result was censored
+          along with the value, so a full store or a permission problem gave the operator
+          nothing to go on.
+        - The ``systemd_app`` role no longer writes ``/var/app/<app>/.secret-digests``,
+          a root-only file holding an unsalted SHA-256 of every secret the app declared.
+          A copy of the app's directory - a backup, a snapshot - carried a dictionary-attackable
+          digest of each secret; the digest now sits as a label beside the secret
+          in podman's own store, where root already has the value. An existing record
+          file is removed on the next deploy.
+        - 'The ``systemd_app`` role now refuses an install manifest line that names
+          a directory and removes nothing. Previously such a line passed the path
+          checks and reached ``file: state=absent``, which removes recursively - a
+          ``.wants`` directory inside ``/etc/systemd/system``, or a subtree of the
+          app''s config, was within reach of a tampered record. Pruned paths are now
+          unlinked, never removed recursively.'
+    fragments:
+      - ansible-core-floor-2.19.yml
+      - antsibull-changelog.yml
+      - app-validation-errors-filter.yml
+      - check-mode-secret-listing.yml
+      - container-policy-parameters.yml
+      - disable-pruned-units.yml
+      - fact-reset-test.yml
+      - install-manifest-module.yml
+      - platforms-fedora-debian.yml
+      - podman-secrets-adopt-file.yml
+      - podman-secrets-module.yml
+      - readme-lists-every-plugin.yml
+      - refuse-duplicate-domain.yml
+      - release-procedure-doc.yml
+      - release-summary.yml
+      - requirements-dev.yml
+      - source-tree-filter.yml
+      - type-annotations.yml
+    modules:
+      - description: Reconcile the files an app installed against the record of its
+          last deploy.
+        name: install_manifest
+        namespace: ''
+      - description: Reconcile one app's podman secrets against the store.
+        name: podman_secrets
+        namespace: ''
+    plugins:
+      filter:
+        - description: Why an app cannot be deployed or decommissioned as named, one
+            string per problem.
+          name: app_validation_errors
+          namespace: null
+        - description: Why an app's Quadlet cannot be rendered, one string per problem.
+          name: container_validation_errors
+          namespace: null
+        - description: Why an app cannot be routed, one string per problem.
+          name: route_validation_errors
+          namespace: null
+        - description: What a :literal:`source` app ships, and the host paths it installs
+            to.
+          name: source_tree
+          namespace: null
+    release_date: '2026-09-08'

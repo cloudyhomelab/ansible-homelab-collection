@@ -68,7 +68,8 @@ the molecule converge calls the role by FQCN with nothing installing the collect
 CI additionally lints the changelog and checks that the generated `CHANGELOG.md` still
 matches `changelogs/changelog.yaml` (see Releasing); `ansible-test sanity` validates
 `changelog.yaml` on its own account. Every pull request must add a fragment, however trivial
-the change; the release PR, which changes `galaxy.yml`'s version, is the one exception.
+the change; a PR that changes `changelog.yaml` itself — the release PR above all — is the
+one exception.
 
 Locally these run against whatever ansible-core is installed. CI runs pytest and sanity,
 plus a syntax check of a play that uses the role, once per supported ansible-core — the
@@ -95,19 +96,27 @@ A pushed `vX.Y.Z` tag runs `.github/workflows/release.yml`: it checks the tag ag
 `galaxy.yml`'s `version`, lints the changelog, renders this version's notes out of
 `changelog.yaml` (which fails outright on a version it has no entry for), checks the
 committed `CHANGELOG.md` matches what that file renders to, and checks the version is not
-already on Galaxy — then calls the three gate workflows against the tagged commit and
-publishes. The publish waits behind the `release` environment, which needs a required
-reviewer configured to be a real stop — a Galaxy version cannot be replaced or deleted. The
-first job writes the run summary that reviewer decides on: the tag and commit, the commits
-since the previous release tag, and the release notes.
+already on Galaxy — then calls the three gate workflows against the tagged commit,
+publishes, and finally installs the published version from Galaxy on a clean runner. The
+publish waits behind the `release` environment, which needs a required reviewer configured
+to be a real stop — a Galaxy version cannot be replaced or deleted. The first job writes the
+run summary that reviewer decides on: the tag and commit, the commits since the previous
+release tag, and the release notes.
 
-So a release is, in outline: `prepare-release.sh` folds the fragments, bumps `galaxy.yml`
-and opens the release PR; once that is merged, `tag-release.sh` tags `main` and pushes the
-tag. **`RELEASE.md` is the procedure** — prerequisites, the checklist, what each
-check catches and what to do when a step fails. Keep the steps there and not here, so the
-two cannot drift.
+So a release is, in outline: the PR that lands the release summary is labelled
+`prepare-release-<major|minor|patch|X.Y.Z>`; its merge runs `prepare-release.yml`, which
+folds the fragments on `main`'s tip, bumps `galaxy.yml` and opens the release PR from
+`release/X.Y.Z`, labelled `release-X.Y.Z`, with auto-merge enabled; that PR's Checks run
+writes the reviewer's brief and waits on the `prepare` environment, and the approval lets
+it merge itself; the merge runs `tag-release.yml`, which tags the merge commit as the GitHub
+App and pushes the tag; the tag runs `release.yml`, where the publish is approved. Two
+labels and two approvals, nothing typed locally. Anything the workflow's own `GITHUB_TOKEN`
+does starts no workflow, which is why the App pushes the branch and the tag. **`RELEASE.md`
+is the procedure** — prerequisites, the steps, what each check catches and what to do when
+a step fails. Keep the steps there and not here, so the two cannot drift.
 
-Needs the `GALAXY_API_KEY` secret. Prerelease tags (`v1.0.0-rc1`) do not match the trigger.
+Needs the `GALAXY_API_KEY` secret, and the App's `CLOUDYHOME_BOT_CLIENT_ID` and
+`CLOUDYHOME_BOT_PRIVATE_KEY`. Prerelease tags (`v1.0.0-rc1`) do not match the trigger.
 The GitHub release body is rendered from `changelog.yaml` by the same command that writes
 the changelog, so the two cannot disagree about where a version's notes end.
 

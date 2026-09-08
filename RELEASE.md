@@ -43,10 +43,12 @@ So:
 | A new variable, a new filter, new behaviour behind an option that defaults to today's | **minor** |
 | A fix that changes nothing a call site can see | **patch** |
 
-Two traps worth naming. Tightening an input check is a **breaking** change if any existing
-call site would now be refused, however wrong that call site was. And raising the
-ansible-core floor is breaking too, since a consumer on the old floor can no longer install
-the collection — see [Raising the ansible-core floor](#raising-the-ansible-core-floor).
+Two traps worth naming, both **breaking**:
+
+- tightening an input check, if any existing call site would now be refused, however wrong
+  that call site was;
+- raising the ansible-core floor, since a consumer on the old floor can no longer install
+  the collection — see [Raising the ansible-core floor](#raising-the-ansible-core-floor).
 
 ## Doing the release
 
@@ -102,8 +104,11 @@ This does three things, all of which you commit:
 
 Read the regenerated `CHANGELOG.md` before going on. The escaping is normal — `First
 release\.`, `v1\.1\.0`, `<code>…</code>` — it renders correctly on GitHub, and hand-tidying
-it will fail CI and be reverted by the next release. What you are looking for is wording,
-missing entries, and a release summary that reads like one.
+it will fail CI and be reverted by the next release. What you are looking for:
+
+- wording;
+- missing entries;
+- a release summary that reads like one.
 
 ### 5. Bump the version in `galaxy.yml`
 
@@ -134,12 +139,13 @@ molecule test
 `molecule test` also needs `sops` on `PATH` and takes minutes. CI runs all of it against
 the tagged commit anyway, so a local run is about not burning a tag you have to abandon.
 
-Two notes on output you can ignore. `ansible-lint` prints one
-`[ERROR]: Unable to parse documentation in python file …` line per filter and then passes:
-an ansible-lint/ansible-core interaction, not a fault in the files, and
-`tests/unit/test_filter_docs.py` is what actually checks those docs. And `ansible-test
-sanity` skips `compile` and `import` on Python versions the machine does not have
-installed.
+Two notes on output you can ignore:
+
+- `ansible-lint` prints one `[ERROR]: Unable to parse documentation in python file …` line
+  per filter and then passes: an ansible-lint/ansible-core interaction, not a fault in the
+  files, and `tests/unit/test_filter_docs.py` is what actually checks those docs.
+- `ansible-test sanity` skips `compile` and `import` on Python versions the machine does
+  not have installed.
 
 ### 7. Commit everything together
 
@@ -160,9 +166,14 @@ clone.
 ### 8. Rehearse (optional, recommended after a long gap)
 
 Push the branch and run **Release** from the Actions tab against it. From a branch the run
-is a rehearsal: the version comes from `galaxy.yml`, every check and every gate runs, the
-collection is built, and the two steps that reach outside the runner are skipped. It also
-tells you whether the version number is still free on Galaxy — often the real question.
+is a rehearsal:
+
+- the version comes from `galaxy.yml`;
+- every check and every gate runs, including whether the version number is still free on
+  Galaxy — often the real question;
+- the collection is built;
+- the two steps that reach outside the runner are skipped.
+
 The run's summary shows what a release would have published: the commits since the
 previous release tag and the release notes, then the built tarball's listing.
 
@@ -172,12 +183,26 @@ published can come from a branch.
 ### 9. Tag and push
 
 ```sh
-git push origin main
-git tag vX.Y.Z
-git push origin vX.Y.Z
+git switch main
+./tag-release.sh
 ```
 
-The tag is what triggers the release. Note the `v` prefix, and that only
+The script tags `HEAD` as `vX.Y.Z` from `galaxy.yml`'s `version`, with that version's
+section of `CHANGELOG.md` as the annotated tag message, shows you the result and asks
+before pushing. Answer no at the prompt to keep the local tag and push it yourself;
+`git tag -d vX.Y.Z` undoes it.
+
+It refuses if:
+
+- the working tree is dirty;
+- a fragment is still waiting in `changelogs/fragments/`;
+- `HEAD` is not on `origin/main`;
+- the tag already exists, locally or on `origin`;
+- Galaxy already has the version.
+
+Each is a mistake the workflow would otherwise report only after the gates.
+
+The pushed tag is what triggers the release. Note the `v` prefix, and that only
 `v[0-9]+.[0-9]+.[0-9]+` matches — a prerelease tag like `v1.0.0-rc1` triggers nothing.
 
 ### 10. Approve the publish, then check it landed
@@ -186,11 +211,14 @@ The workflow runs the checks, then the three gate workflows (which take the bett
 half an hour), then waits on the `release` environment for a reviewer.
 
 **Read the run's summary before approving.** The first job writes it while the gates are
-still running, so it is on the run's page by the time the publish is waiting: the tag and
-the commit it points at, every commit since the previous release tag with a compare link,
-and the release notes exactly as the GitHub release will carry them. That summary is what
-you are approving. A commit you did not expect or a note that reads wrong is the moment to
-reject, fix and re-tag — nothing has been published yet.
+still running, so it is on the run's page by the time the publish is waiting:
+
+- the tag and the commit it points at;
+- every commit since the previous release tag, with a compare link;
+- the release notes exactly as the GitHub release will carry them.
+
+That summary is what you are approving. A commit you did not expect or a note that reads
+wrong is the moment to reject, fix and re-tag — nothing has been published yet.
 
 Then approve, and watch the publish step: Galaxy accepts the tarball and imports it
 asynchronously, and the import is what actually validates the collection, so the step stays
@@ -252,10 +280,12 @@ This is a breaking change for anyone on the old floor, so it is a **major** bump
 
 ### A first release from a fresh fork or namespace
 
-Beyond the prerequisites above: the Galaxy namespace must exist and your account must own
-it, and `galaxy.yml`'s `repository`, `documentation`, `homepage` and `issues` links must
-point at the repository that actually exists — Galaxy publishes them on the collection's
-page without checking any of them.
+Beyond the prerequisites above:
+
+- the Galaxy namespace must exist and your account must own it;
+- `galaxy.yml`'s `repository`, `documentation`, `homepage` and `issues` links must point at
+  the repository that actually exists — Galaxy publishes them on the collection's page
+  without checking any of them.
 
 ### Republishing after a deleted tag
 

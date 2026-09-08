@@ -1,0 +1,5 @@
+trivial:
+  - >-
+    ``tag-release.sh`` tags a release from ``galaxy.yml`` and ``CHANGELOG.md`` and refuses the
+    mistakes the release workflow would otherwise report after the gates; ``RELEASE.md`` uses
+    it. Maintainer tooling, excluded from the built collection; nothing a consumer sees changes.

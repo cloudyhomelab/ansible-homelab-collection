@@ -43,7 +43,6 @@ build_ignore:
   - .idea
   - CLAUDE.md
   - RELEASE.md
-  - tag-release.sh
   - prepare-release.sh
   - requirements-dev.txt
   - requirements-test.txt

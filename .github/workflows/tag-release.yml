@@ -1,0 +1,208 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Tag release
+
+# Tags the merge commit of the release pull request `vX.Y.Z` and pushes the tag, which is
+# what starts release.yml. The PR is recognised by its `release-X.Y.Z` label, put there by
+# prepare-release.yml when it opened the PR: a label is a deliberate act that can be
+# removed, so merging the PR without it is how a release commit lands untagged on purpose.
+# The version in the label has to be the one galaxy.yml declares, so a label on the wrong
+# PR, or a release branch edited after it was labelled, tags nothing.
+#
+# Everything the tag would commit release.yml to is refused here first, where a refusal
+# costs nothing: a fragment the release commit left behind, a tag that already exists, a
+# version Galaxy already has. release.yml checks the tag against galaxy.yml on its own
+# account, so a tag pushed by hand on the merge commit remains a valid recovery.
+on:
+  # `closed` rather than a push to main: the event carries the labels as they were at the
+  # merge, whether the PR merged or was merely closed, the merge commit's sha and the PR's
+  # number. The branch filter is on the base, which is the one we want.
+  pull_request:
+    types: [closed]
+    branches: [main]
+  # The recovery when the release PR was merged without its label, or this run failed
+  # after the merge for a reason since fixed: tags main's tip, with no label to check
+  # against.
+  workflow_dispatch:
+
+# One tag at a time and never a cancelled one: a run stopped between creating the tag and
+# pushing it would leave nothing behind, but one stopped after the push has already
+# started a release.
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+# The push is made by the App's token, not the workflow's. A tag pushed with GITHUB_TOKEN
+# starts no workflow (GitHub's rule against runs that trigger themselves), so it would
+# never start release.yml.
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    name: Tag the release commit
+    # A PR closed without merging tags nothing. Neither does an ordinary PR: the `release-`
+    # test here, padded so `prepare-release-*` is not mistaken for it, is only what keeps
+    # every other merge from showing up as a refusal; the step below holds the label to the
+    # exact form.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.pull_request.merged == true
+          && contains(format(' {0} ', join(github.event.pull_request.labels.*.name, ' ')), ' release-'))
+    runs-on: ubuntu-latest
+
+    steps:
+      # Exactly one `release-X.Y.Z` label. Two would be two opinions about the version;
+      # a `release-` label in any other shape is one nobody's tooling wrote. On dispatch
+      # there is no PR and so no label, and galaxy.yml alone names the version.
+      - name: Read the version from the release label
+        id: label
+        if: github.event_name == 'pull_request'
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          matches="$(tr ' ' '\n' <<< "$LABELS" | grep -E '^release-[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+          case "$(wc -w <<< "$matches")" in
+            1) echo "version=${matches#release-}" >> "$GITHUB_OUTPUT" ;;
+            0) echo "::error::No label of the form release-X.Y.Z on this pull request; its labels are: $LABELS" >&2; exit 1 ;;
+            *) echo "::error::More than one release label on this pull request: $(tr '\n' ' ' <<< "$matches")" >&2; exit 1 ;;
+          esac
+
+      - name: Mint a token for the App
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.CLOUDYHOME_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.CLOUDYHOME_BOT_PRIVATE_KEY }}
+
+      # The merge commit and nothing later: a tag belongs to one commit, and main may have
+      # moved on by the time this runs. Whole history for the tag list and the version's
+      # previous tag. The App's token is what the checkout leaves in the remote's
+      # credentials, so the push below is the App's.
+      - name: Checkout the merge commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || 'main' }}
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+
+      # The tag is annotated, so it carries an author, and the author is the App, which is
+      # the identity that pushes it. The noreply address is the form GitHub attributes to
+      # the App's account.
+      - name: Set the App as the git identity
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          id="$(gh api "/users/${SLUG}[bot]" --jq .id)"
+          git config user.name "${SLUG}[bot]"
+          git config user.email "${id}+${SLUG}[bot]@users.noreply.github.com"
+
+      # Read the same way release.yml reads it, and held to plain X.Y.Z, which is all the
+      # tag pattern there matches: a prerelease in galaxy.yml would tag and then start
+      # nothing.
+      - name: Resolve the version from galaxy.yml
+        id: version
+        run: |
+          declared="$(sed -n 's/^version:[[:space:]]*//p' galaxy.yml | head -1 | tr -d "\"' ")"
+          if ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$declared"; then
+            echo "::error::galaxy.yml's version '$declared' is not plain X.Y.Z." >&2
+            exit 1
+          fi
+          echo "version=$declared" >> "$GITHUB_OUTPUT"
+
+      # The label was written when the PR was opened, from the version the fold decided;
+      # galaxy.yml is what the merge commit actually says. A difference is a branch edited
+      # after it was labelled, or a label on the wrong PR.
+      - name: Check the label names the version galaxy.yml declares
+        if: github.event_name == 'pull_request'
+        env:
+          LABEL: ${{ steps.label.outputs.version }}
+          DECLARED: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$LABEL" != "$DECLARED" ]; then
+            echo "::error::Label release-$LABEL, but galaxy.yml says $DECLARED." >&2
+            exit 1
+          fi
+
+      # A release commit folds every fragment away. One still here means the changelog for
+      # this version does not describe everything the tag would publish.
+      - name: Check no fragment is waiting
+        run: |
+          waiting="$(find changelogs/fragments -type f ! -name '.gitkeep' | sort)"
+          if [ -n "$waiting" ]; then
+            echo "::error::Fragments not folded into this release: $(tr '\n' ' ' <<< "$waiting")" >&2
+            exit 1
+          fi
+
+      - name: Check the tag does not exist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -n "$(git ls-remote --tags origin "refs/tags/v$VERSION")" ]; then
+            echo "::error::Tag v$VERSION already exists on origin." >&2
+            exit 1
+          fi
+
+      # Only 404 proves the number free. 200 is a version already published, which cannot
+      # be replaced; anything else is an outage or a changed API and is read neither way,
+      # since a tag pushed on a guess starts a release.
+      - name: Check the version is not on Galaxy
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          url="https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/index"
+          url="$url/binarycodes/homelab/versions/$VERSION/"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$url" || echo 000)"
+          case "$code" in
+            404) echo "Not yet published." ;;
+            200) echo "::error::$VERSION is already on Galaxy, and a version cannot be replaced." >&2; exit 1 ;;
+            *)   echo "::error::Galaxy answered $code for $VERSION; try again when it answers 404." >&2; exit 1 ;;
+          esac
+
+      - name: Install the development tools
+        uses: ./.github/actions/install-dev-tools
+
+      # The version's notes, rendered from changelog.yaml the way the GitHub release body
+      # will be, headed with the collection's name. antsibull-changelog writes them for
+      # Markdown, escaping punctuation and wrapping names in <code>; the tag message is read
+      # in a terminal, so that is undone and the heading anchors dropped. Empty output is a
+      # version changelog.yaml has no entry for, which release.yml would refuse anyway.
+      - name: Write the tag message
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          antsibull-changelog generate "$VERSION" --only-latest --output /tmp/notes.md
+          if [ ! -s /tmp/notes.md ]; then
+            echo "::error::changelogs/changelog.yaml has no entry for $VERSION." >&2
+            exit 1
+          fi
+          {
+            echo "binarycodes.homelab $VERSION"
+            echo
+            sed -E 's/\\(.)/\1/g; s#</?code>#`#g; /^<a id=/d' /tmp/notes.md | cat -s
+          } > /tmp/tag-message.md
+
+      # --cleanup=whitespace: the notes' `##` headings are content, which git's default
+      # cleanup would strip as comments.
+      - name: Tag and push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git tag -a "v$VERSION" --cleanup=whitespace -F /tmp/tag-message.md
+          git push origin "v$VERSION"
+          {
+            echo "## Tagged v$VERSION"
+            echo
+            echo "\`v$VERSION\` at \`$(git rev-parse HEAD)\`, pushed. The Release run it starts is"
+            echo "where the publish is approved."
+            echo
+            echo "### Tag message"
+            echo
+            echo '```'
+            cat /tmp/tag-message.md
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

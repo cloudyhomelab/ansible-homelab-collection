@@ -7,6 +7,8 @@ __pycache__/
 *.tar.gz
 .ansible/
 .cache/
+# Written by `antsibull-changelog release` to spot new plugins; `generate` and CI never read it.
+changelogs/.plugin-cache.yaml
 .DS_Store
 
 .idea/

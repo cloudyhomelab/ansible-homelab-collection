@@ -130,7 +130,9 @@
            health_interval=systemd_app_health_interval,
            health_retries=systemd_app_health_retries,
            health_start_period=systemd_app_health_start_period,
-           start_timeout=systemd_app_start_timeout) }}
+           start_timeout=systemd_app_start_timeout,
+           auto_update=systemd_app_auto_update,
+           restart=systemd_app_restart) }}
   when:
     - systemd_app_state == 'present'
     - systemd_app_kind == 'inline'

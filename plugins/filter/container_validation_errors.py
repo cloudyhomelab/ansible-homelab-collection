@@ -39,7 +39,7 @@ description:
     secret into a log.
 positional: description, volumes, publish_ports, container_options, service_options,
   image, network, health_cmd, health_interval, health_retries, health_start_period,
-  start_timeout
+  start_timeout, auto_update, restart
 options:
   _input:
     description:
@@ -103,6 +103,16 @@ options:
     description: The unit's C(TimeoutStartSec=), emitted alongside the health block.
     type: raw
     default: ''
+  auto_update:
+    description: The C(AutoUpdate=) policy; C(never) means the line is not emitted.
+    type: str
+    default: ''
+    version_added: 1.1.0
+  restart:
+    description: The unit's C(Restart=) policy.
+    type: str
+    default: ''
+    version_added: 1.1.0
 """
 
 RETURN = r"""
@@ -138,7 +148,8 @@ def container_validation_errors(env: Mapping[Any, object] | None, description: o
                                 image: object = "", network: object = "", health_cmd: object = "",
                                 health_interval: object = "", health_retries: object = "",
                                 health_start_period: object = "",
-                                start_timeout: object = "") -> list[str]:
+                                start_timeout: object = "", auto_update: object = "",
+                                restart: object = "") -> list[str]:
     """Why this app's Quadlet cannot be rendered, one string per problem."""
     problems: list[str] = []
 
@@ -161,6 +172,8 @@ def container_validation_errors(env: Mapping[Any, object] | None, description: o
         ("systemd_app_description", description),
         ("systemd_app_image", image),
         ("systemd_app_network", network),
+        ("systemd_app_auto_update", auto_update),
+        ("systemd_app_restart", restart),
     ]
     # The template emits the health block, and the start timeout beside it, only for a
     # non-empty command. Checking the rest unconditionally would fail a deploy over a value

@@ -492,6 +492,8 @@ def test_nothing_configured_is_no_problem():
          "systemd_app_health_start_period"),
         ({"health_cmd": "true", "start_timeout": "180\nUser=0"},
          "systemd_app_start_timeout"),
+        ({"auto_update": "registry\nUser=0"}, "systemd_app_auto_update"),
+        ({"restart": "always\nUser=0"}, "systemd_app_restart"),
     ],
 )
 def test_control_characters_in_rendered_scalars_are_rejected(kwargs, param):
@@ -521,7 +523,15 @@ def test_the_role_defaults_of_every_rendered_scalar_are_accepted():
         health_retries=3,
         health_start_period="60s",
         start_timeout=180,
+        auto_update="registry",
+        restart="always",
     ) == []
+
+
+@pytest.mark.parametrize("auto_update", ["registry", "local", "never"])
+def test_every_auto_update_choice_is_accepted(auto_update):
+    # The spec limits the choices; the filter's only concern is what survives a unit file.
+    assert container_validation_errors({}, auto_update=auto_update) == []
 
 
 def test_every_scalar_the_inline_template_interpolates_reaches_the_filter():

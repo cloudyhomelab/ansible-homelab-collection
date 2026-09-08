@@ -98,6 +98,7 @@
           # No healthcheck was asked for, so none of the health block may appear —
           # Notify=healthy without a probe would hang the start until it timed out.
           - "'Notify=healthy' not in molecule_inline_rendered"
+          - "'Restart=on-failure' in molecule_inline_rendered"
         quiet: true
       vars:
         molecule_inline_rendered: "{{ molecule_inline_quadlet.content | b64decode }}"
@@ -202,6 +203,45 @@
           # Environment= line at all.
           - molecule_secrets['molsecret-token'] not in molecule_secret_rendered
           - molecule_container_env.stdout == molecule_secrets['molsecret-token']
+        quiet: true
+      vars:
+        molecule_secret_rendered: "{{ molecule_secret_quadlet.content | b64decode }}"
+
+    # --- container policy ---------------------------------------------------------------
+    - name: Ask podman which auto-update policy each inline container carries
+      ansible.builtin.command:
+        argv:
+          - podman
+          - inspect
+          - "{{ item }}"
+          - --format
+          - "{{ '{{' }} index .Config.Labels \"io.containers.autoupdate\" {{ '}}' }}"
+      loop:
+        - molinline
+        - molsecret
+      changed_when: false
+      register: molecule_autoupdate_labels
+
+    - name: Ask systemd which restart policy the inline unit runs under
+      ansible.builtin.command:
+        argv: [systemctl, show, --property, Restart, --value, molinline.service]
+      changed_when: false
+      register: molecule_inline_restart
+
+    - name: Assert the container policy is what the call site asked for
+      ansible.builtin.assert:
+        that:
+          # The file holds AutoUpdate=registry and then AutoUpdate=local; the label is what
+          # Quadlet made of that, so this is the last-instance rule observed on a host
+          # rather than read out of the parser's documentation.
+          - molecule_autoupdate_labels.results[0].stdout == 'local'
+          # auto_update 'never': no line, so no label for podman auto-update to act on.
+          - molecule_autoupdate_labels.results[1].stdout == ''
+          - "'AutoUpdate=' not in molecule_secret_rendered"
+          - molecule_inline_restart.stdout == 'on-failure'
+        fail_msg: >-
+          Labels {{ molecule_autoupdate_labels.results | map(attribute='stdout') | list }},
+          Restart {{ molecule_inline_restart.stdout }}.
         quiet: true
       vars:
         molecule_secret_rendered: "{{ molecule_secret_quadlet.content | b64decode }}"

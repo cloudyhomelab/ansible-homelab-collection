@@ -9,7 +9,9 @@ Wants=network-online.target
 [Container]
 Image={{ systemd_app_image }}
 ContainerName={{ systemd_app_name }}
-AutoUpdate=registry
+{% if systemd_app_auto_update != 'never' %}
+AutoUpdate={{ systemd_app_auto_update }}
+{% endif %}
 Network={{ systemd_app_network }}
 {# Quoting and escaping live in systemd_env_lines, where they are tested; see
    `ansible-doc -t filter binarycodes.homelab.systemd_env_lines` for the rules they follow. #}
@@ -39,7 +41,7 @@ Notify=healthy
 {% endif %}
 
 [Service]
-Restart=always
+Restart={{ systemd_app_restart }}
 {% if systemd_app_health_cmd | length > 0 %}
 # Notify=healthy above makes this the deadline for the first passing probe.
 TimeoutStartSec={{ systemd_app_start_timeout }}

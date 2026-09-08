@@ -9,6 +9,12 @@ commit as the change it describes. That is the whole point of the arrangement â€
 line lands while the reason for it is still in front of you, rather than being reconstructed
 from `git log` at release time.
 
+Every pull request adds one, however small the change: `trivial:` exists for a change nobody
+needs to read about, and writing that line is the decision, made where the change is. CI
+(`Changelog fragment` in `.github/workflows/checks.yml`) fails a pull request that adds
+none. The one exception is the release PR, which folds every fragment away and bumps
+`galaxy.yml` instead.
+
 ## Adding one
 
 Name the file after the change (a branch name or issue number is fine; the name never

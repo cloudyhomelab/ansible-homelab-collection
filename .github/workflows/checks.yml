@@ -77,6 +77,42 @@ jobs:
           fi
           echo "molecule=$molecule" >> "$GITHUB_OUTPUT"
 
+  # Every pull request records itself: a fragment, however trivial the change, added in the
+  # PR that made it — `trivial:` is the section for one nobody needs to read about, and
+  # writing that line is the decision, made where the change is. The one exception is the
+  # release PR, which folds every fragment away and changes galaxy.yml's version instead.
+  # Added files only: editing a fragment someone else added is not recording a new change.
+  # Pull requests only, since a push to main has no base to diff against and the PR that
+  # produced it already passed here.
+  fragment:
+    name: Changelog fragment
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout collection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Require a fragment, or a release
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          added="$(git diff --name-only --diff-filter=A "$BASE" "$GITHUB_SHA" \
+            -- 'changelogs/fragments/*.yml' 'changelogs/fragments/*.yaml')"
+          if [ -n "$added" ]; then
+            echo "Fragment added:"
+            echo "$added"
+          elif git diff "$BASE" "$GITHUB_SHA" -- galaxy.yml | grep -qE '^\+version:'; then
+            echo "Release: galaxy.yml's version changes, and the fragments fold into the changelog."
+          else
+            echo "::error::This pull request adds no changelog fragment. Add one under" \
+                 "changelogs/fragments/ — 'trivial:' if nothing a consumer sees changed;" \
+                 "changelogs/README.md has the sections." >&2
+            exit 1
+          fi
+
   ci:
     name: CI
     uses: ./.github/workflows/ci.yml
@@ -92,12 +128,12 @@ jobs:
     uses: ./.github/workflows/molecule.yml
 
   # The one required status check. always(), because a failed gate would otherwise skip
-  # this job, and GitHub shows a skipped required check as pending, not failed. Molecule
-  # skipped is a pass only when `changes` said so — it is the one job allowed to skip, and
-  # only on a successful decision.
+  # this job, and GitHub shows a skipped required check as pending, not failed. Two jobs may
+  # skip and still pass: molecule, only when `changes` said so on a successful decision, and
+  # fragment, which only runs on a pull request.
   all-gates:
     name: All gates passed
-    needs: [changes, ci, versions, molecule]
+    needs: [changes, fragment, ci, versions, molecule]
     if: always()
     runs-on: ubuntu-latest
 
@@ -106,12 +142,14 @@ jobs:
         env:
           RESULTS: ${{ toJSON(needs.*.result) }}
           CHANGES: ${{ needs.changes.result }}
+          FRAGMENT: ${{ needs.fragment.result }}
           CI: ${{ needs.ci.result }}
           VERSIONS: ${{ needs.versions.result }}
           MOLECULE: ${{ needs.molecule.result }}
         run: |
-          echo "changes=$CHANGES ci=$CI versions=$VERSIONS molecule=$MOLECULE"
+          echo "changes=$CHANGES fragment=$FRAGMENT ci=$CI versions=$VERSIONS molecule=$MOLECULE"
           if [ "$CHANGES" = success ] && [ "$CI" = success ] && [ "$VERSIONS" = success ] \
+             && { [ "$FRAGMENT" = success ] || [ "$FRAGMENT" = skipped ]; } \
              && { [ "$MOLECULE" = success ] || [ "$MOLECULE" = skipped ]; }; then
             echo "Every gate passed."
           else

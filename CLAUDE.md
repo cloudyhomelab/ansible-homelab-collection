@@ -67,7 +67,8 @@ the molecule converge calls the role by FQCN with nothing installing the collect
 
 CI additionally lints the changelog and checks that the generated `CHANGELOG.md` still
 matches `changelogs/changelog.yaml` (see Releasing); `ansible-test sanity` validates
-`changelog.yaml` on its own account.
+`changelog.yaml` on its own account. Every pull request must add a fragment, however trivial
+the change; the release PR, which changes `galaxy.yml`'s version, is the one exception.
 
 Locally these run against whatever ansible-core is installed. CI runs pytest and sanity,
 plus a syntax check of a play that uses the role, once per supported ansible-core — the
@@ -100,9 +101,9 @@ reviewer configured to be a real stop — a Galaxy version cannot be replaced or
 first job writes the run summary that reviewer decides on: the tag and commit, the commits
 since the previous release tag, and the release notes.
 
-So a release is, in outline: `antsibull-changelog release --version X.Y.Z`, bump `version`
-in `galaxy.yml` to match, commit those together with the regenerated `CHANGELOG.md`, tag,
-push the tag. **`RELEASE.md` is the procedure** — prerequisites, the checklist, what each
+So a release is, in outline: `prepare-release.sh` folds the fragments, bumps `galaxy.yml`
+and opens the release PR; once that is merged, `tag-release.sh` tags `main` and pushes the
+tag. **`RELEASE.md` is the procedure** — prerequisites, the checklist, what each
 check catches and what to do when a step fails. Keep the steps there and not here, so the
 two cannot drift.
 

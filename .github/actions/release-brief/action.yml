@@ -41,8 +41,9 @@ runs:
         # The release this one follows is the tag just below v$VERSION in version order,
         # not the highest tag: a patch on an older line compares against its own line. The
         # version is added to the list because its own tag does not exist yet, except on a
-        # re-run from the tag.
-        previous="$( { git tag --list 'v[0-9]*.[0-9]*.[0-9]*'; echo "v$VERSION"; } \
+        # re-run from the tag. Release tags only: a prerelease tag is not a release this one
+        # follows.
+        previous="$( { git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$'; echo "v$VERSION"; } \
           | sort -uV | grep -Fx -B1 "v$VERSION" | head -1)"
         [ "$previous" = "v$VERSION" ] && previous=""
         sha="$(git rev-parse HEAD)"

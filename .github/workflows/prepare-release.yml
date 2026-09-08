@@ -220,7 +220,7 @@ jobs:
           done
           if git rev-parse -q --verify "refs/tags/v$CURRENT" >/dev/null; then
             while read -r file; do
-              grep -qE "^version_added:[[:space:]]*['\"]?${VERSION}['\"]?[[:space:]]*\$" "$file" \
+              grep -qE "^[[:space:]]*version_added:[[:space:]]*['\"]?${VERSION}['\"]?[[:space:]]*\$" "$file" \
                 || refuse "$file is new since v$CURRENT but does not carry version_added: $VERSION."
             done < <(git diff --name-only --diff-filter=A "v$CURRENT" HEAD -- 'plugins/filter/*.py' 'plugins/modules/*.py')
           fi
@@ -250,9 +250,9 @@ jobs:
             || refuse "CHANGELOG.md is not what changelogs/changelog.yaml renders to after the fold."
           ansible-galaxy collection build --output-path "$RUNNER_TEMP/dist" </dev/null
 
-      # The release PR's body: where it came from, then the notes as antsibull-changelog
-      # wrote them — the escaping renders correctly on GitHub. The same rendering becomes
-      # the GitHub release body, so this is the notes' review.
+      # The release PR's body: one line saying where it came from, then the notes as
+      # antsibull-changelog wrote them — the escaping renders correctly on GitHub. The same
+      # rendering becomes the GitHub release body, so this is the notes' review.
       - name: Write the release notes
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -293,21 +293,33 @@ jobs:
       # Squash, which is how main's history reads. Auto-merge waits for `All gates passed`,
       # and that check waits for the `prepare` approval, so the approval is the act that
       # releases. The merge is attributed to the App, which enabled it, so it counts as an
-      # event the App caused and starts tag-release.yml. Not a refusal when the repository
-      # does not allow auto-merge: the PR is open and correct, and merging it by hand once
-      # approved is the same release; the comment below says which it is.
+      # event the App caused and starts tag-release.yml.
+      #
+      # Only enabled while something blocks the PR. `gh pr merge --auto` on a PR nothing
+      # blocks merges it on the spot, which would skip the `prepare` approval altogether; the
+      # state is BLOCKED only when branch protection requires a check that has not reported,
+      # and is UNKNOWN for a moment after the PR is opened, while GitHub computes it. Not a
+      # refusal either way: the PR is open and correct, and merging it by hand once approved
+      # is the same release; the comment below says which it is.
       - name: Enable auto-merge on the release pull request
         id: automerge
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           URL: ${{ steps.pr.outputs.url }}
         run: |
-          if gh pr merge --auto --squash "$URL"; then
+          for attempt in 1 2 3 4 5 6; do
+            state="$(gh pr view "$URL" --json mergeStateStatus --jq .mergeStateStatus)"
+            [ "$state" = UNKNOWN ] || break
+            sleep 10
+          done
+          echo "Merge state: $state"
+          if [ "$state" = BLOCKED ] && gh pr merge --auto --squash "$URL"; then
             merges="itself once the \`prepare\` environment is approved on its Checks run and every check is green"
           else
-            echo "::warning::Could not enable auto-merge; the repository's settings may not allow it." \
-                 "Merge the PR by hand once it is approved."
-            merges="by hand: auto-merge could not be enabled, so once the \`prepare\` environment is approved on its Checks run, press Merge"
+            echo "::warning::Auto-merge not enabled (merge state $state): either the repository does not" \
+                 "allow it, or no required check blocks the PR. Merge by hand once the \`prepare\`" \
+                 "environment is approved."
+            merges="by hand: auto-merge was not enabled (merge state $state), so once the \`prepare\` environment is approved on its Checks run, press Merge"
           fi
           echo "merges=$merges" >> "$GITHUB_OUTPUT"
 
@@ -327,11 +339,14 @@ jobs:
           } > "$RUNNER_TEMP/comment.md"
           cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
           if [ -n "$ORIGIN" ]; then
-            gh pr comment "$ORIGIN" --body-file "$RUNNER_TEMP/comment.md"
+            gh pr comment "$ORIGIN" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
           fi
 
       # The refusal, quoted, so the person who labelled the origin PR reads it there. A
-      # failure that was not a refusal has no message of its own and points at the run.
+      # failure that was not a refusal has no message of its own and points at the run. The
+      # repository is named because a refusal before the checkout leaves gh nothing to
+      # infer it from. If minting the token was what failed, this cannot post either, and
+      # the red run is the only word.
       - name: Report the refusal
         if: failure() && github.event_name == 'pull_request'
         env:
@@ -354,4 +369,4 @@ jobs:
             echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           } > "$RUNNER_TEMP/comment.md"
           cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
-          gh pr comment "$ORIGIN" --body-file "$RUNNER_TEMP/comment.md"
+          gh pr comment "$ORIGIN" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"

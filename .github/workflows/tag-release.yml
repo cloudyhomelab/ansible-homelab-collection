@@ -206,3 +206,25 @@ jobs:
             cat /tmp/tag-message.md
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The release PR is merged and closed by now, so its page is the one place someone
+      # following the release is still looking; the outcome goes there, either way. The
+      # repository is named because a refusal can come before the checkout.
+      - name: Report on the release pull request
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          VERSION: ${{ steps.version.outputs.version }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          repo="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          if [ "$OUTCOME" = success ]; then
+            body="Tagged \`v$VERSION\` and pushed it. The Release run it starts is where the publish"
+            body="$body is approved: $repo/actions/workflows/release.yml"
+          else
+            body="Tag release did not tag this merge; the run says which check refused:"
+            body="$body $repo/actions/runs/$GITHUB_RUN_ID. Once the cause is fixed on \`main\`, run Tag"
+            body="$body release from the Actions tab, which tags \`main\`'s tip."
+          fi
+          gh pr comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"

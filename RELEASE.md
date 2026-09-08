@@ -17,6 +17,8 @@ You need, once:
   `requirements-dev.txt` with the other tools; install that file into the environment that
   holds ansible-core.
 
+- **The GitHub CLI, `gh`, logged in** to an account that can push a branch and open a pull
+  request here. `prepare-release.sh` opens the release PR with it.
 - **A `GALAXY_API_KEY` secret** on the GitHub repository, from your Galaxy account's
   namespace. Without it the publish step fails with a clear message rather than uploading
   nothing.
@@ -25,9 +27,9 @@ You need, once:
   upload. Without the protection rule the job simply runs, so the guard is only as real as
   the environment — check it is still there if it has been a while.
 
-You also need push access for a tag, and a clean working tree on a branch off an
-up-to-date `main`. `main` is protected, so the release commit lands through a pull
-request like any other change; only the tag is pushed directly.
+You also need push access for a tag, and a clean, up-to-date `main`. `main` is protected,
+so the release commit lands through a pull request like any other change, which
+`prepare-release.sh` opens; only the tag is pushed directly.
 
 ## Choosing the version number
 
@@ -54,21 +56,7 @@ Two traps worth naming, both **breaking**:
 
 ## Doing the release
 
-### 1. Make sure every change has a changelog fragment
-
-Fragments should already be there — one lands with each change, in the same commit. Check
-what is waiting:
-
-```sh
-ls changelogs/fragments/
-```
-
-Anything missing, add now: one YAML file per change, under `bugfixes:`, `minor_changes:`,
-`breaking_changes:` and so on. `changelogs/README.md` has the sections and the markup rules
-(reStructuredText, so ``` ``code`` ``` — not Markdown backticks — even though the output is
-Markdown). A change nobody needs to read about goes under `trivial:`.
-
-### 2. Add a release summary
+### 1. Write the release summary
 
 One fragment for the release as a whole, not for any single change:
 
@@ -79,99 +67,68 @@ release_summary: >-
   decommission that left dangling systemd symlinks behind.
 ```
 
-This is the paragraph a consumer reads first. `antsibull-changelog release` warns if it is
-missing rather than refusing, so it is easy to skip by accident.
+This is the paragraph a consumer reads first, so it is reviewed like anything else a
+consumer reads: it lands on `main` through a pull request, on its own or with the last
+change going into the release. The per-change fragments should already be there, one per
+change in the commit that made it; `changelogs/README.md` has the sections and the markup.
 
-### 3. Check the version-stamped documentation
-
-A **new filter** needs `version_added: X.Y.Z` in its `DOCUMENTATION` block, naming the
-version about to be released. All six existing filters carry one, and
-`tests/unit/test_filter_docs.py` will not catch a wrong value — only a missing block.
-
-Role options in `argument_specs.yml` do not declare `version_added` today. If you decide to
-start, add it to the new option only; back-filling the rest is a separate change.
-
-### 4. Fold the fragments into the changelog
+### 2. Prepare the release commit
 
 ```sh
-antsibull-changelog release --version X.Y.Z
+git switch main
+git pull --ff-only
+./prepare-release.sh --bump minor      # or an explicit X.Y.Z
 ```
 
-This does three things, all of which you commit:
+The bump is yours to choose, per [Choosing the version number](#choosing-the-version-number).
+The script refuses if:
 
-1. moves every fragment's content into `changelogs/changelog.yaml` under a new `X.Y.Z:` key,
-   stamped with today's date;
-2. **deletes the fragments** — the permanent record is `changelog.yaml` from here on;
-3. regenerates `CHANGELOG.md`.
+- you are not on a clean, up-to-date `main`;
+- no fragment is waiting, or none carries `release_summary`;
+- the fragments call for a bigger bump than asked: any `breaking_changes`, `major_changes`
+  or `removed_features` section means major, any `minor_changes` or `deprecated_features`
+  means minor. A bigger bump than they imply is allowed;
+- a filter or module carries a `version_added` that names neither a released version nor
+  this one, or is new since the last release and does not name this one.
 
-Read the regenerated `CHANGELOG.md` before going on. The escaping is normal — `First
-release\.`, `v1\.1\.0`, `<code>…</code>` — it renders correctly on GitHub, and hand-tidying
-it will fail CI and be reverted by the next release. What you are looking for:
+That last check is not cosmetic: `antsibull-changelog` builds the New Plugins and New
+Modules sections from `version_added`, so a wrong value mis-records what the release adds.
+Role options in `argument_specs.yml` do not declare `version_added` today; if you decide to
+start, add it to the new option only.
 
-- wording;
-- missing entries;
-- a release summary that reads like one.
+Then, on a new `release/X.Y.Z` branch, it:
 
-### 5. Bump the version in `galaxy.yml`
+1. runs `antsibull-changelog release --version X.Y.Z`, which folds every fragment into
+   `changelogs/changelog.yaml`, **deletes the fragments**, and regenerates `CHANGELOG.md`;
+2. sets `version: X.Y.Z` in `galaxy.yml`, the only file carrying the version and the one the
+   release workflow believes;
+3. runs the gates that take seconds — the changelog lints, the `CHANGELOG.md` sync check
+   and `ansible-galaxy collection build`; sanity and molecule run on the pull request;
+4. shows the release notes and asks.
 
-```yaml
-version: X.Y.Z
-```
+**Read the notes before answering.** Wording, a missing entry, a summary that does not read
+like one — this is the cheapest moment to fix any of it: answer no, edit the fragments, undo
+with the command it prints and run it again. The `\.` and `<code>` escaping in the raw
+`CHANGELOG.md` is normal antsibull-changelog output that renders correctly on GitHub;
+hand-tidying it fails CI.
 
-`galaxy.yml` is the only file carrying the collection's version, and it is the one the
-release workflow believes — the tag has to agree with it, not the other way round.
+Answer yes and it commits `chore(release): X.Y.Z` — the version bump, the folded
+`changelog.yaml`, the emptied `changelogs/fragments/` and the regenerated `CHANGELOG.md` as
+one commit, which is what the release workflow checks the tagged commit for — pushes the
+branch and opens the pull request with the notes as its body. Answer no and everything is
+left uncommitted on the branch, with the commands to finish or undo by hand.
 
-### 6. Run the gates
+To run the slow gates locally before opening the PR, see the Gates section of `CLAUDE.md`:
+`ansible-test sanity --local` and `molecule test` need the checkout at
+`ansible_collections/binarycodes/homelab/`, and `molecule test` needs `sops` on `PATH`.
+Two lines of output to ignore: `ansible-lint`'s one `Unable to parse documentation in python
+file` per filter, which `tests/unit/test_filter_docs.py` covers, and `ansible-test sanity`
+skipping `compile` and `import` on Python versions the machine lacks.
 
-```sh
-pytest tests/unit -q
-ansible-lint
-antsibull-changelog lint
-ansible-galaxy collection build --output-path /tmp/collection-build
-```
+### 3. Rehearse (optional, recommended after a long gap)
 
-and, from a checkout laid out as `ansible_collections/binarycodes/homelab/` (both of these
-refuse to run anywhere else — `CLAUDE.md` explains why):
-
-```sh
-ansible-test sanity --local
-molecule test
-```
-
-`molecule test` also needs `sops` on `PATH` and takes minutes. CI runs all of it against
-the tagged commit anyway, so a local run is about not burning a tag you have to abandon.
-
-Two notes on output you can ignore:
-
-- `ansible-lint` prints one `[ERROR]: Unable to parse documentation in python file …` line
-  per filter and then passes: an ansible-lint/ansible-core interaction, not a fault in the
-  files, and `tests/unit/test_filter_docs.py` is what actually checks those docs.
-- `ansible-test sanity` skips `compile` and `import` on Python versions the machine does
-  not have installed.
-
-### 7. Commit everything together
-
-```sh
-git add galaxy.yml changelogs/ CHANGELOG.md
-git commit -m "chore(release): X.Y.Z"
-```
-
-The version bump, the folded `changelog.yaml`, the emptied `changelogs/fragments/` and the
-regenerated `CHANGELOG.md` are one commit. Splitting them leaves a commit in history that
-CI would reject, and the release workflow checks the tagged commit for exactly this
-consistency.
-
-Open a pull request for it and merge once the checks pass. What gets tagged in step 9 is
-the merge commit on `main`, not this one.
-
-Commit messages are Conventional Commits, single-line, no body — `.githooks/commit-msg`
-enforces it. Enable the hooks with `git config core.hooksPath .githooks` if this is a fresh
-clone.
-
-### 8. Rehearse (optional, recommended after a long gap)
-
-Push the branch and run **Release** from the Actions tab against it. From a branch the run
-is a rehearsal:
+Run **Release** from the Actions tab against the `release/X.Y.Z` branch. From a branch the
+run is a rehearsal:
 
 - the version comes from `galaxy.yml`;
 - every check and every gate runs, including whether the version number is still free on
@@ -185,7 +142,13 @@ previous release tag and the release notes, then the built tarball's listing.
 What separates a rehearsal from a release is `github.ref_type`, not an input, so nothing
 published can come from a branch.
 
-### 9. Tag and push
+### 4. Merge the release pull request
+
+Once its checks pass, like any other change. What gets tagged next is the merge commit on
+`main`, not the commit on the branch. A change with a fragment that lands on `main` in
+between is covered in [When something goes wrong](#when-something-goes-wrong).
+
+### 5. Tag and push
 
 ```sh
 git switch main
@@ -211,7 +174,7 @@ Each is a mistake the workflow would otherwise report only after the gates.
 The pushed tag is what triggers the release. Note the `v` prefix, and that only
 `v[0-9]+.[0-9]+.[0-9]+` matches — a prerelease tag like `v1.0.0-rc1` triggers nothing.
 
-### 10. Approve the publish, then check it landed
+### 6. Approve the publish, then check it landed
 
 The workflow runs the checks, then the three gate workflows (which take the better part of
 half an hour), then waits on the `release` environment for a reviewer.
@@ -258,16 +221,16 @@ the gates than to supersede afterwards:
 | --- | --- |
 | A check failed before the gates | Fix it on `main`, delete the tag locally and remotely (`git tag -d vX.Y.Z; git push --delete origin vX.Y.Z`), commit, re-tag. Nothing has been published. |
 | A gate failed | Same. A tag that never published can be moved freely. |
-| A change with a fragment lands after the release commit, before the tag | Run `antsibull-changelog release --version X.Y.Z` again. It warns that the version exists, folds the fragment into that entry, keeps the date, and regenerates `CHANGELOG.md`. Commit the result before tagging; a fragment left behind is swept into the *next* release's entry instead. |
+| A change with a fragment lands on `main` after the release PR, before the tag | Run `antsibull-changelog release --version X.Y.Z` again, by hand. It warns that the version exists, folds the fragment into that entry, keeps the date, and regenerates `CHANGELOG.md`. Commit the result before tagging; a fragment left behind is swept into the *next* release's entry instead. |
 | The publish itself failed — network, Galaxy outage, missing secret | The tag is already pushed and there is nothing to re-tag. Fix the cause, then run **Release** from the Actions tab **against the tag**, which repeats the whole thing including the gates. |
 | The publish succeeded but the GitHub release step failed | Only the announcement is missing. Create the release by hand, or re-run the job — the publish step refuses a duplicate, so it cannot double-upload. |
 | Published the wrong content | It cannot be fixed in place. Publish `X.Y.Z+1` with the correction, and say so in its release summary. The bad version stays visible. |
 | Published a version whose number was wrong | Same answer. Do not try to reuse the number. |
 
 If a release is abandoned after `antsibull-changelog release` has run, the fragments are
-gone from the working tree. `git restore changelogs/ CHANGELOG.md` before the release commit,
-or revert that commit, brings them back — the fragments are in git history, which is the
-reason step 7 commits them as one unit.
+gone from the working tree. Before the release commit, the undo command `prepare-release.sh`
+prints brings them back; after it, revert the commit — the fragments are in git history,
+which is the reason step 2 commits them as one unit.
 
 ## Special cases
 

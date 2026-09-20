@@ -8,8 +8,10 @@ The module only reads, unlinks and writes small files, so `tmp_path` is a faithf
 refusal cases matter most: a corrupt or tampered record must remove nothing.
 """
 
+import errno
 import json
 import os
+import stat
 
 import pytest
 
@@ -97,6 +99,43 @@ def test_a_replaced_record_keeps_its_mode(host):
     host.reconcile(host.touch(host.quadlet("other.container")))
 
     assert oct(os.stat(host.manifest).st_mode & 0o777) == "0o600"
+
+
+def test_the_record_is_synced_before_the_rename_and_its_directory_after(host, monkeypatch):
+    """What a crash may leave behind: the old record, never an empty one."""
+    calls = []
+    real_fsync, real_rename = os.fsync, os.rename
+
+    def fsync(fd):
+        calls.append("fsync")
+        real_fsync(fd)
+
+    def rename(src, dst):
+        calls.append("rename")
+        real_rename(src, dst)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "rename", rename)
+    host.reconcile([host.quadlet("myapp.container")])
+
+    assert calls == ["fsync", "rename", "fsync"]
+
+
+def test_a_filesystem_that_will_not_sync_a_directory_still_records(host, monkeypatch):
+    """The directory sync runs after the rename, so a refusal must not fail the deploy."""
+    real_fsync = os.fsync
+
+    def fsync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "fsync is not supported on this filesystem")
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    installed = host.quadlet("myapp.container")
+    result = host.reconcile([installed])
+
+    assert result["changed"] is True
+    assert host.recorded() == [installed]
 
 
 def test_a_record_that_would_not_change_is_not_rewritten(host):

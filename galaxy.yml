@@ -41,7 +41,7 @@ build_ignore:
   - .gitignore
   - .ansible-lint
   - .idea
-  - CLAUDE.md
+  - AGENTS.md
   - CONTRIBUTING.md
   - RELEASE.md
   - requirements-dev.txt

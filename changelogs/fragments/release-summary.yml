@@ -1,6 +1,0 @@
-release_summary: >-
-  A durability fix for the install manifest: the record is flushed to disk before it is
-  renamed into place, so a host that loses power part-way through a deploy cannot come back
-  with an empty record. The ``systemd_app`` role's README now describes check mode as the
-  modules actually behave, and contributor documentation is consolidated into
-  ``CONTRIBUTING.md``.

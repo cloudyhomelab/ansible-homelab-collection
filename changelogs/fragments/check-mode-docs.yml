@@ -1,6 +1,0 @@
-bugfixes:
-  - The ``systemd_app`` role's README described check mode as it behaved before 1.1.0, when
-    the secret store was driven by a ``command`` task. Both the ``install_manifest`` and
-    ``podman_secrets`` modules support check mode, so a dry run does preview the secret
-    store and the restart that a changed secret causes. The section now says so, and names
-    the one thing a dry run cannot reach, which is a first deploy's unit tasks.

@@ -9,6 +9,11 @@ messages, the changelog fragment every pull request adds, the licence header, th
 conventions. [RELEASE.md](RELEASE.md) is the release procedure. [README.md](README.md) is
 for people using the collection.
 
+## Git
+
+Never `git commit --amend` unless asked for it; commit on top instead. Offer a rewrite if
+the history wants tidying, and wait for a yes.
+
 ## Working notes
 
 `docs/` is gitignored and never committed. `docs/fixme.md` is the burn-down list of

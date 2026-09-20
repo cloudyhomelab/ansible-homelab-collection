@@ -42,6 +42,7 @@ build_ignore:
   - .ansible-lint
   - .idea
   - CLAUDE.md
+  - CONTRIBUTING.md
   - RELEASE.md
   - requirements-dev.txt
   - requirements-test.txt

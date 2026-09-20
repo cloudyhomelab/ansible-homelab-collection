@@ -2,28 +2,45 @@
 
 **Topics**
 
-- <a href="#v1-1-1">v1\.1\.1</a>
+- <a href="#v1-1-2">v1\.1\.2</a>
     - <a href="#release-summary">Release Summary</a>
-- <a href="#v1-1-0">v1\.1\.0</a>
+    - <a href="#bugfixes">Bugfixes</a>
+- <a href="#v1-1-1">v1\.1\.1</a>
     - <a href="#release-summary-1">Release Summary</a>
+- <a href="#v1-1-0">v1\.1\.0</a>
+    - <a href="#release-summary-2">Release Summary</a>
     - <a href="#major-changes">Major Changes</a>
     - <a href="#minor-changes">Minor Changes</a>
     - <a href="#breaking-changes--porting-guide">Breaking Changes / Porting Guide</a>
     - <a href="#deprecated-features">Deprecated Features</a>
     - <a href="#security-fixes">Security Fixes</a>
-    - <a href="#bugfixes">Bugfixes</a>
+    - <a href="#bugfixes-1">Bugfixes</a>
     - <a href="#known-issues">Known Issues</a>
     - <a href="#new-plugins">New Plugins</a>
         - <a href="#filter">Filter</a>
     - <a href="#new-modules">New Modules</a>
 - <a href="#v1-0-0">v1\.0\.0</a>
-    - <a href="#release-summary-2">Release Summary</a>
+    - <a href="#release-summary-3">Release Summary</a>
     - <a href="#minor-changes-1">Minor Changes</a>
+
+<a id="v1-1-2"></a>
+## v1\.1\.2
+
+<a id="release-summary"></a>
+### Release Summary
+
+A durability fix for the install manifest\: the record is flushed to disk before it is renamed into place\, so a host that loses power part\-way through a deploy cannot come back with an empty record\. The <code>systemd\_app</code> role\'s README now describes check mode as the modules actually behave\, and contributor documentation is consolidated into <code>CONTRIBUTING\.md</code>\.
+
+<a id="bugfixes"></a>
+### Bugfixes
+
+* The <code>install\_manifest</code> module now flushes an app\'s install manifest to disk before renaming it into place\, and syncs the directory holding it afterwards\. A host that lost power part\-way through the write could come back with an empty record\, which reads as an app that installed nothing\, so the next deploy would have pruned nothing and <code>state\=absent</code> would have removed nothing\.
+* The <code>systemd\_app</code> role\'s README described check mode as it behaved before 1\.1\.0\, when the secret store was driven by a <code>command</code> task\. Both the <code>install\_manifest</code> and <code>podman\_secrets</code> modules support check mode\, so a dry run does preview the secret store and the restart that a changed secret causes\. The section now says so\, and names the one thing a dry run cannot reach\, which is a first deploy\'s unit tasks\.
 
 <a id="v1-1-1"></a>
 ## v1\.1\.1
 
-<a id="release-summary"></a>
+<a id="release-summary-1"></a>
 ### Release Summary
 
 Nothing in the collection changes\: the role\, filters and modules are those of 1\.1\.0\. This release exercises the release procedure itself\, which is now driven from a pull\-request label and two approvals rather than scripts run by hand\.
@@ -31,7 +48,7 @@ Nothing in the collection changes\: the role\, filters and modules are those of 
 <a id="v1-1-0"></a>
 ## v1\.1\.0
 
-<a id="release-summary-1"></a>
+<a id="release-summary-2"></a>
 ### Release Summary
 
 The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code> reconciles an app\'s secrets from ownership and digest labels on the secrets themselves\, and <code>install\_manifest</code> reconciles the install record on the host\; both support check and diff mode\. Read the major change before upgrading\: the first deploy re\-creates every app\'s secrets to label them and restarts each app with secrets once\. The controller floor rises to ansible\-core 2\.19 and the host floor to podman 4\.5\. New <code>inline</code> parameters set the <code>AutoUpdate\=</code> and <code>Restart\=</code> policy\, the role refuses a domain another app\'s route already claims\, and the filters the modules replace are deprecated ahead of 2\.0\.0\.
@@ -75,7 +92,7 @@ The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code
 * The <code>systemd\_app</code> role no longer writes <code>/var/app/\<app\>/\.secret\-digests</code>\, a root\-only file holding an unsalted SHA\-256 of every secret the app declared\. A copy of the app\'s directory \- a backup\, a snapshot \- carried a dictionary\-attackable digest of each secret\; the digest now sits as a label beside the secret in podman\'s own store\, where root already has the value\. An existing record file is removed on the next deploy\.
 * The <code>systemd\_app</code> role now refuses an install manifest line that names a directory and removes nothing\. Previously such a line passed the path checks and reached <code>file\: state\=absent</code>\, which removes recursively \- a <code>\.wants</code> directory inside <code>/etc/systemd/system</code>\, or a subtree of the app\'s config\, was within reach of a tampered record\. Pruned paths are now unlinked\, never removed recursively\.
 
-<a id="bugfixes"></a>
+<a id="bugfixes-1"></a>
 ### Bugfixes
 
 * A symlink to a file under a <code>source</code> app\'s <code>config/</code> is now recorded in the install manifest\. The copy that deploys the tree follows it and installs a regular file\, but the search that listed the tree did not\, so the file was never pruned once the app stopped shipping it\.
@@ -108,7 +125,7 @@ The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code
 <a id="v1-0-0"></a>
 ## v1\.0\.0
 
-<a id="release-summary-2"></a>
+<a id="release-summary-3"></a>
 ### Release Summary
 
 First release\. Extracted from the playbook repository it grew up in\, with the repository\-specific parts removed\.

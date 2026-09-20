@@ -335,10 +335,11 @@ or reload that follows from them.
 Two limits:
 
 - Whether `podman secret create` would succeed is only knowable by running it.
-- A first deploy cannot be previewed to the end. An app with units fails at the task that
-  starts them: they are generated from files this run has not written, and
-  `ansible.builtin.systemd` refuses a unit systemd does not know, in check mode as in a
-  real one. `--check` is a preview of a re-deploy.
+- A first deploy cannot be previewed to the end. `--check` writes no Quadlet file, so the
+  generator never makes the service from it, so the task that starts that service fails:
+  the systemd module refuses a unit the host does not have, in check mode as in a real
+  run. Dry-running an app that is already deployed is fine, its units being there from
+  last time.
 
 Nothing in the gates runs the role under `--check`; the molecule scenario converges for
 real.

@@ -324,29 +324,25 @@ entirely; your play applies those centrally once every app has converged (see
 
 ## Dry runs (`--check`)
 
-A dry run reports what a deploy would change without touching the host. Most of what this
-role does is `file`, `copy`, `template` and `systemd`, all of which answer that honestly,
-so `--check` is a fair preview of the files it would install, the ones the manifest would
-prune, and the units it would touch.
+A dry run reports what a deploy would change without touching the host. Every task here is
+`file`, `copy`, `template`, `systemd` or one of the collection's two modules, and both
+modules support check mode: `install_manifest` reports the paths it would prune and record
+without writing them, and `podman_secrets` lists and inspects the store — reads — then
+reports the secrets it would create, rotate or drop without running `podman secret create`.
+So `--check` previews the installed files, the manifest, the secret store, and the restart
+or reload that follows from them.
 
-Secrets are the exception, because they are driven by `podman` rather than by a module.
-Ansible skips a `command` task in check mode — it cannot know whether an arbitrary command
-writes — so:
+Two limits:
 
-- **The store listing runs anyway** (`check_mode: false`). It only reads, and skipping it
-  would leave the role reconciling against an empty view of the store, unable to tell
-  "podman holds nothing" from "we did not ask" — a dry run would then claim it was about
-  to re-store every secret the host already has.
-- **Storing and removing a secret are skipped**, and cannot be previewed. Whether
-  `podman secret create` would succeed is only knowable by running it.
-- **A deploy whose only change is a secret reports no restart.** The restart decision keys
-  off the store task having changed something, and a skipped task changes nothing. So a
-  dry run can under-report a restart here, in the one case where it is caused by a secret
-  alone.
+- Whether `podman secret create` would succeed is only knowable by running it.
+- A first deploy cannot be previewed to the end. `--check` writes no Quadlet file, so the
+  generator never makes the service from it, so the task that starts that service fails:
+  the systemd module refuses a unit the host does not have, in check mode as in a real
+  run. Dry-running an app that is already deployed is fine, its units being there from
+  last time.
 
 Nothing in the gates runs the role under `--check`; the molecule scenario converges for
-real. Treat a dry run as a good preview of the filesystem and unit state, and as silent
-about the secret store.
+real.
 
 ## Rendered container policy
 

@@ -76,31 +76,15 @@ in practice Fedora, or Debian 13 and later, which are the platforms it is tested
 Every parameter, both kinds, the manifest, routing, secrets and what makes a change take
 effect: [`roles/systemd_app/README.md`](roles/systemd_app/README.md).
 
-## Tests
-
-```sh
-python3 -m venv .venv && . .venv/bin/activate
-pip install ansible-core -r requirements-dev.txt   # the tools, pinned, beside ansible-core
-pytest tests/unit -q     # the filters, as Python
-mypy                     # the plugins' type annotations
-ansible-lint             # roles, playbooks and the molecule scenario
-antsibull-changelog lint # the changelog fragments
-molecule test            # the role against a systemd container (see extensions/molecule/default/)
-```
-
-Python is externally managed on current distributions, so the tools go in a virtual
-environment. `.venv` is in `.gitignore` and in `galaxy.yml`'s `build_ignore`, which is what
-keeps `ansible-lint` and the collection build out of it. `molecule test` also needs `sops`
-on PATH and a checkout laid out as
-`ansible_collections/binarycodes/homelab/`; the scenario's README says why.
-
 ## Versioning and changes
 
 [Semantic versioning](https://semver.org): the role's variables and the filters' names and
 return shapes are the collection's public API. What changed in each release is in
-[CHANGELOG.md](CHANGELOG.md), which is generated from changelog fragments — see
-[`changelogs/README.md`](changelogs/README.md) before editing either, and
-[RELEASE.md](RELEASE.md) for how a release is cut.
+[CHANGELOG.md](CHANGELOG.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licence
 

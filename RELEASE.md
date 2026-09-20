@@ -225,6 +225,11 @@ then and its page is where anyone following the release is looking. The pushed t
 starts Release. Note the `v` prefix, and that only `v[0-9]+.[0-9]+.[0-9]+` matches: a
 prerelease tag like `v1.0.0-rc1` triggers nothing.
 
+Running **Release** by hand from a branch is a rehearsal: the version comes from
+`galaxy.yml`, every check and gate runs, the collection is built, and the two steps that
+reach outside the runner are skipped. What separates the two is `github.ref_type`, not an
+input, so nothing published can come from a branch.
+
 ## Approving the publish
 
 The Release run checks the tag against `galaxy.yml` and the changelog, then runs the three

@@ -1,0 +1,6 @@
+bugfixes:
+  - The ``install_manifest`` module now flushes an app's install manifest to disk before
+    renaming it into place, and syncs the directory holding it afterwards. A host that lost
+    power part-way through the write could come back with an empty record, which reads as an
+    app that installed nothing, so the next deploy would have pruned nothing and
+    ``state=absent`` would have removed nothing.

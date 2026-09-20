@@ -1,4 +1,4 @@
-# The tools the gates in CLAUDE.md run with, pinned so a contributor and CI resolve the same
+# The tools the gates in CONTRIBUTING.md run with, pinned so a contributor and CI resolve the same
 # versions. Install into the environment that holds ansible-core, which is deliberately not
 # listed: it is the thing under test, and .github/workflows/supported-versions.yml installs
 # each supported release in turn — with requirements-test.txt alone, which is why the unit

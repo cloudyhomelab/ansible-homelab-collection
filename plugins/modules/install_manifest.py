@@ -230,19 +230,35 @@ class Files:
     def write(self, path: str, text: str) -> None:
         """Replace the record atomically; a replaced one keeps its mode, a new one is 0644."""
         existing = self.kind(path)
-        fd, tmp = tempfile.mkstemp(prefix=".install-manifest.", dir=os.path.dirname(path) or ".")
+        directory = os.path.dirname(path) or "."
+        fd, tmp = tempfile.mkstemp(prefix=".install-manifest.", dir=directory)
         try:
             with os.fdopen(fd, "wb") as handle:
                 handle.write(text.encode("utf-8"))
+                # Before the rename: an empty record reads as "this app installed nothing",
+                # leaving every installed file with none naming it.
+                handle.flush()
+                os.fsync(handle.fileno())
             if existing == "file":
                 os.chmod(tmp, stat.S_IMODE(os.stat(path).st_mode))
             else:
                 os.chmod(tmp, 0o644)
             os.rename(tmp, path)
+            self._sync_dir(directory)
         finally:
             # Gone after a successful rename; still here after a failure part-way.
             if os.path.lexists(tmp):
                 os.unlink(tmp)
+
+    def _sync_dir(self, path: str) -> None:
+        """Persist the rename. It has already succeeded, so a refusal must not fail the run."""
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
 
 
 def _under(path: str, root: str) -> list[str] | None:

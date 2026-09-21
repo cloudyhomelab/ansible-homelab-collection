@@ -4,13 +4,15 @@
 [Unit]
 Description=Decrypt the private files of app %i
 # No Condition*: a skipped unit still satisfies Requires=, so a host without the key would
-# start the app against an empty private directory instead of not starting it.
+# start the app against an empty private directory instead of not starting it. Assert* is the
+# one that fails the start job instead of skipping it, which is what LoadCredential= below was
+# assumed to do and does not: a missing source leaves the credential unset and the unit runs.
+AssertPathExists={{ systemd_app_private_key_file }}
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 # ramfs, this unit's processes only, and LoadCredentialEncrypted= later is a one-word change.
-# A missing file fails the unit here, before the helper runs.
 LoadCredential=age-key:{{ systemd_app_private_key_file }}
 # systemd destroys this when the unit stops, so plaintext never outlives it. The helper reads
 # the path from $RUNTIME_DIRECTORY.

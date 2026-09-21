@@ -102,6 +102,26 @@
         group: root
         mode: "0400"
 
+    # Nothing but this play puts a key on the target, and the decrypt unit only loads it much
+    # later, as a credential. Asserted on the target rather than trusted from the copy above,
+    # so a key that did not land is named here instead of surfacing as the helper finding an
+    # empty credentials directory in the middle of a converge.
+    - name: Stat the age identity on the target
+      ansible.builtin.stat:
+        path: /etc/homelab/age.key
+      register: molecule_target_age_key
+
+    - name: Assert the target carries the identity the decrypt unit will load
+      ansible.builtin.assert:
+        that:
+          - molecule_target_age_key.stat.exists
+          - molecule_target_age_key.stat.mode == '0400'
+        fail_msg: >-
+          /etc/homelab/age.key on the target: exists
+          {{ molecule_target_age_key.stat.exists }}, mode
+          {{ molecule_target_age_key.stat.mode | default('none') }}.
+        quiet: true
+
     # Neither has a counterpart under the committed apps/ tree: git cannot carry an empty
     # directory, and the files themselves are written below.
     - name: Create the fixture app directories the copied tree needs

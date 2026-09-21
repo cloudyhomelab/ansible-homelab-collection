@@ -150,6 +150,7 @@
     systemd_app_private_unit_install: {}
     systemd_app_private_deploy: {}
     systemd_app_dropin_deploy: {}
+    systemd_app_private_state: {}
     systemd_app_start_result: {}
     systemd_app_restart_needed: false
     systemd_app_config_changed: false

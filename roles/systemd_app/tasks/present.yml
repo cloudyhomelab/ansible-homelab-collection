@@ -181,7 +181,7 @@
 
 # No state, so the module only reports: it is `systemctl show` for the instance, and the unit
 # is a template whose instance is simply inactive when the app has never run.
-- name: "Check whether the private decrypt of app {{ systemd_app_name }} is running"
+- name: "Check whether the private decrypt is running for app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ systemd_app_private_unit }}@{{ systemd_app_name }}.service"
   register: systemd_app_private_state

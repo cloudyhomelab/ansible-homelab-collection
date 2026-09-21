@@ -16,28 +16,20 @@ author:
 description:
   - Makes the rootful podman secret store hold exactly the secrets an app declares, and
     removes them again when the app goes. One call per app, on the host.
-  - Ownership and change detection live on the secret itself, as labels, so the store is the
-    only record. Every secret this module creates carries the app's name and a digest of its
-    value in the form C(<algorithm>:<hex>), C(sha256:...) today. A declared name that is
-    missing is created; one whose recorded digest differs from the declared value is removed
-    and re-created, since podman cannot update a secret in place; one this app owns but no
-    longer declares is removed. A secret removed by hand is simply missing and comes back on
-    the next run.
-  - The digest names its algorithm so the default can change without a rotation. A secret
-    recorded under an older algorithm is verified with that algorithm and left alone while
-    its value matches; it moves to the current one when its value next changes. Only a
-    digest under an algorithm this Python cannot compute is treated as changed.
-  - A declared name that exists carrying another app's label is refused, so two apps cannot
-    silently trade a secret. One that exists with no ownership label at all - stored by hand,
-    or by this collection before it recorded ownership - is taken to be this app's with an
-    unknown value, and is removed and re-created with labels.
-  - Values reach C(podman secret create) on standard input, never on the command line, because
-    C(/proc/<pid>/cmdline) is world-readable for as long as the process lives.
-  - Names are host-global. Prefix them with the app's name to keep two apps apart; the label
-    is what this module checks, but a clear name is what an operator reading
-    C(podman secret ls) sees.
-  - Supports check mode, in which the plan is reported and nothing is changed, and diff mode,
-    which shows the owned names before and after. No return value or diff carries a value.
+  - Ownership and change detection are labels on the secret, so the store is the only record.
+    Missing is created; a differing digest is removed and re-created, podman having no update
+    in place; owned but no longer declared is removed. A secret removed by hand comes back.
+  - The digest is C(<algorithm>:<hex>), so the default can change without a rotation. One
+    recorded under an older algorithm is verified with that algorithm and moves to the current
+    one when its value next changes. Only an algorithm this Python lacks counts as changed.
+  - A name another app's label claims is refused. One with no ownership label - stored by
+    hand, or before this collection recorded ownership - is adopted with an unknown value and
+    re-created with labels.
+  - Values go to C(podman secret create) on stdin, never argv, C(/proc/<pid>/cmdline) being
+    world-readable.
+  - Names are host-global; prefix them with the app name. The label is what this checks, but
+    the name is what an operator reading C(podman secret ls) sees.
+  - Supports check mode and diff mode. No return or diff carries a value.
 notes:
   - Requires podman 4.5 or newer, where C(podman secret create) learned C(--label).
 options:

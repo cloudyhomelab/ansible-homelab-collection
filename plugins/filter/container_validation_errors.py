@@ -19,24 +19,17 @@ author:
   - binarycodes (@binarycodes)
 description:
   - Checks what would be interpolated into a rendered Quadlet unit file.
-  - Every value the role's C(inline.container.j2) writes into the unit passes through here,
-    the app's own name excepted - that one is checked by the name rule the role asserts
-    first, because it is also a filename.
-  - What this guards is interpolation. These values are written into a unit file rather than
-    passed to a module, so a stray character does not fail the task that writes them. A
-    newline ends the line and turns whatever follows into a further directive, which quoting
-    cannot rescue, and systemd mis-parses the result without complaining.
-  - Never raises, and returns one string per problem rather than stopping at the first, so a
-    typo at a call site is reported in full and fixed in one pass.
-  - Called C(container_problems) from 1.0.0; that name redirects here with a deprecation warning
-    and is removed in 2.0.0.
-  - Matching uses C(re.fullmatch) rather than a C($)-anchored C(re.match), because C($) also
-    matches just before a trailing newline, which would let a trailing newline through.
-  - Values are not checked for spaces, quotes or percent signs. The
-    M(binarycodes.homelab.systemd_env_lines) filter quotes and escapes those, so they are
-    legal input. Only what cannot survive a unit file at all is refused.
-  - Problems name the offending key, never the value, so a failure message cannot carry a
-    secret into a log.
+  - Everything C(inline.container.j2) interpolates passes through here except the app's name,
+    which the role's name rule already covers because it is also a filename.
+  - Guards interpolation. These go into a unit file, not a module, so nothing fails at write
+    time; a newline ends the line and turns the rest into a further directive, which quoting
+    cannot rescue and systemd accepts silently.
+  - Never raises; one string per problem, so a typo is fixed in one pass.
+  - Called C(container_problems) from 1.0.0; that name redirects here and is removed in 2.0.0.
+  - C(re.fullmatch), not a C($) anchor, which would let a trailing newline through.
+  - Spaces, quotes and percent signs are legal - M(binarycodes.homelab.systemd_env_lines)
+    escapes those. Only what cannot survive a unit file at all is refused.
+  - Problems name the key, never the value, so no secret reaches a log.
 positional: description, volumes, publish_ports, container_options, service_options,
   image, network, health_cmd, health_interval, health_retries, health_start_period,
   start_timeout, auto_update, restart

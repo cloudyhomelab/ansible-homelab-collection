@@ -3,20 +3,16 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# The file-shaped secret channel: an app's private/ tree, copied to the host encrypted, and
-# the unit that turns it into plaintext in tmpfs at start. Included rather than written in
-# present.yml with `when: systemd_app_has_private` on each task, for the reason
-# install-source.yml is: Ansible evaluates a task's `loop` before its `when`, so the drop-in
-# loops below would be evaluated for an app that ships nothing private.
+# An app's private/ tree, copied to the host encrypted, and the unit that turns it into
+# plaintext in tmpfs at start. Included rather than guarded per task, like install-source.yml:
+# Ansible evaluates `loop` before `when`.
 #
-# What this installs divides in two. The helper and the unit template are shared by every app
-# on the host and are written identically by each — they are in no app's manifest, and no
-# app's decommission removes them, the same call the role already makes for podman networks
-# and volumes. The private files and the drop-ins are this app's and are recorded.
+# The helper and the unit template are shared by every app and written identically by each, so
+# they are in no manifest and no decommission removes them. The private files and the drop-ins
+# are this app's and are recorded.
 
-# Before anything is copied: the decrypt runs on the host, not here, so the tools have to be
-# there too. Without this the first sign of a missing binary is the app's own unit refusing
-# to start, several tasks later, because the decrypt it Requires= failed.
+# The decrypt runs on the host, so the tools must be there. Without this the first sign of a
+# missing binary is the app's unit refusing to start, several tasks later.
 - name: "Look for the decrypt tools needed by app {{ systemd_app_name }}"
   ansible.builtin.shell: command -v age && command -v sops
   changed_when: false
@@ -33,9 +29,7 @@
       {{ systemd_app_apps_dir }}/{{ systemd_app_name }}/private/.
     quiet: true
 
-# One file, whatever the app: the suffix rules it applies are the same ones the controller
-# applied when it worked out what these files decrypt to, so a collision has already failed
-# this play rather than reaching the host.
+# One file, whatever the app. Its suffix rules are the ones main.yml already validated with.
 - name: Install the private-file decrypt helper
   ansible.builtin.copy:
     src: helpers/homelab_decrypt_private.py
@@ -45,8 +39,8 @@
     mode: "0755"
   register: systemd_app_helper_install
 
-# Templated per app and identical every time, since every value in it is fixed. Written by
-# whichever app happens to deploy first and rewritten to the same bytes by the rest.
+# Identical every time, since every value in it is fixed: written by whichever app deploys
+# first and rewritten to the same bytes by the rest.
 - name: Install the shared private-file decrypt unit
   ansible.builtin.template:
     src: private-decrypt@.service.j2
@@ -57,11 +51,9 @@
   register: systemd_app_private_unit_install
   notify: systemd_app reload systemd
 
-# Copied as they are, still encrypted: the host holds no plaintext outside tmpfs, so a backup
-# of {{ systemd_app_root }} carries nothing readable. 0600 and 0700 rather than the role's
-# usual modes — these are encrypted, but there is no reason for anything but root to read
-# them, and the decrypt unit runs as root. A file the app has stopped shipping is pruned by
-# the manifest below, not here.
+# Still encrypted, so a backup of {{ systemd_app_root }} carries nothing readable. 0600/0700
+# rather than the role's usual modes: nothing but the root decrypt unit needs to read them. A
+# file the app stopped shipping is pruned by the manifest, not here.
 - name: "Install the encrypted private files of app {{ systemd_app_name }}"
   ansible.builtin.copy:
     src: "{{ systemd_app_private_tree.dir }}/"
@@ -72,9 +64,8 @@
     directory_mode: "0700"
   register: systemd_app_private_deploy
 
-# A drop-in per unit the app installs, so its container starts after its files exist. The unit
-# names come from what this deploy installs (see systemd_app_private_dropins in
-# defaults/main.yml); the directory is made here because `template` will not create it.
+# One per unit the app installs, so its container starts after its files exist. The directory
+# is made here because `template` will not create it.
 - name: "Ensure drop-in directories exist for the units of app {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ item | dirname }}"

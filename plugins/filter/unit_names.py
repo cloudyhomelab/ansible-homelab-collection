@@ -17,28 +17,16 @@ version_added: 1.2.0
 author:
   - binarycodes (@binarycodes)
 description:
-  - Works out which systemd units a list of installed host paths implies, so a caller that
-    knows what an app ships does not have to be told what that makes systemd run.
-  - Asked in two directions. Of the paths a deploy is about to install, to learn which units
-    it must write a drop-in for - answered before anything is on the host, which is why this
-    is a filter and not the C(units) return of the
-    M(binarycodes.homelab.install_manifest) module, computed on the host from what the
-    *previous* deploy recorded. Of the paths a previous deploy recorded, to learn what a
-    decommission has to stop without being told the names.
-  - A Quadlet source file is not a unit; systemd's generator makes one from it, and the
-    name it makes is not always the file's own. C(.container) and C(.kube) become
-    C(<name>.service), C(.pod) becomes C(<name>-pod.service).
-  - Only the Quadlet kinds that run something are mapped. C(.volume), C(.network),
-    C(.image) and C(.build) create a resource rather than run a container, and the role
-    deliberately leaves those resources behind on teardown - a podman volume outlives the
-    unit that declared it, and Caddy's certificates live in one. Naming their units here
-    would suggest a teardown that this role does not do.
-  - Paths are matched against the two install directories exactly, one segment deep. A
-    path anywhere else is ignored rather than refused, which is what lets a whole install
-    list be passed in - a config file, or a drop-in already below C(<unit>.d/), contributes
-    no unit rather than an error.
-  - The result is sorted and deduplicated, so a caller can compare or merge it without
-    caring what order the paths happened to arrive in.
+  - The units a list of installed host paths implies. C(.container) and C(.kube) map to
+    C(<name>.service), C(.pod) to C(<name>-pod.service), a plain unit file to itself.
+  - Answers for paths a deploy is about to install as well as for paths a manifest recorded,
+    which the C(units) return of M(binarycodes.homelab.install_manifest) cannot - that is
+    computed on the host from the previous deploy, after the call that needs the answer.
+  - C(.volume), C(.network), C(.image) and C(.build) are left out. They create a resource the
+    role deliberately leaves behind on teardown, so naming a unit for them would imply a
+    teardown that does not happen.
+  - Matched one segment deep in either install directory; anything else is ignored rather than
+    refused, so a whole install list can be passed in. Sorted and deduplicated.
 positional: system_dir, unit_dir
 options:
   _input:
@@ -86,17 +74,16 @@ EXAMPLES = r"""
 """
 
 
-# Quadlet file suffix -> the suffix systemd's generator gives the unit it produces. Only
-# the kinds that run a container: see this filter's documentation for why the rest are
-# left out rather than merely unimplemented.
+# Quadlet suffix -> the suffix its generated unit gets. Only the kinds that run a container;
+# see DOCUMENTATION for why the rest are left out rather than unimplemented.
 _QUADLET_UNIT_SUFFIXES = {
     ".container": ".service",
     ".kube": ".service",
     ".pod": "-pod.service",
 }
 
-# Unit types a plain unit file may be, and that stopping means something for. A .target,
-# .slice or .scope is not something an app ships and not something teardown stops.
+# Unit types stopping means something for. A .target, .slice or .scope is neither shipped by
+# an app nor stopped by teardown.
 _PLAIN_UNIT_SUFFIXES = (
     ".service",
     ".socket",
@@ -125,8 +112,7 @@ def unit_names(paths: Iterable[object] | None, system_dir: str, unit_dir: str) -
             continue
 
         if parent == unit_dir:
-            # A bare suffix is a name systemd has no unit for, and the manifest allowlist
-            # admits it: it excludes '.' and '..' but not '.service'.
+            # The allowlist excludes '.' and '..' but not a bare '.service'.
             if name.endswith(_PLAIN_UNIT_SUFFIXES) and not name.startswith("."):
                 units.add(name)
         elif parent == system_dir:
@@ -138,7 +124,7 @@ def unit_names(paths: Iterable[object] | None, system_dir: str, unit_dir: str) -
 
 
 class FilterModule:
-    """What a set of installed paths makes systemd run, derived rather than declared."""
+    """What a set of installed paths makes systemd run."""
 
     def filters(self) -> dict[str, Callable[..., object]]:
         return {"unit_names": unit_names}

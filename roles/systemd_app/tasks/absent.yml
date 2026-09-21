@@ -3,21 +3,17 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Decommission an app: stop its units, then remove everything it owns on the host —
-# Quadlet files, plain systemd units, its config/data directory, and its Caddy route.
-# This is destructive and not reversible; back the app up before setting state=absent.
+# Destructive and not reversible; back the app up first.
 #
-# The install dirs are shared with every other app, so nothing there is removed by
-# pattern: what goes is exactly the set of paths the last deploy recorded in the host
-# install manifest, whichever kind wrote it. Teardown therefore needs no controller-side
-# apps/<name>/ tree at all. {{ systemd_app_home }} is this app's alone, so it
-# goes wholesale. Podman named volumes and networks declared by an app's Quadlet files
-# are NOT removed — they outlive the units that created them, and Caddy's TLS
-# certificates live in one. Remove those by hand (`podman volume rm`) once you are sure.
+# The install dirs are shared, so nothing there goes by pattern: what goes is exactly what the
+# last deploy recorded, whichever kind wrote it, so teardown needs no controller-side tree.
+# {{ systemd_app_home }} is this app's alone and goes wholesale. Podman named volumes and
+# networks are NOT removed: they outlive the units that declared them, and Caddy's TLS
+# certificates live in one. Remove those by hand once you are sure.
 
-# The removal call below, forced into check mode: what the record lists is also what has to
-# be stopped, and the units must go while their files still exist. A record the module
-# refuses fails here, before anything is stopped.
+# The removal call below in check mode: what the record lists is what has to be stopped, and
+# the units must go while their files still exist. A refused record fails before anything
+# stops.
 - name: "Read recorded install manifest for app {{ systemd_app_name }}"
   binarycodes.homelab.install_manifest:
     path: "{{ systemd_app_manifest_file }}"
@@ -30,17 +26,14 @@
   changed_when: false
   register: systemd_app_manifest
 
-# Stop while the generated units still exist; stopping a Quadlet service also
-# removes its container (ExecStopPost). Tolerate a unit that was never deployed
-# (or already removed) so a repeat decommission stays green.
+# Stop while the generated units still exist: stopping a Quadlet service also removes its
+# container (ExecStopPost). Tolerate a unit never deployed, so a repeat decommission stays
+# green.
 #
-# The manifest is consulted as well as systemd_app_managed_units, and this is the
-# difference between a decommission and an orphan. Unit names are an input to the role,
-# and a caller who deployed a 'source' app with systemd_app_enable_units but does not
-# repeat it here would otherwise have every unit file deleted while the containers keep
-# running: the generated service vanishes from systemd's view, its ExecStopPost never
-# fires, and nothing is left that names the container. The manifest is on the host and
-# needs no input, so it answers what the call did not (see the module's `units` return).
+# The manifest is consulted as well as systemd_app_managed_units, and that is the difference
+# between a decommission and an orphan: a caller who deployed with systemd_app_enable_units
+# and does not repeat it here would have every unit file deleted while the containers keep
+# running, with nothing left that names them.
 - name: "Stop units for app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ item }}"
@@ -52,12 +45,10 @@
     - "'not loaded' not in (systemd_app_stop_result.msg | default('') | lower)"
     - "'could not find' not in (systemd_app_stop_result.msg | default('') | lower)"
 
-# While the unit files still exist: `systemctl disable` removes the `.wants/` symlinks the
-# file's [Install] section names, and can only do so while it can read that file. A separate
-# task from the stop, because the systemd module disables before it stops and fails out on
-# the first refusal, which for a Quadlet service would leave it running. The same tolerated
-# failures as present.yml's enable and disable, plus a unit already gone: a repeat
-# decommission has nothing to disable and must stay green.
+# `systemctl disable` removes the `.wants/` symlinks [Install] names, and can only do so while
+# it can read the file. A separate task from the stop: the systemd module disables before it
+# stops and fails out on the first refusal, which for a Quadlet service would leave it
+# running.
 - name: "Disable units for app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ item }}"
@@ -72,12 +63,9 @@
     - "'could not find' not in (systemd_app_disable_result.msg | default('') | lower)"
     - "'does not exist' not in (systemd_app_disable_result.msg | default('') | lower)"
 
-# The app's own decrypt instance, if it had private files. Stopping it takes its tmpfs tree
-# of plaintext with it. The template unit behind it and the helper it runs are NOT removed:
-# they are shared by every app on the host, written identically by each, and in no app's
-# manifest — one app's decommission must not break every other app's decrypt. Same call the
-# role makes for podman networks and volumes above. Tolerate the instance never having
-# existed, so a repeat decommission and an app that never had private files stay green.
+# Stopping the instance takes its tmpfs tree of plaintext with it. The template unit and the
+# helper are NOT removed: shared by every app, written identically by each, in no app's
+# manifest. Same call as the podman networks and volumes above.
 - name: "Stop the private decrypt of app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ systemd_app_private_unit }}@{{ systemd_app_name }}.service"
@@ -88,10 +76,8 @@
     - "'not loaded' not in (systemd_app_private_stop.msg | default('') | lower)"
     - "'could not find' not in (systemd_app_private_stop.msg | default('') | lower)"
 
-# Kept alongside the manifest removal below, rather than folded into it: an 'inline' app
-# last deployed before the role recorded manifests for that kind has none, and its
-# rendered Quadlet would otherwise be left behind on the host forever. Removing a path
-# that is already gone is a no-op, so the overlap costs nothing.
+# An 'inline' app last deployed before the role recorded manifests for that kind has none, and
+# its rendered Quadlet would be left behind forever. Removing a path already gone is a no-op.
 - name: "Remove rendered Quadlet for container {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_system_dir }}/{{ systemd_app_name }}.container"
@@ -99,8 +85,7 @@
   when: systemd_app_kind == 'inline'
   notify: systemd_app reload systemd
 
-# Everything the record names, and the record itself. The install dirs are shared with every
-# other app, so this removes by list, never by pattern.
+# Everything the record names, and the record. By list, never by pattern.
 - name: "Remove installed files for app {{ systemd_app_name }}"
   binarycodes.homelab.install_manifest:
     path: "{{ systemd_app_manifest_file }}"
@@ -111,26 +96,20 @@
     state: absent
   notify: systemd_app reload systemd
 
-# Podman secrets are host-global, so they are not part of the tree removed below. The
-# module removes every secret labelled as this app's, which needs nothing from the
-# controller — the app's source tree may be gone — and refuses to touch another app's. A
-# repeat decommission finds nothing labelled and changes nothing.
+# Host-global, so not part of the tree removed below. The module removes every secret labelled
+# as this app's, needing nothing from the controller, and refuses another app's.
 #
-# Releases before 1.1.0 recorded which secrets an app owned in a file rather than as a label
-# on each secret, so the module cannot know a secret stored that way is this app's without
-# being told: it reads the record's keys as names to adopt. Before the home that holds the
-# record is removed, and a missing record, which is every app deployed since, adds nothing.
-# Remove `adopt_file` at 2.0.0.
+# Pre-1.1.0 recorded ownership in a file rather than as labels, so the module has to be told
+# which names to adopt. Read before the home holding that record goes. Remove `adopt_file` at
+# 2.0.0.
 - name: "Remove podman secrets of app {{ systemd_app_name }}"
   binarycodes.homelab.podman_secrets:
     app: "{{ systemd_app_name }}"
     state: absent
     adopt_file: "{{ systemd_app_home }}/.secret-digests"
 
-# The one task in this role that removes a directory tree, so the composed path is
-# re-checked here rather than trusted from main.yml's input validation. A name with a
-# slash or a leading dot would make this reach systemd_app_root itself, taking
-# every other app's config and data with it.
+# The one task that removes a tree, so the composed path is re-checked rather than trusted
+# from main.yml. A name with a slash or a leading dot would reach systemd_app_root itself.
 - name: "Verify the home directory to remove belongs to app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
@@ -142,22 +121,20 @@
       child of {{ systemd_app_root }}, and '{{ systemd_app_name }}' does not compose one.
     quiet: true
 
-# The manifest went with the files above; what is left in this tree is the deployed config,
-# and whatever the app wrote under its home.
+# The manifest went with the files above; what is left is the deployed config and whatever the
+# app wrote under its home.
 - name: "Remove config and data of app {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_home }}"
     state: absent
 
-# Caddy route snippet, if the app registered one. It lives in reverse_proxy's config
-# tree, not this app's, so it needs removing explicitly. The route stops resolving when
-# the deploy playbook reloads Caddy (post-task), as on the present path.
+# In the reverse proxy's config tree, not this app's, so it goes explicitly. The route stops
+# resolving when the deploy playbook reloads Caddy.
 - name: "Remove Caddy route for {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_caddy_confd }}/{{ systemd_app_name }}.caddy"
     state: absent
 
-# Forget the now-removed generated units. Notified handler runs here, not at end
-# of play.
+# Forget the now-removed generated units, here rather than at end of play.
 - name: Apply unit changes (systemd daemon-reload)
   ansible.builtin.meta: flush_handlers

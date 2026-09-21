@@ -4,17 +4,11 @@
 
 """What the tests share: where the plugins are, and a tree `ansible-doc` can resolve them in.
 
-The tests run as plain pytest rather than through `ansible-test units`, so there is no
-`ansible_collections.` import path to reach a plugin by. They import each one through the
-checkout root instead -- `plugins.filter.<name>`, `plugins.modules.<name>` -- which
-pytest.ini puts on `sys.path`, and which mypy resolves to the same file, so the calls a test
-makes are checked against the plugin's own signature.
-
-Filters are discovered rather than listed, so a filter added to the collection is picked up
-by test_filter_docs.py without editing this file. The `collection_path` fixture is the tree
-`ansible-doc` resolves the collection through: it only finds a plugin under an
-`ansible_collections/<ns>/<name>/` path, so the checkout is symlinked into a throwaway tree
-rather than moved.
+Plain pytest, not `ansible-test units`, so there is no `ansible_collections.` path to import
+by. Plugins are imported through the checkout root as `plugins.filter.<name>`, which pytest.ini
+puts on `sys.path` and mypy resolves to the same file, so calls are checked against the
+plugin's own signature. Filters are discovered rather than listed, so a new one is picked up
+without editing this file.
 """
 
 import importlib
@@ -33,13 +27,9 @@ FILTER_FILES = sorted(p for p in FILTER_DIR.glob("*.py") if not p.name.startswit
 
 HELPER_MODULE = "roles.systemd_app.files.helpers.homelab_decrypt_private"
 
-# The one table of private-file suffix rules, as (file name, tool, decrypted name).
-#
-# The rules are written twice: the decrypt helper applies them on the host at unit start, and
-# plugins/filter/private_tree.py applies them on the controller so a name two files both
-# decrypt to is a failed play rather than a failed unit. Both copies are run against this
-# table, in test_decrypt_private.py and test_systemd_app_filters.py, so a rule changed in one
-# and not the other fails here rather than on a host.
+# The one table of private-file suffix rules, as (file name, tool, decrypted name). The rules
+# are written twice, in the helper and in plugins/filter/private_tree.py; both copies run
+# against this, so a rule changed in one and not the other fails here rather than on a host.
 ACTION_CASES = [
     ("db.env.age", "age", "db.env"),
     ("tls.key.age", "age", "tls.key"),
@@ -66,12 +56,8 @@ def import_filter(path):
 
 
 def import_helper():
-    """The decrypt helper, from the role's files/ where the role ships it to the host from.
-
-    It is a host script, not a plugin, so it is imported by path through the checkout root
-    like the plugins are. Importing it runs nothing: everything below its top level is behind
-    `if __name__ == "__main__"`.
-    """
+    """The decrypt helper, imported through the checkout root like the plugins. Importing runs
+    nothing: its CLI is behind `if __name__ == "__main__"`."""
     return importlib.import_module(HELPER_MODULE)
 
 

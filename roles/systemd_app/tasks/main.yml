@@ -3,23 +3,14 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Deploys (state=present) or decommissions (state=absent) one app. Two kinds:
-#   source -> install Quadlet files, systemd units, and a config tree from a
-#             controller directory ({{ systemd_app_apps_dir }}/<name>/).
-#   inline -> render a single-container Quadlet from call-site params (image, env, ...).
-# Both kinds optionally register a Caddy route. See README + defaults/main.yml.
+# Deploys (present) or decommissions (absent) one app, of either kind. See README and
+# defaults/main.yml.
 
-# The name composes every install path and, on absent, a recursive delete of the app's
-# home, so it has to be one plain path segment; the two conditional requirements cannot
-# be expressed in meta/argument_specs.yml, which can only mark an option required outright.
-# A 'source' app's directory is looked for here too, on the controller, before anything is
-# touched: the filter behind systemd_app_source_tree refuses a missing one as well, but is
-# first read after the secrets are reconciled.
-# What is refused, and why, is in the filter's own docs
-# (`ansible-doc -t filter binarycodes.homelab.app_validation_errors`). Nothing here interpolates
-# systemd_app_name, so an undefined or unusable name fails this task rather than its title.
-# The secrets file is passed by its keys alone, and only on present: the values are podman's,
-# never a filter's, and a decommission must not need the key that decrypts them.
+# The conditional requirements cannot go in meta/argument_specs.yml, which can only mark an
+# option required outright. A 'source' app's directory is checked here, before anything is
+# touched; source_tree refuses a missing one too, but is first read after the secrets.
+# Nothing here interpolates systemd_app_name, so an unusable name fails this task rather than
+# its title. Secret keys only, and only on present: a decommission must not need the key.
 - name: Validate role input
   ansible.builtin.assert:
     that:
@@ -38,12 +29,9 @@
            data_dirs=systemd_app_data_dirs,
            secret_names=(systemd_app_secret_values | list) if systemd_app_state == 'present' else []) }}
 
-# The one thing about an app's private/ tree that can be wrong: two files decrypting to the
-# same name, which on the host would leave whichever the decrypt unit reached last. The rules
-# that decide a decrypted name live in the helper that applies them on the host, and are
-# applied here by the filter behind systemd_app_private_tree, so this is a failed play rather
-# than a failed unit. Reported as a list, like the role's other input checks, so one run names
-# every clash. Only on present: a decommission reads no tree.
+# Two files decrypting to one name would leave whichever the host's decrypt unit reached last.
+# Caught here, by the filter applying the same rules the helper does, so it is a failed play
+# rather than a failed unit.
 - name: "Verify the private files of app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
@@ -54,16 +42,9 @@
     quiet: true
   when: systemd_app_state == 'present'
 
-# The values checked below are interpolated into files this role generates rather than
-# passed to a module, so a stray character does not fail the task that writes them. Caddy
-# refuses a whole imported config, which takes every other app's route down with one bad
-# domain, and systemd mis-parses an Environment= line into a different variable without
-# complaining. Checked here, alongside the rest of the input, so a typo at a call site is a
-# failed run rather than a half-deployed app or a proxy that will not load.
-#
-# Both filters return one string per problem, so a run reports everything wrong at once
-# rather than the first thing. What each accepts, and why, is in the filter's own docs
-# (`ansible-doc -t filter binarycodes.homelab.route_validation_errors`).
+# These are interpolated into generated files, not passed to a module, so nothing fails at
+# write time: Caddy refuses a whole imported config over one bad domain, and systemd
+# mis-parses an Environment= line without complaining. See each filter's own docs.
 - name: "Verify the route inputs of app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
@@ -80,19 +61,11 @@
     - systemd_app_domain is defined
     - systemd_app_domain | string | length > 0
 
-# The one route problem the filter cannot see: two apps naming one domain write two site
-# blocks with one address, which Caddy refuses as an ambiguous site definition — and since
-# the Caddyfile imports every snippet, that takes every other app's route down with it. The
-# role sees one app at a time, so the question is put to the host instead: is this domain
-# already the address of a site block in any other app's snippet. Asked here, with the rest
-# of the input, so the answer is a failed run before anything is installed rather than an
-# app deployed without its route.
-#
-# `contains` is matched per line from the line's start, which is where this role writes the
-# address, so a hand-written snippet that lists several addresses on one line is outside
-# what this catches; `caddy validate` in the consuming play is the backstop for that. A
-# conf.d directory that does not exist yet has no snippets in it, and find says so rather
-# than failing.
+# The one route problem a filter cannot see: two apps on one domain write two site blocks with
+# one address, which Caddy refuses, taking every other app's route down with it. The role sees
+# one app at a time, so the question goes to the host. `contains` matches per line from the
+# start, where the role writes the address; a hand-written snippet listing several addresses
+# on one line is `caddy validate`'s job in the consuming play.
 - name: "Look for another app's route on the domain of {{ systemd_app_name }}"
   ansible.builtin.find:
     paths: "{{ systemd_app_caddy_confd }}"
@@ -153,17 +126,11 @@
     - systemd_app_state == 'present'
     - systemd_app_kind == 'inline'
 
-# Facts and registers both persist for the rest of the play, and this role runs once
-# per app, so everything path-shaped is cleared here — an app must never inherit
-# another app's paths from an earlier invocation in the same run, least of all into a
-# task that deletes them. systemd_app_route_clash has already been consumed by the assert
-# above, and is cleared all the same, so nothing added later can read another app's result.
-#
-# The install registers are here for a related reason: each is skipped for the kind — or the
-# app — that does not use it, so one app's file changes would otherwise decide how the next
-# app is reloaded. The two module results are the same: a stale one would reload or restart
-# an app that changed nothing. The decrypted values themselves are not a fact at all (see
-# systemd_app_secret_values in defaults/main.yml), so there is nothing of theirs to clear.
+# Facts and registers persist for the play and this role runs once per app, so an app could
+# otherwise inherit another's paths — into a task that deletes them. The install registers are
+# here for a related reason: each is skipped for the kind or the app that does not use it, so
+# a stale one would decide how the next app is restarted. tests/unit/test_fact_reset.py holds
+# this list to what the tasks actually register.
 - name: "Reset install path facts for app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_manifest: {}

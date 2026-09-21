@@ -14,20 +14,18 @@ version_added: 1.1.0
 author:
   - binarycodes (@binarycodes)
 description:
-  - Keeps one app's install manifest, a file listing the absolute host paths its last deploy
-    installed, one per line. Prunes what that record names and O(installed) does not, then
-    records O(installed). On O(state=absent), removes everything recorded and the record.
-  - The record is acted on as root, so every line is checked before anything is removed. A
-    line must be one segment directly inside O(system_dir) or O(unit_dir), a
-    C(<unit>.d/<name>.conf) drop-in inside O(unit_dir), or nested under O(config_dir) or
-    O(private_dir) with no empty, C(.) or C(..) segment; and it must be a regular file, a
-    symlink or missing. A directory is refused - the record is a list of files, and nothing
-    on it is ever removed recursively. One illegal line refuses the whole record and removes
-    nothing. O(installed) is held to the same rules before it is recorded.
-  - A directory a prune leaves empty is removed too, upwards until a directory still holds
-    something or one of the four roots above is reached. C(rmdir) refuses a directory that is
-    not empty, so a C(<unit>.d/) holding a hand-written override, or a config directory
-    holding a file the app still ships, survives by construction rather than by a check.
+  - Keeps one app's install manifest - the absolute host paths its last deploy installed, one
+    per line. Prunes what the record names and O(installed) does not, then records
+    O(installed). On O(state=absent) removes everything recorded, and the record.
+  - Acted on as root, so every line is checked first. A line must be one segment directly
+    inside O(system_dir) or O(unit_dir), a C(<unit>.d/<name>.conf) drop-in inside
+    O(unit_dir), or nested under O(config_dir) or O(private_dir) with no empty, C(.) or C(..)
+    segment - and must be a regular file, a symlink or missing. A directory is refused;
+    nothing is ever removed recursively. One illegal line refuses the whole record.
+    O(installed) is held to the same rules.
+  - A directory a prune empties is removed too, upwards until a directory still holds
+    something or a root is reached. C(rmdir) refuses a non-empty directory, so a C(<unit>.d/)
+    with a hand-written override survives by construction rather than by a check.
   - The record is written last, so a failure part-way leaves the older, wider record standing.
   - Supports check mode and diff mode.
 options:
@@ -56,9 +54,9 @@ options:
     required: true
   private_dir:
     description:
-      - The app's own tree of encrypted private files, normally C(/var/app/<app>/private).
-        Recorded and pruned like O(config_dir); a change under it is reported separately,
-        because what acts on it is the app's decrypt unit rather than the app itself.
+      - The app's encrypted private files, normally C(/var/app/<app>/private). Recorded and
+        pruned like O(config_dir), but reported separately - a change there is acted on by
+        the app's decrypt unit, not the app.
     type: path
     required: true
     version_added: 1.2.0
@@ -132,9 +130,8 @@ config_changed:
   returned: always
 private_changed:
   description:
-    - Whether any pruned path was under O(private_dir). Reported apart from RV(config_changed)
-      because the answer to it is restarting the app's decrypt unit, which owns the runtime
-      copy, rather than reloading the app.
+    - Whether any pruned path was under O(private_dir). Answered by restarting the app's
+      decrypt unit, which owns the runtime copy, not by reloading the app.
   type: bool
   returned: always
   version_added: 1.2.0
@@ -147,18 +144,17 @@ pruned_dirs:
 pruned_units:
   description:
     - The units the pruned paths implied, mapped as RV(units) is, so a deploy can disable a
-      unit the app stopped shipping while its file still exists to be disabled - in check
-      mode, before the call that removes it. On O(state=absent) this is every unit recorded.
+      unit while its file still exists - in check mode, before the call that removes it. On
+      O(state=absent), every unit recorded.
   type: list
   elements: str
   returned: always
 units:
   description:
-    - The systemd units the record implied when read, so a decommission can stop them without
-      being told the names. C(.container) and C(.kube) map to C(<name>.service), C(.pod) to
-      C(<name>-pod.service); C(.volume), C(.network), C(.image) and C(.build) are not units
-      that run anything and are left out. A plain C(.service), C(.socket), C(.timer),
-      C(.path), C(.mount) or C(.automount) under O(unit_dir) is its own name.
+    - The units the record implied when read, so a decommission needs no unit names.
+      C(.container) and C(.kube) map to C(<name>.service), C(.pod) to C(<name>-pod.service);
+      C(.volume), C(.network), C(.image) and C(.build) run nothing and are left out. A plain
+      unit file under O(unit_dir) is its own name.
   type: list
   elements: str
   returned: always
@@ -191,13 +187,11 @@ _PLAIN_UNIT_SUFFIXES = (
     ".automount",
 )
 
-# A drop-in overriding a unit lives in <unit>.d/ beside it: two segments inside the unit
-# directory, the first naming a unit systemd knows, the second one .conf file.
+# A drop-in lives in <unit>.d/ beside its unit: two segments, the second a .conf file.
 _DROPIN_DIR_SUFFIX = ".d"
 _DROPIN_FILE_SUFFIX = ".conf"
 
-# Segments no recorded path may contain. An empty one is a doubled or trailing slash, and the
-# other two are how a path climbs out of its root.
+# An empty segment is a doubled or trailing slash; the other two climb out of the root.
 _FORBIDDEN_SEGMENTS = frozenset(["", ".", ".."])
 
 # What sits at a path, as `Files.kind` reports it.
@@ -267,12 +261,8 @@ class Files:
                 raise
 
     def rmdir(self, path: str) -> bool:
-        """Remove `path` when it is an empty directory; False when it is anything else.
-
-        Every refusal is the same answer - leave it alone - so they are not told apart:
-        ENOTEMPTY is a directory still in use, ENOENT one already gone, ENOTDIR a path that
-        was never a directory.
-        """
+        """Remove `path` if it is an empty directory. Every refusal means leave it alone, so
+        ENOTEMPTY, ENOENT and ENOTDIR are not told apart."""
         try:
             os.rmdir(path)
         except OSError:
@@ -322,7 +312,7 @@ def _under(path: str, root: str) -> list[str] | None:
 
 
 def _is_dropin(segments: list[str]) -> bool:
-    """Whether these segments below the unit directory spell one unit's drop-in file."""
+    """Whether these segments below the unit directory spell a unit's drop-in file."""
     if len(segments) != 2:
         return False
     directory, name = segments
@@ -344,8 +334,7 @@ def check_shape(path: str, system_dir: str, unit_dir: str, config_dir: str,
         if segments is not None:
             if len(segments) == 1 and segments[0] not in _FORBIDDEN_SEGMENTS:
                 return None
-            # Only the unit directory: a Quadlet file is read from the top of system_dir and
-            # a drop-in there would override nothing.
+            # Unit directory only: a drop-in under system_dir would override nothing.
             if root == unit_dir and _is_dropin(segments):
                 return None
             if root == unit_dir:
@@ -409,12 +398,8 @@ def _text(paths: Iterable[str]) -> str:
 
 
 def prune_dirs(files: Files, pruned: Iterable[str], roots: Iterable[str]) -> list[str]:
-    """Remove the directories a prune has emptied, deepest first, never a root.
-
-    `rmdir` refuses a directory that still holds anything, so a `<unit>.d/` with a
-    hand-written override beside ours, or a config directory the app still ships a file in,
-    stops the walk rather than needing a check of its own.
-    """
+    """Remove the directories a prune emptied, deepest first, never a root. `rmdir` refusing a
+    non-empty directory is what stops the walk, so no check of its own is needed."""
     stops = set(root.rstrip("/") for root in roots)
     removed: list[str] = []
     parents = sorted(set(os.path.dirname(entry) for entry in pruned), key=len, reverse=True)
@@ -454,8 +439,7 @@ def reconcile(files: Files, path: str, installed: Iterable[object], system_dir: 
         # wider record in place, so nothing is forgotten.
         for entry in pruned:
             files.unlink(entry)
-        # After the files and before the record, for the same reason: an interrupted run must
-        # leave the wider record, and an empty directory left behind is harmless either way.
+        # Before the record, like the unlinks: an empty directory left behind is harmless.
         pruned_dirs = prune_dirs(files, pruned, (system_dir, unit_dir, config_dir, private_dir))
         if state == "present":
             if record_changes:

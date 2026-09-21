@@ -3,18 +3,16 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Everything the role is entitled to assume about a host: systemd up, podman working,
-# the Quadlet drop-in directory in place, and the fixture image already local.
+# Everything the role is entitled to assume about a host, plus the fixtures it deploys from.
 - name: Prepare
   hosts: all
   become: true
   gather_facts: false
 
   tasks:
-    # Through `raw`, which needs no Python on the target. Every other task in this scenario
-    # does, and a target whose interpreter ansible-core cannot drive fails all of them
-    # identically, deep in module_utils and saying nothing about the interpreter. Recorded
-    # first so the log opens with the two facts that explain that whole class of failure.
+    # `raw`, so it needs no Python. A target whose interpreter ansible-core cannot drive fails
+    # every other task identically and deep in module_utils, so the log opens with the two
+    # facts that explain that whole class of failure.
     - name: Record the target's release and interpreter
       ansible.builtin.raw: |
         . /etc/os-release && echo "os: $NAME $VERSION_ID"
@@ -26,9 +24,8 @@
       ansible.builtin.debug:
         msg: "{{ molecule_target_python.stdout_lines | map('trim') | select | list }}"
 
-    # Copied out of the scenario so the side-effect play can drop a file from an app's
-    # source tree — the way a real app loses one between deploys — without editing a file
-    # that is under version control.
+    # Copied out of the scenario so side_effect.yml can drop a file from an app's tree without
+    # editing one under version control.
     - name: Copy the fixture app tree where a converge may mutate it
       ansible.builtin.copy:
         src: "{{ molecule_fixture_source }}/"
@@ -38,9 +35,8 @@
       delegate_to: localhost
       become: false
 
-    # A scenario that cannot decrypt would otherwise fail deep inside the role, with sops
-    # reporting only that it found no identity. Checked here, where the message can say
-    # which file was expected and that molecule.yml is what points at it.
+    # Otherwise this fails deep inside the role, with sops reporting only that it found no
+    # identity.
     - name: Assert the scenario's age identity is where sops will look for it
       ansible.builtin.assert:
         that:
@@ -56,11 +52,9 @@
       vars:
         molecule_age_keyfile: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') }}"
 
-    # Private files are decrypted on the target, not here, so the target needs the tools.
-    # Copied from the controller rather than installed on the target: neither distribution
-    # packages sops, and a copy keeps the two ends on one version without a second pinned
-    # download and a checksum per architecture. Both are static binaries. The controller
-    # already needs sops for the app secrets; age is the scenario's one further tool.
+    # Private files are decrypted on the target, so it needs the tools. Copied rather than
+    # installed there: neither distribution packages sops, and a copy keeps both ends on one
+    # version without a pinned download and a checksum per architecture.
     - name: Look for the decrypt tools on the controller
       ansible.builtin.shell: command -v age && command -v sops
       changed_when: false
@@ -90,10 +84,8 @@
         mode: "0755"
       loop: "{{ molecule_controller_tools.stdout_lines | map('trim') | select | list }}"
 
-    # The identity the role's shared decrypt unit loads as a systemd credential. The role
-    # never provisions it — how a host comes by its key is the fleet's business — so the
-    # scenario plays the fleet here, putting the same key sops uses on the controller where
-    # the unit's LoadCredential= expects it.
+    # The role never provisions the key, so the scenario plays the fleet: the same identity
+    # sops uses on the controller, where the unit's LoadCredential= expects it.
     - name: Create the directory the host keeps its age identity in
       ansible.builtin.file:
         path: /etc/homelab
@@ -110,9 +102,8 @@
         group: root
         mode: "0400"
 
-    # An 'inline' app that ships secrets or private files has a directory holding just
-    # those, which is why neither has a counterpart under the scenario's committed apps/
-    # tree: git cannot carry an empty directory, and both are written below.
+    # Neither has a counterpart under the committed apps/ tree: git cannot carry an empty
+    # directory, and the files themselves are written below.
     - name: Create the fixture app directories the copied tree needs
       ansible.builtin.file:
         path: "{{ molecule_apps_dir }}/{{ item }}"
@@ -124,9 +115,8 @@
       delegate_to: localhost
       become: false
 
-    # Encrypted here rather than committed: the values are then readable next to the
-    # assertions that check them, and a change to one needs no ciphertext regenerated by
-    # hand. The role sees exactly what a real app ships — a sops file it must decrypt.
+    # Encrypted here rather than committed, so the values are readable next to the assertions
+    # about them and no ciphertext is regenerated by hand.
     - name: Encrypt the fixture secrets into the copied tree
       community.sops.sops_encrypt:
         path: "{{ molecule_apps_dir }}/molsecret/secrets.sops.yaml"
@@ -136,9 +126,7 @@
       delegate_to: localhost
       become: false
 
-    # The same argument as the secrets above: the plaintext lives in molecule.yml next to
-    # the assertions about it, and nothing has to be re-encrypted by hand when it changes.
-    # The role sees what a real app ships — files it must copy to the host without reading.
+    # Same argument as the secrets above.
     - name: Create the fixture private directories in the copied tree
       ansible.builtin.file:
         path: "{{ (molecule_apps_dir ~ '/' ~ item.app ~ '/private/' ~ item.path) | dirname }}"
@@ -162,8 +150,7 @@
       delegate_to: localhost
       become: false
 
-    # Raw age, which community.sops has no module for: the point of this fixture is that
-    # the role handles a file sops never touched.
+    # Raw age, which community.sops has no module for: the point is a file sops never touched.
     - name: Encrypt the fixture private files with age
       ansible.builtin.command:
         argv:
@@ -181,21 +168,18 @@
       delegate_to: localhost
       become: false
 
-    # Units the role starts are ordered after basic.target, so a converge racing the
-    # boot would see them queued rather than started. 'degraded' is expected and fine:
-    # the image masks the units a container cannot run.
+    # Units are ordered after basic.target, so a converge racing the boot sees them queued
+    # rather than started. 'degraded' is expected: the image masks what a container cannot run.
     #
-    # `raw` rather than the command module, because failed_when: false has to tolerate that
-    # exit status and would otherwise also swallow a module that could not run at all —
-    # which is exactly what it did once, moving the first visible failure to a later task
-    # and hiding that every module on the target was already broken.
+    # `raw`, not command: failed_when: false has to tolerate that exit status and would
+    # otherwise swallow a module that could not run at all, which once hid that every module
+    # on the target was broken.
     - name: Wait for systemd to finish booting
       ansible.builtin.raw: systemctl is-system-running --wait
       changed_when: false
       failed_when: false
 
-    # Owned by the podman package on a real host, not created by the role — so it is a
-    # precondition of the scenario rather than something under test.
+    # The podman package owns this on a real host, so it is a precondition, not a subject.
     - name: Ensure the Quadlet drop-in directory exists
       ansible.builtin.file:
         path: /etc/containers/systemd
@@ -204,8 +188,8 @@
         group: root
         mode: "0755"
 
-    # Pulled here so a registry problem fails the run before the role is under test, and
-    # so no unit start below waits on a download.
+    # So a registry problem fails before the role is under test, and no unit start waits on a
+    # download.
     - name: Pull the fixture container image
       ansible.builtin.command:
         argv: [podman, pull, "{{ molecule_image }}"]

@@ -1,14 +1,14 @@
 # `systemd_app` molecule scenario
 
 Runs the `systemd_app` role against a throwaway container with systemd as PID 1 and podman
-inside it, then asserts the host state. `tests/unit/` covers the role's arithmetic and
-input checks as Python; this covers what only a real host shows.
+inside it, then asserts the host state. `tests/unit/` covers the arithmetic; this covers what
+only a real host shows.
 
 ## What is tested
 
 Sequence: `destroy → create → prepare → converge → idempotence → verify → side_effect →
-destroy`. `verify` runs before `side_effect` because it asserts what the converge left,
-and `side_effect` then mutates that state stage by stage, asserting after each.
+destroy`. `verify` before `side_effect`, because it asserts what the converge left and
+`side_effect` then mutates that stage by stage.
 
 | Premise | Asserted in | Fixture |
 | --- | --- | --- |
@@ -77,19 +77,14 @@ MOLECULE_DISTRO=debian MOLECULE_IMAGE=docker.io/library/debian:13 molecule test
 
 ## Notes
 
-- **Secrets fixture.** Plaintext lives in `molecule.yml`; `prepare.yml` encrypts it into
-  the copied tree, so nothing encrypted is versioned and a value changes without
-  regenerating ciphertext. `sops/age-key.txt` is a throwaway identity, committed on purpose,
-  reached through `SOPS_AGE_KEY_FILE` the way a consumer supplies one; `build_ignore` keeps
-  all of `extensions` out of the built collection.
+- **Secrets fixture.** Plaintext in `molecule.yml`, encrypted into the copied tree by
+  `prepare.yml`, so nothing encrypted is versioned. `sops/age-key.txt` is a throwaway identity
+  committed on purpose; `build_ignore` keeps `extensions` out of the built collection.
 - **Private-files fixture.** Same argument as the secrets: plaintext in `molecule.yml`
-  (`molecule_private_files`), encrypted into the copied tree by `prepare.yml`, with each
-  entry naming the tool its file name implies and what it decrypts to, so `verify.yml`
-  asserts against the intent rather than re-deriving the rule under test. `prepare.yml` also
-  plays the fleet by installing the scenario's age identity at `/etc/homelab/age.key`, which
-  the role never provisions.
-- **Secret assertions** go through `filter_plugins/`, loaded from the play's directory:
-  `secret_state` reads `podman secret inspect --showsecret` into
-  `{name: {owner, digest, value}}`, `declared_secret_state` builds the same from the
-  plaintext with the `podman_secrets` module's own `digest()`, and each check is one
-  equality. `tests/unit/test_molecule_filters.py` covers them.
+  (`molecule_private_files`), each entry naming the tool its file name implies and what it
+  decrypts to, so `verify.yml` asserts against the intent and not the rule under test.
+  `prepare.yml` also plays the fleet, installing the age identity at `/etc/homelab/age.key`.
+- **Secret assertions** go through `filter_plugins/`: `secret_state` reads
+  `podman secret inspect --showsecret` into `{name: {owner, digest, value}}`,
+  `declared_secret_state` builds the same from the plaintext with the module's own `digest()`,
+  and each check is one equality. `tests/unit/test_molecule_filters.py` covers them.

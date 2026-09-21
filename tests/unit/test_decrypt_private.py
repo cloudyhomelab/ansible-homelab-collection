@@ -4,11 +4,8 @@
 
 """The decrypt helper, driven against a temporary directory with a fake runner.
 
-The helper runs on a host at unit start with the age identity present, which no test has, so
-what is exercised here is everything around the two binaries: which tool each file is handed
-to, what the result is called, and what is left behind when something fails. A partly filled
-private directory is the failure that matters - the unit exiting non-zero is what stops the
-app starting against files that are not all there.
+No test has the age identity, so what is exercised is everything around the two binaries:
+which tool each file goes to, what the result is called, and what is left behind on failure.
 """
 
 import os
@@ -22,7 +19,7 @@ mod = import_helper()
 
 
 class FakeRunner:
-    """Stands in for age and sops: records the calls, and fails the one it is told to."""
+    """Stands in for age and sops; fails the one it is told to."""
 
     def __init__(self, fails=None):
         self.calls = []
@@ -40,7 +37,7 @@ class FakeRunner:
 
 @pytest.fixture
 def tree(tmp_path):
-    """A src/ to decrypt from and a dst/ standing in for the unit's RuntimeDirectory."""
+    """src/ to decrypt from, dst/ standing in for the unit's RuntimeDirectory."""
     src, dst = tmp_path / "src", tmp_path / "dst"
     src.mkdir()
     dst.mkdir()
@@ -72,7 +69,7 @@ def test_action_for_matches_the_shared_table(name, tool, out):
         ("tls/server.key.age", "age", "tls/server.key"),
         ("a/b/c.sops.yaml", "sops", "a/b/c.yaml"),
         ("a/b/ca.crt", "copy", "a/b/ca.crt"),
-        # Only the base name decides; a directory called '.age' is still a directory.
+        # Only the base name decides.
         (".age/x.sops.json", "sops", ".age/x.json"),
     ],
 )
@@ -113,7 +110,7 @@ def test_each_file_goes_to_the_tool_its_name_names(tree):
     assert runner.tools() == ["sops", "age"]
     assert (dst / "db.env").read_bytes().startswith(b"plain(")
     assert (dst / "config.yaml").read_bytes().startswith(b"plain(")
-    # A file that is neither is copied through byte for byte, not run through anything.
+    # Neither suffix: copied byte for byte, not run through anything.
     assert (dst / "ca.crt").read_text() == "public"
 
 
@@ -127,7 +124,7 @@ def test_the_identity_reaches_sops_through_the_environment_and_age_on_its_comman
     by_tool = {argv[0]: (argv, env) for argv, env in runner.calls}
     assert "-i" in by_tool["age"][0] and "/creds/age-key" in by_tool["age"][0]
     assert by_tool["sops"][1]["SOPS_AGE_KEY_FILE"] == "/creds/age-key"
-    # Nothing else is handed down: a oneshot unit's environment is not a place to leak from.
+    # Nothing else is handed down.
     assert set(by_tool["age"][1]) == {"PATH", "SOPS_AGE_KEY_FILE"}
 
 
@@ -192,7 +189,7 @@ def test_a_failing_tool_leaves_no_half_filled_runtime_directory(tree):
 
 
 def test_a_missing_binary_is_named_rather_than_traced():
-    """A host without age or sops must say which, not raise FileNotFoundError at systemd."""
+    """A host without age or sops must say which, not raise at systemd."""
     with pytest.raises(mod.DecryptError) as excinfo:
         mod.Runner().run(["age-that-is-not-installed"], {"PATH": os.environ["PATH"]})
 

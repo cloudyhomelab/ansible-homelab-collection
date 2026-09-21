@@ -8,9 +8,8 @@ plus an optional Caddy route. Invoke it once per app. Two required selectors dri
 
 ## Requirements
 
-**A privileged play.** Every task that touches the host writes root-owned files, calls
-`podman` against the root store, or drives system units — and a role cannot set `become`
-for the play that includes it, so the caller does, on the play or on the role entry:
+**A privileged play.** A role cannot set `become` for the play that includes it, so the caller
+does, on the play or on the role entry:
 
 ```yaml
 - hosts: all
@@ -19,43 +18,35 @@ for the play that includes it, so the caller does, on the play or on the role en
     - role: systemd_app
 ```
 
-Without it the run fails part-way through the first install, on a permission error, rather
-than before it starts. The role's own controller-side tasks opt back out with
-`become: false`: they only stat and glob the app definitions where those live, and root on
-the controller is neither needed nor wanted.
+Without it the run fails part-way through the first install, on a permission error. The role's
+own controller-side tasks opt back out with `become: false`.
 
-**Rootful podman, by construction.** Quadlet files land in `systemd_app_system_dir`, which
-the *system* generator reads; podman secrets are created in the host-global root store;
-installed files are owned by `systemd_app_owner`, `root` unless told otherwise; and units
-are started, enabled and reloaded at system scope. Repointing `systemd_app_system_dir` and
-`systemd_app_unit_dir` at a user's own Quadlet and unit directories does not make any of
-that rootless — the `podman secret` and `systemctl` calls would still be the root ones. A
-rootless variant is a different role, not a different set of paths.
+**Rootful podman, by construction.** Quadlet files go where the *system* generator reads them,
+secrets into the host-global root store, units are driven at system scope. Repointing
+`systemd_app_system_dir` and `systemd_app_unit_dir` at a user's directories does not make that
+rootless: the `podman secret` and `systemctl` calls are still the root ones. A rootless variant
+is a different role.
 
-**On the target host:** systemd, and podman 4.5 or newer — Quadlet arrived in 4.4, and
-4.5 added the labels on secrets this role records ownership with (see [secrets](#secrets)).
-An `inline` app that sets `systemd_app_health_cmd` needs podman 5.0, where Quadlet learned
-`Notify=healthy` — the directive that makes a failing probe a failed start (see
-[healthchecks](#healthchecks-and-auto-update-rollback)). In distribution terms that is any
-current Fedora, or Debian 13 and later — Debian 12's podman is 4.3 and has no Quadlet.
-Fedora 43 and Debian 13 are the two the molecule scenario converges, and the platform list
-in `meta/main.yml` names exactly those. Nothing in the role is distribution-specific, so
-others will likely work, but they are not claimed until something tests them. Both install
-directories have to exist already: the role installs into `systemd_app_system_dir` and
-`systemd_app_unit_dir` but creates neither, one being podman's own directory and the other
-systemd's. What it does create is what it owns — `systemd_app_root` and each app's home
-below it, and `systemd_app_caddy_confd` for a routed app.
+**On the target host:** systemd, and podman 4.5 or newer — Quadlet arrived in 4.4 and 4.5 added
+the secret labels this role records ownership with. `systemd_app_health_cmd` needs podman 5.0,
+where Quadlet learned `Notify=healthy`. That means any current Fedora, or Debian 13 and later;
+Debian 12's podman is 4.3 and has no Quadlet. Fedora 43 and Debian 13 are what the molecule
+scenario converges and what `meta/main.yml` claims; others will likely work but are not claimed
+until something tests them.
 
-An app that ships [private files](#private-files) needs `age` and `sops` on the *target*
-host as well, which is where those are decrypted. Both are packaged by Fedora 43 and Debian
-13. The role checks for them before it copies anything, so a host without them is a clear
-failure rather than a unit that will not start.
+Both install directories must exist already — they are podman's and systemd's, and the role
+creates neither. It creates what it owns: `systemd_app_root`, each app's home, and
+`systemd_app_caddy_confd` for a routed app.
 
-**On the controller:** no privilege, and nothing beyond ansible-core — unless an app ships
-encrypted secrets, which need the `community.sops` collection, the `sops` binary, and a key
-that can decrypt the file (see [secrets](#secrets)). Private files need none of that here:
-they are copied still encrypted and the controller never holds the key. Nothing is written
-on the controller either way; the app definitions are only read.
+An app with [private files](#private-files) also needs `age` and `sops` on the target, which is
+where they are decrypted; both are packaged by Fedora 43 and Debian 13. The role checks before
+copying anything, so a host without them fails clearly rather than with a unit that will not
+start.
+
+**On the controller:** no privilege and nothing beyond ansible-core, unless an app ships
+encrypted secrets — those need `community.sops`, the `sops` binary and the decryption key.
+Private files need none of that here: they are copied still encrypted. Nothing is written on
+the controller either way.
 
 ## Kinds
 
@@ -207,59 +198,44 @@ decommission of either kind never reads it: it works from the host alone.
 
 ## Install manifest
 
-A deploy records the absolute host paths it installed to
-`/var/app/<app>/.install-manifest`, one per line — a `source` app's Quadlet files,
-systemd units and every file of its config tree, an `inline` app's one rendered
-`<name>.container`, and for either kind its encrypted
-[private files](#private-files) and the drop-ins written for them. It sits inside the app's own home so the two share
-fate: `absent` drops that tree and the manifest goes with it, and a hand-removed or
-restored `/var/app/<app>` cannot leave a stale record behind. Both a later deploy and a decommission work from that
-file rather than re-deriving from `apps/<app>/`, which by then may name different files
-or be gone entirely, so a renamed or deleted file does not linger on the host and a
-decommission needs no source tree at all.
+A deploy records the host paths it installed to `/var/app/<app>/.install-manifest`, one per
+line: a `source` app's Quadlet files, units and config tree, an `inline` app's one rendered
+`<name>.container`, and for either kind its encrypted [private files](#private-files) and the
+drop-ins written for them. It lives in the app's home so the two share fate — a hand-removed
+or restored `/var/app/<app>` cannot leave a stale record behind. A later deploy and a
+decommission both work from it rather than re-deriving from `apps/<app>/`, which by then may
+name different files or be gone.
 
 Reading, pruning and recording are one call of the `install_manifest` module, on the host.
-The manifest is acted on as root, so every line is checked first: a single path segment
+Acted on as root, so every line is checked first: a single path segment
 directly inside `systemd_app_system_dir` / `systemd_app_unit_dir`, a `<unit>.d/<name>.conf`
 drop-in inside `systemd_app_unit_dir`, or a path under this app's own
 `/var/app/<app>/config` or `/var/app/<app>/private` with no empty, `.` or `..` segment, and
 a regular file, symlink or missing path — never a directory, since nothing recorded is
 removed recursively. One illegal line fails the run without deleting anything.
 
-`absent` reads it too, and has to: the Quadlet files and systemd units it must remove
-live in `/etc/containers/systemd/` and `/etc/systemd/system/`, which are shared with
-every other app and cannot be relocated — systemd and the Quadlet generator only read
-those paths. Dropping `/var/app/<app>` alone would leave them behind, and the generator
-would recreate the service on the next `daemon-reload`. It first asks the module, in check
-mode, which units the record implies, stops those, then calls it again to remove.
+`absent` has to read it: the Quadlet files and units it removes live in shared directories
+systemd and the generator will not read anywhere else, so dropping `/var/app/<app>` alone would
+leave them and the generator would recreate the service on the next `daemon-reload`. It asks
+the module in check mode which units the record implies, stops those, then calls it to
+remove.
 
-**Changing an app's kind converges on it.** Both kinds record a manifest and both
-reconcile against it, so flipping `systemd_app_kind` between `source` and `inline` —
-keeping the name — prunes whatever the old kind installed and the new one does not. A
-`source` app that shipped a sidecar Quadlet, a `.timer` and a config tree becomes an
-`inline` app whose only installed path is the rendered `<name>.container`, and the other
-three are removed on that converge. The one thing to do by hand is the running units: a
-unit whose file is pruned keeps running until it is stopped or the host reboots (see
-below), so stop the ones the app no longer ships, once.
+**Changing an app's kind converges on it.** Both kinds record and reconcile, so flipping
+`systemd_app_kind` while keeping the name prunes whatever the old kind installed and the new
+one does not. The one thing left by hand is the running units: a pruned unit file keeps running
+until stopped or the host reboots.
 
-Why a manifest and not a destination diff: a deployed config tree can hold files that no
-source tree contains. `systemd_app_caddy_confd` normally sits inside the reverse proxy's
-own config tree, and holds a route snippet generated for every *other* routed app.
-Deleting whatever is not in `<app>/config/` would wipe all of them on every converge. A
-manifest only ever removes what a previous deploy recorded installing, so generated and
-runtime files are invisible to it.
+Why a manifest and not a destination diff: a deployed config tree can hold files no source tree
+contains. `systemd_app_caddy_confd` sits inside the reverse proxy's config tree and holds a
+snippet for every *other* routed app, so deleting whatever is not in `<app>/config/` would wipe
+all of them every converge.
 
-Only files are recorded, but a directory a prune leaves empty goes too, upwards until a
-directory still holds something. `rmdir` refuses a directory that is not empty, so a
-`<unit>.d/` holding a hand-written override beside the role's own, or a config directory
-holding a file the app still ships, survives by construction. A unit dropped from the app
-that is still running keeps running until it is stopped or the host reboots: remove it from
-`systemd_app_enable_units` and stop it once by hand. That applies to a change of kind as
-much as to a deleted file.
+Only files are recorded, but a directory a prune empties goes too, upwards until one still
+holds something. `rmdir` refuses a non-empty directory, so a `<unit>.d/` with a hand-written
+override beside the role's own survives by construction.
 
-An app last deployed before the role recorded a manifest for its kind has none, so its
-first converge under this role prunes nothing and records one — the reconciliation starts
-from the next deploy. `absent` covers the gap for an `inline` app in that state by also
+An app last deployed before the role recorded a manifest for its kind has none, so its first
+converge prunes nothing and records one. `absent` covers that gap for an `inline` app by also
 removing the rendered `<name>.container` by name.
 
 ## Caddy routing
@@ -297,46 +273,34 @@ before the reload in your play is the backstop for that, and worth having anyway
 
 ## Making changes take effect
 
-Installing a file is not the same as the app running from it, and the two kinds of change
-this role writes become live in different ways.
+Installing a file is not the same as the app running from it.
 
-**A changed unit definition, or a changed secret, needs a new container.** The Quadlet
-generator rewrites the `.service` at `daemon-reload`, but systemd does not act on a unit it
-merely re-read, and podman reads a secret only when it *creates* a container — so the
-running one carries on with the image, options and values it started with. The role
-therefore **restarts** the app's managed units when this deploy changed a file that defines
-them: anything installed from `quadlet/` or `unit/`, or the rendered `<name>.container` of an
-`inline` app.
+**A changed unit definition or secret needs a new container.** `daemon-reload` rewrites the
+`.service`, but systemd does not act on a unit it merely re-read, and podman reads a secret
+only at container creation, so the running one carries on with what it started with. The role
+**restarts** the managed units when this deploy changed a file that defines them.
 
-**A changed config tree only needs the process told.** The files are bind-mounted, so they
-are already in place. The role **reloads** the managed units instead, which is why config
-is not folded in with the above: a unit that declares `ExecReload=` can take new config
-without dropping what it is serving, and cycling it would throw that away. A unit with no
-reload action reports `CanReload=no` and is restarted — blunt, but the only way to get the
-change into the process. Nothing extra to declare per app: the unit already says which it
-is, and the role reads that rather than keeping a second copy of the answer.
+**A changed config tree only needs the process told.** The files are bind-mounted and already
+in place, so the role **reloads** instead: a unit with `ExecReload=` takes new config without
+dropping what it is serving. One reporting `CanReload=no` is restarted instead.
 
-A restart supersedes a reload, so a deploy that changed both does one restart. A converge
-that changed neither leaves the units alone, so this costs nothing on a no-op run.
+A restart supersedes a reload, and a converge that changed neither leaves the units alone.
 
-Two consequences worth knowing:
+Three consequences worth knowing:
 
-- **A restart does not pull.** The pull policy decides that, and the default only fetches
-  an image that is missing locally, so bumping `Image=` to a tag already on the host
-  reuses it. A new tag or digest is missing by definition and is fetched; a moving tag
-  like `:latest` is not, and needs `podman auto-update` (or `Pull=newer`) to move.
-- **Removed files are treated by kind.** A pruned config file counts as a config change,
-  since a running app is still reading what is now gone. A pruned unit file does not — it
-  leaves nothing to act on, and a unit dropped from the app keeps running until it is
-  stopped by hand (see [install manifest](#install-manifest)).
+- **A restart does not pull.** The pull policy decides that, and the default fetches only an
+  image missing locally. A new tag or digest is missing by definition; a moving tag like
+  `:latest` is not, and needs `podman auto-update` or `Pull=newer`.
+- **Removed files are treated by kind.** A pruned config file is a config change, since the app
+  is still reading what is gone. A pruned unit file is not — it leaves nothing to act on, and
+  the unit keeps running until stopped by hand.
 - **A changed private file is a restart, not a reload.** Its plaintext lives in a
-  `RuntimeDirectory` that the app's decrypt unit destroys and re-creates, so a reload would
-  leave the container mounted on a directory that is no longer there. The role restarts the
-  decrypt instance first and the app after it (see [private files](#private-files)).
+  `RuntimeDirectory` the decrypt unit destroys and re-creates, so a reload would leave the
+  container on a directory that is gone. The decrypt instance is restarted first, the app
+  after (see [private files](#private-files)).
 
-Generated route snippets are not part of any app's config tree, so they are outside this
-entirely; your play applies those centrally once every app has converged (see
-[Caddy routing](#caddy-routing)).
+Generated route snippets are outside this entirely; the play applies those centrally once every
+app has converged (see [Caddy routing](#caddy-routing)).
 
 ## Dry runs (`--check`)
 
@@ -426,10 +390,9 @@ reach them.
 
 ## Secrets
 
-`systemd_app_env` renders `Environment=` lines into a Quadlet, which is a unit file and
-world-readable — fine for a hostname, wrong for a client secret. Instead, an app that needs
-secrets ships one SOPS-encrypted file in its own directory, keyed by the podman secret
-names:
+`systemd_app_env` renders `Environment=` lines into a unit file, which is world-readable:
+fine for a hostname, wrong for a client secret. An app that needs secrets ships one
+SOPS-encrypted file in its own directory, keyed by the podman secret names:
 
 ```yaml
 # apps/myapp/secrets.sops.yaml   (values encrypted; keys readable)
@@ -438,11 +401,10 @@ myapp-oidc-client-id: …
 myapp-oidc-client-secret: …
 ```
 
-Nothing at the call site, for either kind. The role looks for
-`apps/<app>/secrets.sops.yaml` the same way it looks for the app's `quadlet/` and
-`config/` directories, decrypts it on the controller, and stores each entry in podman's
-secret store. The file sits at the app root, outside the three directories the role
-installs from, so nothing copies it to the host.
+Nothing at the call site, for either kind: the role finds the file the way it finds
+`quadlet/` and `config/`, decrypts it on the controller, and stores each entry in podman's
+secret store. It sits at the app root, outside the directories the role installs from, so
+nothing copies it to the host.
 
 How the container reaches a stored value differs by kind:
 
@@ -453,10 +415,9 @@ upper-cased, dashes as underscores. The file above yields
 Secret=myapp-oidc-client-secret,type=env,target=MYAPP_OIDC_CLIENT_SECRET
 ```
 
-so the name has to be the variable the app reads, spelled in lower case with dashes. That
-is usually no constraint, since podman secret names are host-global and want an app prefix
-anyway — and app-prefixed variables are what most images expect. When an image insists on a
-bare name (`POSTGRES_PASSWORD`), the choice is a host-global secret called
+so the name has to be the variable the app reads, lower-cased with dashes. Rarely a
+constraint: podman secret names are host-global and want an app prefix anyway. An image that
+insists on a bare name (`POSTGRES_PASSWORD`) means either a host-global secret called
 `postgres-password` or the `source` kind.
 
 **`source`** — the app writes the line itself and can point any name at any variable:
@@ -466,62 +427,44 @@ bare name (`POSTGRES_PASSWORD`), the choice is a host-global secret called
 Secret=myapp-oidc-client-secret,type=env,target=MYAPP_OIDC_CLIENT_SECRET
 ```
 
-The name is then the whole contract between file and Quadlet — rename it in one and the
-container fails to start referencing a name that no longer exists.
+The name is the whole contract between file and Quadlet: rename it in one and the container
+fails to start on a name that no longer exists.
 
-The values are loaded into a single dict, never top-level variables: podman secret names
-are not legal variable names, and nothing sensitive becomes a play variable. Each is handed
-to podman on **stdin**, never in a command line, since `/proc/<pid>/cmdline` is
-world-readable and would expose it to every user on the host for the life of the process.
+Values are loaded into one dict, never top-level variables, and handed to podman on **stdin**,
+never a command line, `/proc/<pid>/cmdline` being world-readable.
 
-What this does and does not buy you. The value still ends up in the container's
-environment, so it is readable by the process itself, by root, and in `podman inspect` of
-the running container. What it avoids is a copy sitting in a `0644` file under
-`/etc/containers/systemd/`, in a config tree, or in git. Podman's default file driver keeps
-the store in a root-only file, unencrypted — treat "root on the host" as the trust
-boundary either way.
+**What this buys.** The value still reaches the container's environment, so it is readable by
+the process, by root, and in `podman inspect`. What it avoids is a copy in a `0644` file under
+`/etc/containers/systemd/`, in a config tree, or in git. Podman's file driver keeps the store
+in a root-only unencrypted file, so "root on the host" is the trust boundary either way.
 
-**Rotation, renames and ownership.** Every secret the role stores carries two labels: the
-app that owns it (`io.binarycodes.homelab.app`) and a digest of its value
-(`io.binarycodes.homelab.digest`, as `sha256:<hex>` — the algorithm is named so it can
-change later without every secret being rotated once). The store is the only record. Podman reads a secret when
-it *creates* a container and cannot update a stored one in place, so on each deploy the
-`podman_secrets` module compares the declared values against those labels: a converge where
-nothing changed touches nothing; a changed value is removed and re-created, and the app's
-units are **restarted** rather than started, since a running container would otherwise keep
-serving with the old value; a name dropped from the file — renamed, or deleted — is removed
-from the host, the same reconciliation the [install manifest](#install-manifest) does for
-files. A secret removed by hand, or lost with a store reset, is simply missing and comes
-back on the next deploy.
+**Rotation, renames and ownership.** Each stored secret carries two labels: its owner
+(`io.binarycodes.homelab.app`) and a digest of its value (`io.binarycodes.homelab.digest`,
+`sha256:<hex>`, the algorithm named so it can change without a rotation). The store is the
+only record. Podman reads a secret at container creation and cannot update one in place, so
+each deploy compares declared values against those labels: nothing changed touches nothing; a
+changed value is removed and re-created and the app **restarted**; a name dropped from the
+file is removed, as the [install manifest](#install-manifest) does for files. One removed by
+hand simply comes back.
 
-The owner label is also what `absent` removes by, so a decommission needs nothing from the
-controller — the encrypted file may be gone by then — and what keeps two apps apart: a
-deploy that declares a name another app owns is refused, naming that app, and the other
-app's secret is left as it was. A secret with no owner label at all — stored by hand, or by
-a release of this role before 1.1.0 — is taken to be the declaring app's with an unknown
-value, and is re-created with labels; that is the one restart the upgrade costs.
+The owner label is what `absent` removes by, so a decommission needs nothing from the
+controller, and what keeps two apps apart: declaring a name another app owns is refused,
+naming that app, and the other secret is untouched. One with no owner label — stored by hand,
+or before 1.1.0 — is adopted and re-created with labels, which costs one restart.
 
-A failed `podman secret create` is reported with the secret's name, podman's exit code and
-its stderr. The value is a `no_log` parameter of the module, so it stays out of the log
-while the diagnosis does not.
+A failed `podman secret create` is reported with the name, exit code and stderr; the value is
+`no_log`.
 
-**Requirements.** The controller needs the `sops` binary and the `community.sops`
-collection, and the decryption key — without it the run fails at the decrypting task,
-before anything on the host changes. The host's podman must understand `Secret=` in a
-Quadlet `[Container]` section; too old and the generator refuses the unit at
-`daemon-reload`.
-
-How the key reaches the controller is outside this role: sops finds it the usual ways
-(`SOPS_AGE_KEY`, `~/.config/sops/age/keys.txt`, a KMS), and which keys encrypt which files
-is your project's `.sops.yaml`. In CI that usually means one secret in the job environment
-and nothing on disk.
+**Requirements.** The controller needs `sops`, the `community.sops` collection and the
+decryption key; without the key the run fails at the decrypting task, before anything on the
+host changes. How the key gets there is outside this role — sops finds it the usual ways, and
+`.sops.yaml` decides which keys encrypt which files.
 
 ## Private files
 
-Secrets above are the environment-shaped channel: a value an app reads as `DATABASE_URL`.
-Some apps need the other shape, a *file* at a path their image chose — a TLS key, a
-service-account JSON, a `.env` read at startup. Those go in the app's own `private/`
-directory, encrypted:
+Secrets above are the environment-shaped channel. An app that needs a *file* at a path its
+image chose — a TLS key, a service-account JSON, a `.env` read at startup — ships it in its
+own `private/` directory, encrypted:
 
 ```
 apps/myapp/private/
@@ -530,29 +473,25 @@ apps/myapp/private/
   ca.crt                  # neither; copied through unchanged
 ```
 
-A `.age` suffix means the file is raw age and a `.sops.<ext>` component means it is SOPS;
-the marker is dropped from the decrypted name. Anything else is copied through, so a public
-certificate can sit beside the private key it belongs to. `private/` is a tree, like
-`config/`, and subdirectories are mirrored. Two files that would decrypt to the same name
-fail the play, named, before anything is installed.
+`.age` means raw age, a `.sops.<ext>` component means SOPS, and the marker is dropped from the
+decrypted name. Anything else is copied through, so a public certificate can sit beside its
+key. `private/` is a tree, like `config/`, and subdirectories are mirrored. Two files that
+would decrypt to one name fail the play, named, before anything is installed.
 
-**Nothing readable is written to disk.** The role copies the tree to
-`{{ systemd_app_home }}/private` **still encrypted**, so a backup of `systemd_app_root`
-carries no plaintext and the controller never sees the key. The decryption happens on the
-host, at unit start, into `/run/app/<app>/private` — tmpfs, mode 0700, made and destroyed by
-systemd with the unit:
+**Nothing readable is written to disk.** The tree is copied to `{{ systemd_app_home }}/private`
+**still encrypted**, so a backup of `systemd_app_root` carries no plaintext and the controller
+never sees the key. Decryption happens on the host at unit start:
 
 ```
-apps/myapp/private/db.env.age      (controller, encrypted)
-  -> /var/app/myapp/private/db.env.age      (host, still encrypted, 0600)
-     -> /run/app/myapp/private/db.env       (tmpfs, 0600, gone when the unit stops)
+apps/myapp/private/db.env.age             (controller, encrypted)
+  -> /var/app/myapp/private/db.env.age    (host, still encrypted, 0600)
+     -> /run/app/myapp/private/db.env     (tmpfs 0700, file 0600, gone when the unit stops)
 ```
 
-The unit that does it is `homelab-private-decrypt@<app>.service`, one template unit shared
-by every app on the host, installed by whichever app needs it first. The role writes a
-drop-in for **every unit the app installs** ordering it after that instance and requiring
-it, so no app author has to remember the dependency and an `inline` app — which has no
-`[Unit]` escape hatch — gets it too:
+`homelab-private-decrypt@<app>.service` does it — one template unit shared by every app on the
+host, installed by whichever app needs it first. The role writes a drop-in for **every unit the
+app installs**, so no app author has to remember the dependency and an `inline` app, which has
+no `[Unit]` escape hatch, gets it too:
 
 ```ini
 # /etc/systemd/system/myapp.service.d/10-private.conf, written by the role
@@ -561,13 +500,11 @@ After=homelab-private-decrypt@myapp.service
 Requires=homelab-private-decrypt@myapp.service
 ```
 
-`Requires=`, not `Wants=`: files that are not there are not a degraded start but a wrong
-one. If the decrypt fails — no key, a key that does not match, `age` or `sops` missing — the
-app does not start, rather than starting against an empty directory.
+`Requires=`, not `Wants=`: missing files are a wrong start, not a degraded one. If the decrypt
+fails — no key, a key that does not match, `age` or `sops` missing — the app does not start.
 
-**Mounting it.** The role renders no `Volume=` of its own, for either kind. An image wants
-its file at a path only the app knows, so name it yourself;
-`systemd_app_private_run_dir` saves you repeating the host side:
+**Mounting it.** The role renders no `Volume=` of its own, for either kind: an image wants its
+file at a path only the app knows. `systemd_app_private_run_dir` saves repeating the host side.
 
 ```yaml
 # inline
@@ -580,18 +517,15 @@ systemd_app_volumes:
 Volume=/run/app/myapp/private/tls.key:/etc/myapp/tls.key:ro
 ```
 
-**The key.** The unit reads it as a systemd credential from `/etc/homelab/age.key`, so it
-reaches only that unit's processes and lives on ramfs rather than being read off disk by the
-service. The role never provisions it — how a host comes by its identity is your fleet's
-business — and a host that keeps it elsewhere symlinks it into place. The path is fixed
-rather than a parameter: one unit file serves every app on the host, so a per-app value
-would have the last app deployed rewrite it for all of them.
+**The key.** Read as a systemd credential from `/etc/homelab/age.key`, so it reaches only that
+unit's processes and lives on ramfs. The role never provisions it; a host keeping it elsewhere
+symlinks it into place. Fixed rather than a parameter: one unit file serves every app, so a
+per-app value would have the last app deployed rewrite it for all of them.
 
-**On decommission** the app's own instance is stopped, taking its tmpfs tree with it, and
-its copies and drop-ins are removed with everything else it installed. The shared template
-unit and the helper it runs are left behind: every app on the host writes them identically
-and shares them, so removing them with one app would break the rest. Same call the role
-makes for podman networks and named volumes.
+**On decommission** the app's instance is stopped, taking its tmpfs tree with it, and its
+copies and drop-ins go with everything else it installed. The shared unit and helper are left
+behind: every app writes them identically and shares them. Same call as podman networks and
+named volumes.
 
 ## Pre-created data directories
 
@@ -703,10 +637,8 @@ This destroys `/var/app/<app>` — back it up first:
 
 ## Where the logic lives
 
-The role's real computation is Python, not Jinja: filter plugins for what runs on the
-controller, a module for what runs on the host. All ship with this collection and are called
-by their fully qualified names (`binarycodes.homelab.route_validation_errors` and so on), so they
-resolve wherever the collection is installed:
+The role's computation is Python, not Jinja: filters for the controller, modules for the host.
+All ship with this collection and are called by FQCN.
 
 | Plugin               | Kind   | Used for                                                          |
 | -------------------- | ------ | ----------------------------------------------------------------- |
@@ -720,19 +652,15 @@ resolve wherever the collection is installed:
 | `container_validation_errors` | filter | Checking what would be interpolated into a rendered Quadlet.      |
 | `systemd_env_lines`  | filter | Quoting and escaping `systemd_app_env` into `Environment=` lines.  |
 
-The filters live in `plugins/filter/`, the modules in `plugins/modules/`, one file each, and
-are Python so they can be tested as Python: a table of cases in under a second, rather than
-a playbook run per case (`tests/unit/`). Both `*_validation_errors` filters return a list of
-human-readable problems and never raise, so one run reports everything wrong at once. The
-secrets module keeps every podman call behind one runner and is tested against a fake
-store; the manifest module is tested against a temporary directory. A change to what the
-role *accepts*, or to what the store or the manifest should hold, belongs there rather
-than in a YAML scalar.
+One file each, and Python so they can be tested as Python: a table of cases in under a second
+rather than a playbook run per case (`tests/unit/`). The `*_validation_errors` filters return a
+list and never raise, so one run reports everything wrong at once. The secrets module keeps
+every podman call behind one runner and is tested against a fake store; the manifest module
+against a temporary directory. A change to what the role accepts, or to what the store or the
+manifest should hold, belongs there rather than in a YAML scalar.
 
-They are collection-global public API: anyone who installs the collection can call them,
-whether or not they use this role, which is why they are named for what they compute
-rather than for the role that calls them. Two filters are deprecated and go in 2.0.0:
-`secret_digests` and `reconcile_secrets`, whose work the secrets module does from labels on
-the secrets themselves. `manifest_units` was renamed `unit_names` in 1.2.0, when the role
-began asking it what a deploy is *about* to install rather than only what a manifest
-recorded; the old name still resolves, with a warning, until 2.0.0.
+They are collection-global public API, named for what they compute rather than for the role
+that calls them. `secret_digests` and `reconcile_secrets` are deprecated and go in 2.0.0, the
+secrets module doing their work from labels. `manifest_units` was renamed `unit_names` in
+1.2.0, when the role began asking it what a deploy is *about* to install; the old name resolves
+with a warning until 2.0.0.

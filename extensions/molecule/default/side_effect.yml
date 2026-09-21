@@ -3,9 +3,9 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# The rest of an app's life, which a converge alone never reaches: a file dropped from its
-# source tree, a change of kind, and decommissioning. Each stage asserts immediately after
-# the role runs, because the state it produces is the input to the next one.
+# The rest of an app's life: a dropped file, private files renamed and removed, a change of
+# kind, secrets rotated, decommissioning. Each stage asserts right after the role runs,
+# because its state is the next stage's input.
 - name: Side effect
   hosts: all
   become: true
@@ -13,17 +13,15 @@
 
   vars:
     molecule_fixture_apps:
-      # The kind each app is in by the time this play tears it down — molsource has been
-      # flipped to inline by then, and absent prunes from the manifest either way.
+      # The kind each app is in by teardown; molsource has been flipped to inline by then.
       - {name: molinline, kind: inline}
       - {name: molsource, kind: inline}
       - {name: molnet, kind: source}
       - {name: molsecret, kind: inline}
-      # Deployed with systemd_app_enable_units, decommissioned without it — the case a
-      # teardown that works only from the caller's unit names cannot stop.
+      # Deployed with systemd_app_enable_units and decommissioned without: the case a teardown
+      # driven only by the caller's unit names cannot stop.
       - {name: molorphan, kind: source}
-      # Refused at its secrets before anything reached the host; here so a decommission of
-      # an app that was never deployed stays green.
+      # Refused before anything reached the host, so decommissioning it must stay green.
       - {name: molclaim, kind: inline}
 
   tasks:
@@ -81,9 +79,9 @@
         molecule_recorded: "{{ (molecule_pruned_manifest.content | b64decode).splitlines() }}"
 
     # --- private files: renamed, then dropped altogether ---------------------------------
-    # The encrypted copy on the host is pruned like any other installed file, but the
-    # plaintext it made is in a RuntimeDirectory only the decrypt unit owns, so the old name
-    # goes from /run only if that unit was restarted. That is what this stage is for.
+    # The encrypted copy is pruned like any installed file, but the plaintext is in a
+    # RuntimeDirectory only the decrypt unit owns, so the old name leaves /run only if that
+    # unit was restarted.
     - name: Rename a private file in the fixture app tree
       ansible.builtin.command:
         argv:
@@ -113,7 +111,7 @@
         - /var/app/molsource/private/db-new.env.age
         - /run/app/molsource/private/db.env
         - /run/app/molsource/private/db-new.env
-        # Untouched by the rename, and still decrypted.
+        # Untouched by the rename.
         - /run/app/molsource/private/nested/conf.yaml
       register: molecule_after_rename
 
@@ -122,8 +120,7 @@
         that:
           - not molecule_after_rename.results[0].stat.exists
           - molecule_after_rename.results[1].stat.exists
-          # The decrypt unit was restarted, so its tmpfs tree was rebuilt rather than
-          # keeping the plaintext of a file the app no longer ships.
+          # The tmpfs tree was rebuilt, not left holding a file the app no longer ships.
           - not molecule_after_rename.results[2].stat.exists
           - molecule_after_rename.results[3].stat.exists
           - molecule_after_rename.results[4].stat.exists
@@ -156,7 +153,7 @@
         path: "{{ item }}"
       loop:
         - /var/app/molsource/private/db-new.env.age
-        # The manifest removes the files; the directories they emptied go with them.
+        # The files, then the directories they emptied.
         - /var/app/molsource/private/nested
         - /var/app/molsource/private
         - /etc/systemd/system/molsource.service.d/10-private.conf
@@ -183,12 +180,11 @@
       ansible.builtin.assert:
         that:
           - molecule_after_drop.results[:7] | rejectattr('stat.exists') | list | length == 7
-          # The shared unit and another app's plaintext are untouched: one app losing its
-          # private files must not disturb every other app on the host.
+          # One app losing its private files must not disturb any other.
           - molecule_after_drop.results[7].stat.exists
           - molecule_after_drop.results[8].stat.exists
           - molecule_after_drop_units.results[0].stdout == 'active'
-          # Stopped, which is what took its tmpfs tree away.
+          # Stopping it is what took the tmpfs tree away.
           - molecule_after_drop_units.results[1].stdout != 'active'
           - molecule_after_drop_units.results[2].stdout == 'active'
         fail_msg: >-
@@ -200,9 +196,8 @@
 
     # --- the same app, converted to the other kind -------------------------------------
     # The role prunes and disables the unit file but cannot stop a unit the app no longer
-    # ships, which is a caller's job once (see the role README). Stopped only, not disabled:
-    # the `.wants/` symlink its enable wrote is the role's to remove, and the assertion
-    # after the flip is that it did.
+    # ships; that is the caller's job, once. Stopped only, not disabled: removing the
+    # `.wants/` symlink is the role's job, and the assertion after the flip is that it did.
     - name: Stop the unit the converted app will no longer ship
       ansible.builtin.systemd:
         name: molsource-extra.service
@@ -242,9 +237,8 @@
       changed_when: false
       register: molecule_flipped_unit
 
-    # -xtype l is the dangling-link test: a symlink whose target is gone. The enable of the
-    # plain unit wrote one into multi-user.target.wants/, and the prune took the file it
-    # pointed at, so anything found here is a unit systemd will report not-found for good.
+    # -xtype l finds a symlink whose target is gone: the enable wrote one into
+    # multi-user.target.wants/ and the prune took what it pointed at.
     - name: Look for dangling unit symlinks after the flip
       ansible.builtin.command:
         argv: [find, /etc/systemd/system, -xtype, l, -name, "mol*"]
@@ -254,21 +248,18 @@
     - name: Assert the conversion pruned the other kind and runs from the rendered Quadlet
       ansible.builtin.assert:
         that:
-          # What the 'source' deploy installed and the 'inline' one does not: the prune
-          # crossing kinds is the whole reason a manifest is recorded for both.
+          # The prune crossing kinds is why a manifest is recorded for both.
           - not molecule_after_flip.results[0].stat.exists
           - not molecule_after_flip.results[1].stat.exists
           - molecule_after_flip.results[2].stat.exists
           - molecule_flip_recorded == ['/etc/containers/systemd/molsource.container']
-          # The file at that path is now the rendered one, not the fixture's copy.
+          # Now the rendered file, not the fixture's copy.
           - "'Molecule fixture source container' not in molecule_flip_rendered"
           - "'ContainerName=molsource' in molecule_flip_rendered"
           - "'AutoUpdate=registry' in molecule_flip_rendered"
-          # A changed unit definition means a new container, so the app is restarted
-          # rather than left running on the definition it started with.
+          # A changed unit definition means a new container.
           - molecule_flipped_unit.stdout == 'active'
-          # The pruned plain unit was disabled before its file went, so nothing in a
-          # .wants/ directory still names it.
+          # Disabled before its file went, so no .wants/ entry still names it.
           - molecule_flip_dangling.stdout_lines | length == 0
         fail_msg: >-
           Recorded after the flip: {{ molecule_flip_recorded }}; dangling:
@@ -279,10 +270,9 @@
         molecule_flip_rendered: "{{ molecule_flip_files.results[1].content | b64decode }}"
 
     # --- secrets: rotated, dropped, and re-stored after drift ----------------------------
-    # Storing is create-only and podman cannot update a secret in place, so a changed value
-    # is a remove followed by a create — decided by the podman_secrets module from the
-    # declared values and the labels each stored secret carries. The unit tests cover that
-    # arithmetic against a fake store; what is covered here is a real podman accepting it.
+    # podman cannot update a secret in place, so a changed value is a remove then a create.
+    # The unit tests cover that arithmetic against a fake store; this covers a real podman
+    # accepting it.
     - name: Re-encrypt the fixture secrets with one value changed and one name gone
       community.sops.sops_encrypt:
         path: "{{ molecule_apps_dir }}/molsecret/secrets.sops.yaml"
@@ -503,15 +493,12 @@
         - /etc/containers/systemd/molecule.network
         - /var/app/molproxy/config/conf.d/molsource.caddy
         - /var/app/molproxy/config/conf.d/molinline.caddy
-        # The last app with private files goes with the rest, so its drop-in, its encrypted
-        # copies and the tmpfs tree its decrypt unit held must all be gone with it.
+        # The last app with private files: its drop-in and tmpfs tree go with it.
         - /etc/systemd/system/molinline.service.d
         - /run/app/molinline
       register: molecule_after_absent
 
-    # Shared by every app on the host and written identically by each, so they are in no
-    # app's manifest and no app's decommission removes them — the call the role already
-    # makes for podman networks and named volumes.
+    # In no app's manifest, so no app's decommission removes them.
     - name: Stat the shared decrypt unit and helper after every app is gone
       ansible.builtin.stat:
         path: "{{ item }}"
@@ -533,18 +520,15 @@
       failed_when: false
       register: molecule_absent_units
 
-    # systemctl alone cannot answer this. Once a Quadlet file is deleted and systemd
-    # reloaded, its generated service is gone from systemd's view and is-active reports
-    # 'inactive' — whether the container stopped or is still running unsupervised. Podman
-    # is the only witness that a decommission actually decommissioned.
+    # systemctl cannot answer this: once the Quadlet file is gone, is-active reports
+    # 'inactive' whether the container stopped or is still running unsupervised.
     - name: Ask podman what containers still exist
       ansible.builtin.command:
         argv: [podman, ps, --all, --format, "{{ '{{' }}.Names{{ '}}' }}"]
       changed_when: false
       register: molecule_absent_containers
 
-    # Podman secrets are host-global, so they are not part of the app tree removed above:
-    # nothing else would have taken them with it.
+    # Host-global, so nothing else would have taken them with the app tree.
     - name: Ask podman what secrets it still holds
       ansible.builtin.command:
         argv: [podman, secret, ls, --format, "{{ '{{' }}.Name{{ '}}' }}"]
@@ -561,16 +545,14 @@
       ansible.builtin.assert:
         that:
           - molecule_after_absent.results | selectattr('stat.exists') | list | length == 0
-          # Not removed with the app: one app's teardown must not break every other app's
-          # decrypt on the host.
+          # One app's teardown must not break every other app's decrypt.
           - molecule_absent_shared.results | rejectattr('stat.exists') | list | length == 0
           - molecule_absent_dangling.stdout_lines | length == 0
           - molecule_absent_units.results | selectattr('stdout', 'equalto', 'active')
             | list | length == 0
           - molecule_absent_secrets.stdout_lines | select('match', '^molsecret-')
             | list | length == 0
-          # molclaim's decommission ran with the other app's secret still on the host, and
-          # ownership is what says it was not molclaim's to remove.
+          # Ownership is what says the other app's secret was not molclaim's to remove.
           - "'molclaim-token' in molecule_absent_secrets.stdout_lines"
           - molecule_absent_containers.stdout_lines
             | intersect(molecule_fixture_apps | map(attribute='name') | list) | length == 0

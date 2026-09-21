@@ -19,27 +19,16 @@ version_added: 1.2.0
 author:
   - binarycodes (@binarycodes)
 description:
-  - Reads one app's C(private/) directory on the controller and returns the files a deploy
-    copies to the host, the absolute host path each lands at, which is what the app's install
-    manifest records, and what each one decrypts to at unit start.
-  - The files are copied to the host B(still encrypted). Nothing here decrypts anything and
-    nothing here reads a key; C(tool) and C(out) say what the host's decrypt unit will do, so a
-    mistake in the naming is a failed play rather than a failed unit.
-  - A C(.age) suffix means the file is raw age, a C(.sops.<ext>) component means it is SOPS, and
-    the marker is dropped from the decrypted name - C(db.env.age) becomes C(db.env) and
-    C(config.sops.yaml) becomes C(config.yaml). Anything else is copied through unchanged, so an
-    app may keep a public certificate beside its private key.
-  - C(private/) is a tree copied with its layout, like C(config/) and unlike C(quadlet/), so
-    every file under it is listed, hidden ones and nested ones included, with its path relative
-    to C(private/). Only the base name decides the tool; directory names are mirrored verbatim.
-  - Returns empty rather than raising when the app has no directory or no C(private/). Unlike a
-    C(source) app's tree, which is the whole of what a deploy installs and whose absence would
-    silently prune everything, an app with no private files is the ordinary case, and an
-    C(inline) app may have no directory on the controller at all.
-  - Two files decrypting to one name is reported in RV(_value.errors) rather than raised, so one
-    run reports every problem at once as the role's other validation does.
-  - Runs on the controller as C(fileglob) does; each entry's C(src) is a controller path and
-    RV(_value.installed) are host paths.
+  - Reads an app's C(private/) tree on the controller. The files are copied to the host still
+    encrypted; C(tool) and C(out) only say what the host's decrypt unit will do with each, so
+    a bad name fails the play rather than the unit.
+  - C(*.age) is raw age, C(*.sops.<ext>) is SOPS, and the marker is dropped from the decrypted
+    name. Anything else is copied through. Only the base name decides; directories are
+    mirrored.
+  - Empty rather than raising when there is no directory. Unlike a C(source) app's tree,
+    whose absence would prune everything, having no private files is the normal case.
+  - Two files decrypting to one name go in RV(_value.errors), not an exception, so one run
+    reports every clash.
 positional: private_dir
 options:
   _input:
@@ -59,9 +48,9 @@ _value:
   contains:
     files:
       description:
-        - One entry per file, as C(src) (controller path), C(path) (relative to C(private/)),
-          C(tool) (C(age), C(sops) or C(copy)) and C(out) (the decrypted path, relative to the
-          app's runtime private directory).
+        - Per file - C(src) (controller path), C(path) (relative to C(private/)), C(tool)
+          (C(age), C(sops) or C(copy)) and C(out) (decrypted path, relative to the runtime
+          private directory).
       type: list
       elements: dict
     dir:
@@ -94,10 +83,8 @@ EXAMPLES = r"""
 """
 
 # --- shared with roles/systemd_app/files/helpers/homelab_decrypt_private.py -------------
-#
-# The helper applies these on the host at unit start and this filter applies them on the
-# controller, so a collision is a failed play rather than a failed unit. Keep the two copies
-# identical; one table of cases in tests/unit/conftest.py runs against both.
+# Duplicated so the controller and the host apply one rule. Keep identical; ACTION_CASES in
+# tests/unit/conftest.py runs against both.
 
 _AGE_SUFFIX = ".age"
 _SOPS_MARKER = ".sops."
@@ -181,15 +168,14 @@ def _tree_files(directory: str) -> list[str]:
     for root, _dirs, names in os.walk(directory):
         for name in names:
             path = os.path.join(root, name)
-            # os.walk lists a symlink to a file among the files and one to a directory among
-            # the dirs; only the former is a file the copy installs.
+            # isfile, so a symlink to a directory is not counted as one of its files.
             if os.path.isfile(path):
                 found.append(os.path.relpath(path, directory))
     return sorted(found)
 
 
 class FilterModule:
-    """Discovery of what an app keeps encrypted, and what it becomes on the host."""
+    """Discovery of what an app keeps encrypted."""
 
     def filters(self) -> dict[str, Callable[..., object]]:
         return {"private_tree": private_tree}

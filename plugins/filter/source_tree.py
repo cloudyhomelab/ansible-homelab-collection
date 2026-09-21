@@ -21,22 +21,18 @@ version_added: 1.1.0
 author:
   - binarycodes (@binarycodes)
 description:
-  - Reads one app's directory on the controller and returns the files a C(source) deploy
-    installs, grouped as the role installs them, together with the absolute host paths they
-    land at, which is what the app's install manifest records.
-  - C(quadlet/) and C(unit/) are flat and installed by basename, so only their regular files
-    are listed, hidden ones excluded, as a C(*) glob would. C(config/) is a tree copied with
-    its layout, so every file under it is listed, hidden ones and nested ones included, with
-    its path relative to C(config/).
-  - A symlink to a file counts as a file in every group, because the copy that installs the
-    tree follows symlinks and puts a regular file on the host, and the manifest has to list
-    every file the copy installs or the next deploy prunes something it should have kept.
-  - Raises when the directory does not exist. A glob returns nothing for a missing path, and
-    a deploy that read nothing would install nothing, report success, and prune every path
-    the last deploy recorded.
-  - Runs on the controller as C(fileglob) does; the paths in RV(_value.quadlet_files),
-    RV(_value.unit_files) and each RV(_value.config_files) entry's C(src) are controller
-    paths, and RV(_value.installed) are host paths.
+  - What a C(source) deploy installs from an app's directory, grouped as the role installs it,
+    with the host path each lands at - which is what the install manifest records.
+  - C(quadlet/) and C(unit/) are flat and installed by basename, so they list regular files
+    one level down, hidden ones excluded, as a C(*) glob would. C(config/) is a tree, so every
+    file below it is listed with its path relative to C(config/).
+  - A symlink to a file counts as a file everywhere - the copy follows it and puts a regular
+    file on the host, and a path the copy installs but the manifest omits gets pruned next
+    deploy.
+  - Raises on a missing directory. Returning nothing would install nothing, report success,
+    and prune every path the last deploy recorded.
+  - Runs on the controller; C(src) values are controller paths, RV(_value.installed) are host
+    paths.
 positional: system_dir, unit_dir, config_dir
 options:
   _input:

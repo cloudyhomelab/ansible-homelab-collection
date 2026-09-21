@@ -668,12 +668,12 @@ def app_with(tmp_path, *relpaths):
 
 @pytest.mark.parametrize("name, tool, out", ACTION_CASES)
 def test_the_filters_copy_of_the_rules_matches_the_shared_table(name, tool, out):
-    """The helper on the host and this filter on the controller must not drift apart."""
+    """The host's copy and this one must not drift apart."""
     assert action_for(name) == (tool, out)
 
 
 def test_an_app_with_no_directory_has_no_private_files(tmp_path):
-    """Unlike a source app's tree, whose absence would silently prune everything."""
+    """Unlike source_tree, whose absence would silently prune everything."""
     assert private_tree(str(tmp_path / "nothing-here"), PRIVATE_DIR) == {
         "files": [], "dir": None, "installed": [], "errors": []
     }
@@ -699,7 +699,7 @@ def test_every_file_is_listed_with_what_it_decrypts_to(tmp_path):
 def test_the_host_paths_are_where_the_encrypted_files_land(tmp_path):
     tree = app_with(tmp_path, "db.env.age", "tls/server.key.age")
 
-    # Still encrypted, and still under their own names: what decrypts them is on the host.
+    # Still encrypted and under their own names; what decrypts them is on the host.
     assert tree["installed"] == [
         "/var/app/myapp/private/db.env.age",
         "/var/app/myapp/private/tls/server.key.age",
@@ -727,7 +727,7 @@ def test_two_files_decrypting_to_one_name_are_reported_rather_than_raised(tmp_pa
     assert tree["errors"] == [
         "private/db.env and private/db.env.age both decrypt to private/db.env"
     ]
-    # The files are still described: the role asserts on errors, it does not guess.
+    # Still described: the role asserts on errors rather than guessing.
     assert len(tree["files"]) == 2
 
 
@@ -863,15 +863,10 @@ def test_the_install_dirs_are_composed_from_the_caller(tmp_path):
 
 
 def test_the_molecule_fixture_records_what_the_scenario_expects():
-    """The scenario's oracle for the source app's manifest, checked against the fixture tree
-    it is written for: the two must agree or one of them is wrong.
-
-    Composed here the way roles/systemd_app/defaults/main.yml composes it — what the app
-    ships, plus its private files, plus one drop-in per unit those imply — so the oracle
-    stays an independent check rather than a copy of the role's answer. The private files
-    are not all in the tree: prepare.yml writes the encrypted ones from molecule.yml, so
-    they are read from there, which cross-checks the two scenario files as well.
-    """
+    """The scenario's oracle for the source app's manifest, against the fixture tree it is
+    written for. Composed the way defaults/main.yml composes it, so it stays an independent
+    check; the encrypted private files come from molecule.yml, since prepare.yml writes those
+    rather than the tree carrying them."""
     scenario = pathlib.Path(__file__).resolve().parents[2] / "extensions" / "molecule" / "default"
     verify = yaml.safe_load((scenario / "verify.yml").read_text())
     molecule = yaml.safe_load((scenario / "molecule.yml").read_text())

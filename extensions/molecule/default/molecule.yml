@@ -3,73 +3,56 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# The systemd_app role writes Quadlet files, drives systemctl and calls podman as root,
-# so the target has to be a host with systemd as PID 1 and podman on it — nothing about
-# the role can be exercised against a plain container. Hence one privileged container
-# running /sbin/init, with podman inside it (see Dockerfile.j2).
+# The role needs systemd as PID 1 and podman on the target, so: one privileged container
+# running /sbin/init with podman inside it (see Dockerfile.j2).
 driver:
   name: podman
 
-# One platform, chosen by environment: every family the role's meta/main.yml claims gets a
-# row in .github/workflows/molecule.yml, which sets MOLECULE_DISTRO and MOLECULE_IMAGE, and
-# a local run without either gets Fedora. One scenario rather than one per family, so the
-# converge, verify and side-effect plays cannot drift apart between platforms.
+# One platform chosen by environment; the workflow sets MOLECULE_DISTRO and MOLECULE_IMAGE per
+# family, a local run without either gets Fedora. One scenario, so the plays cannot drift apart
+# between platforms.
 platforms:
   - name: systemd-app-${MOLECULE_DISTRO:-fedora}
-    # The newest released Fedora, and released is the load-bearing word: 44 is what
-    # `latest` currently points at and 45 is rawhide, neither of which carries a version
-    # label. Rawhide is already on Python 3.15, which dropped `dataclasses._is_type` — and
-    # ansible-core patches that function unconditionally when module_utils is imported
-    # (compat/typing.py, through an unguarded getattr, in 2.19 through 2.21 alike). On such
-    # a target every module dies before it runs, which surfaces as "Module result
-    # deserialization failed: No start of json char found" rather than as a version
-    # problem. Bump this only to a tag that has shipped. The Debian image is pinned in the
-    # workflow's matrix, next to this one's row.
+    # Bump only to a tag that has shipped. Rawhide is on Python 3.15, which dropped
+    # `dataclasses._is_type`; ansible-core patches that unconditionally on module_utils import
+    # (2.19-2.21), so every module dies before it runs and reports "Module result
+    # deserialization failed" rather than a version problem. Debian's tag is in the workflow.
     image: ${MOLECULE_IMAGE:-quay.io/fedora/fedora:43}
-    # Built from a per-family Dockerfile rather than pulled ready-made: the base images ship
-    # neither systemd nor podman nor python3, and all three are preconditions here. The
+    # Built rather than pulled: the base images ship none of systemd, podman or python3. The
     # driver tags the result molecule_local/<image>, so two families never share a build.
     dockerfile: Dockerfile.${MOLECULE_DISTRO:-fedora}.j2
     pre_build_image: false
-    # Podman turns on its systemd mode when the command is an init, which is what mounts
-    # /run and sets up the cgroup hierarchy the units below need.
+    # An init command turns on podman's systemd mode, which mounts /run and sets up cgroups.
     command: /sbin/init
-    # Rootful podman inside a container needs it: mount, cgroup and namespace operations
-    # that no capability set short of privileged allows. The container is throwaway.
+    # Rootful podman inside a container needs mount, cgroup and namespace operations no
+    # capability set short of privileged allows. The container is throwaway.
     privileged: true
 
-# No roles_path or filter_plugins to set: converge.yml names the role by FQCN and lets
-# ANSIBLE_COLLECTIONS_PATH resolve it, which is what a consuming play does. Molecule does
-# not install the collection under test, so the checkout has to be laid out as one — see
-# this scenario's README.
+# converge.yml names the role by FQCN and lets ANSIBLE_COLLECTIONS_PATH resolve it, as a
+# consuming play does. Molecule does not install the collection, so the checkout has to be laid
+# out as one; see this scenario's README.
 provisioner:
   name: ansible
   inventory:
     group_vars:
       all:
-        # The fixture apps tree, copied out of the scenario by prepare.yml so the
-        # side-effect play can drop a file from it without touching the repository.
+        # Copied out of the scenario by prepare.yml so side_effect.yml can mutate it.
         molecule_fixture_source: "{{ lookup('ansible.builtin.env', 'MOLECULE_SCENARIO_DIRECTORY') }}/apps"
         molecule_apps_dir: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/apps"
-        # A few megabytes, and already on the host by the time any unit starts (prepare.yml
-        # pulls it), so a registry hiccup fails the run before the role is under test.
+        # A few megabytes, pulled by prepare.yml before any unit starts.
         molecule_image: quay.io/libpod/alpine:latest
 
-        # The role's inputs that name the consumer's fleet rather than an app. Set here,
-        # once, exactly as a consuming play sets them.
+        # Fleet-wide role inputs, set once as a consuming play sets them.
         systemd_app_apps_dir: "{{ molecule_apps_dir }}"
         # No netavark in the critical path: see apps/molsource/quadlet/molsource.container.
         systemd_app_network: none
         # Somewhere to write route snippets that is not a real reverse proxy's config tree.
         systemd_app_caddy_confd: /var/app/molproxy/config/conf.d
 
-        # The recipient of sops/age-key.txt, which this scenario encrypts its fixture
-        # secrets to. Only prepare.yml and side_effect.yml use it; the role decrypts.
+        # The recipient of sops/age-key.txt. Only prepare.yml and side_effect.yml use it.
         molecule_sops_recipient: age17svute832444rnpteey2lapzwac3k80efzwcxlm0ypu29c0tvcuq43g9uw
-        # The fixture app's secrets in plaintext, encrypted into the copied app tree by
-        # prepare.yml. Kept here rather than in an encrypted file under version control so
-        # that what the store is asserted to hold is readable next to the assertion, and so
-        # no ciphertext has to be regenerated by hand when a value changes.
+        # Plaintext here rather than an encrypted file under version control, so what the
+        # store is asserted to hold is readable next to the assertion.
         molecule_secrets:
           molsecret-token: first-token-value
           molsecret-extra: second-value
@@ -78,13 +61,9 @@ provisioner:
         molecule_secrets_rotated:
           molsecret-token: rotated-token-value
 
-        # The fixture private files, in plaintext, encrypted into the copied app tree by
-        # prepare.yml for the same reason the secrets above are: what the host is asserted
-        # to decrypt to is then readable next to the assertion. `tool` is what the file's
-        # name tells the host's decrypt unit to use, and `out` what it decrypts to — both
-        # named here so verify.yml asserts against the intent rather than re-deriving the
-        # rule under test. The plaintext member of the tree is committed instead
-        # (apps/molsource/private/ca.crt): there is nothing to encrypt about it.
+        # Same argument as the secrets above. `tool` and `out` are named rather than derived,
+        # so verify.yml asserts against the intent and not against the rule under test. The
+        # tree's plaintext member is committed instead (apps/molsource/private/ca.crt).
         molecule_private_files:
           - app: molsource
             path: db.env.age
@@ -102,18 +81,15 @@ provisioner:
             out: tls.key
             content: "not-really-a-key\n"
 
-# sops finds the identity through its own environment variable, not through an option on
-# the task: the call that needs it is the role's own community.sops.load_vars, and a
-# consumer supplies the key the same way. Interpolated by molecule, which resolves
-# MOLECULE_* before the provisioner runs; prepare.yml asserts the result is a real file, so
-# a config that failed to interpolate says so instead of failing later inside sops.
+# sops finds the identity through its own environment variable, as a consumer supplies it.
+# Interpolated by molecule before the provisioner runs; prepare.yml asserts the result is a
+# real file, so a failed interpolation says so rather than failing later inside sops.
 ansible:
   env:
     SOPS_AGE_KEY_FILE: ${MOLECULE_SCENARIO_DIRECTORY}/sops/age-key.txt
 
-# verify runs before side_effect, unlike the default sequence: verify asserts what a
-# converge leaves behind, and side_effect then walks the app through the rest of its
-# lifecycle — prune, kind flip, decommission — asserting each step as it goes.
+# verify before side_effect, unlike the default sequence: verify asserts what a converge
+# leaves, then side_effect walks the app through the rest of its life, asserting each step.
 scenario:
   test_sequence:
     - destroy

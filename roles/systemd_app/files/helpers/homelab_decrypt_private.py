@@ -2,17 +2,11 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The decrypt helper, installed to the host as ``/usr/local/libexec/homelab-decrypt-private``.
+"""Installed to the host as ``/usr/local/libexec/homelab-decrypt-private``.
 
-Run by ``homelab-private-decrypt@<app>.service`` at unit start, never by Ansible and never on
-the controller: it turns the encrypted tree the role copied to ``/var/app/<app>/private`` into
-plaintext under the unit's ``RuntimeDirectory``, which is tmpfs and goes when the unit stops.
-
-The top level defines functions and nothing else, so importing this module runs nothing. The
-three pure functions below are duplicated verbatim in ``plugins/filter/private_tree.py``, which
-applies them on the controller so a name collision fails the play rather than this unit; one
-table of cases in ``tests/unit/conftest.py`` runs against both copies, so a rule changed in one
-and not the other fails.
+Run by ``homelab-private-decrypt@<app>.service`` at unit start: decrypts
+``/var/app/<app>/private`` into the unit's ``RuntimeDirectory``, which is tmpfs and goes when
+the unit stops. Never runs on the controller.
 """
 
 from __future__ import annotations
@@ -22,7 +16,9 @@ import subprocess
 import sys
 from collections.abc import Iterable, Sequence
 
-# --- shared with plugins/filter/private_tree.py; keep the two identical -----------------
+# --- shared with plugins/filter/private_tree.py ------------------------------------------
+# Duplicated so the controller and the host apply one rule. Keep identical; ACTION_CASES in
+# tests/unit/conftest.py runs against both.
 
 _AGE_SUFFIX = ".age"
 _SOPS_MARKER = ".sops."
@@ -64,14 +60,14 @@ def collisions(relpaths: Iterable[str]) -> list[str]:
 
 
 class DecryptError(Exception):
-    """A failure to report on stderr and exit non-zero for, rather than a traceback."""
+    """Reported on stderr with a non-zero exit, rather than as a traceback."""
 
 
 class Runner:
     """Every external command the helper runs, so the tests drive it against a fake."""
 
     def run(self, argv: Sequence[str], env: dict[str, str]) -> bytes:
-        """The command's stdout, or DecryptError naming what failed and why."""
+        """The command's stdout, or DecryptError naming what failed."""
         try:
             proc = subprocess.Popen(
                 list(argv), stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
@@ -90,20 +86,19 @@ class Runner:
 
 
 def sources(src_dir: str) -> list[str]:
-    """Every file under private/, as paths relative to it, sorted. Hidden ones included."""
+    """Every file under private/, hidden ones included, as sorted relative paths."""
     found: list[str] = []
     for root, _dirs, names in os.walk(src_dir):
         for name in names:
             path = os.path.join(root, name)
-            # os.walk lists a symlink to a file among the files and one to a directory among
-            # the dirs; only the former is something to decrypt.
+            # isfile, so a symlink to a directory is not counted as one of its files.
             if os.path.isfile(path):
                 found.append(os.path.relpath(path, src_dir))
     return sorted(found)
 
 
 def write(path: str, content: bytes) -> None:
-    """Create `path` readable only by its owner, then fill it - never the other way round."""
+    """Create `path` 0600 *then* fill it, never the other way round."""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as handle:
         handle.write(content)
@@ -119,8 +114,8 @@ def decrypt(src_dir: str, dst_dir: str, key_file: str, runner: Runner) -> list[s
             "changed since it was installed." % src_dir
         )
 
-    # sops takes the identity from the environment; age is told on the command line. Both
-    # inherit PATH, and nothing else: a oneshot unit's environment is not a place to leak from.
+    # sops takes the identity from the environment, age on the command line. PATH and nothing
+    # else is handed down.
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "SOPS_AGE_KEY_FILE": key_file}
 
     written: list[str] = []
@@ -141,8 +136,8 @@ def decrypt(src_dir: str, dst_dir: str, key_file: str, runner: Runner) -> list[s
                 with open(src, "rb") as handle:
                     write(dst, handle.read())
     except Exception:
-        # A half-filled private directory is worse than an empty one: the unit failing is
-        # what stops the app starting against files that are not all there.
+        # All of them or none: the unit failing is what stops the app starting on a partial
+        # tree.
         for path in written:
             try:
                 os.unlink(path)
@@ -160,7 +155,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     app = args[0]
 
     src_dir = os.environ.get("SYSTEMD_APP_PRIVATE_SRC") or "/var/app/%s/private" % app
-    # systemd sets both. RUNTIME_DIRECTORY is a colon-separated list; the unit declares one.
+    # RUNTIME_DIRECTORY is a colon-separated list; the unit declares one.
     runtime = os.environ.get("RUNTIME_DIRECTORY", "").split(":")[0]
     credentials = os.environ.get("CREDENTIALS_DIRECTORY", "")
 

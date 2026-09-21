@@ -18,25 +18,14 @@ author:
   - binarycodes (@binarycodes)
 description:
   - Checks a domain, upstream and port before they are written into a Caddy site block.
-  - What this guards is interpolation. The three values are written into a config file rather
-    than passed to a module, so a stray character does not fail the task that writes them.
-    The Caddyfile imports every app's snippet, so a value carrying a brace, a comment
-    character or a newline does not merely break this route - it stops Caddy loading any of
-    them, taking every other app's route down with one bad domain.
-  - Never raises, and returns one string per problem rather than stopping at the first, so a
-    typo at a call site is reported in full and fixed in one pass.
-  - Called C(route_problems) from 1.0.0; that name redirects here with a deprecation warning
-    and is removed in 2.0.0.
-  - Matching uses C(re.fullmatch) rather than a C($)-anchored C(re.match), because C($) also
-    matches just before a trailing newline - a hostname of V(example.com\n) would pass a C($)
-    pattern and then break the site block it composes.
-  - The domain must be a hostname of at least two labels, optionally wildcarded. Two labels
-    because the value becomes a site that will try to get a public certificate for itself,
-    and no CA issues one for a single label - so a bare name is a typo, caught here rather
-    than in a certificate loop.
-  - Length limits are checked as well as shape - 253 characters overall and 63 per label, as
-    DNS requires. A name over either is not resolvable, so no certificate could be issued
-    for it.
+  - Guards interpolation. These go into a config file, not a module, so a stray character
+    fails nothing at write time; and the Caddyfile imports every app's snippet, so one brace,
+    comment character or newline stops Caddy loading all of them.
+  - Never raises; one string per problem, so a typo is fixed in one pass.
+  - Called C(route_problems) from 1.0.0; that name redirects here and is removed in 2.0.0.
+  - C(re.fullmatch), not a C($) anchor, which would let V(example.com\n) through.
+  - At least two labels, optionally wildcarded - the site asks a CA for its own certificate
+    and none issues one for a single label. Lengths checked too, 253 overall and 63 per label.
 positional: upstream, port
 options:
   _input:

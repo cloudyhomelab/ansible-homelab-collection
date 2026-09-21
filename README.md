@@ -2,8 +2,8 @@
 
 Deploys Podman [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)
 apps and plain systemd units on a host, with an optional Caddy route, install-manifest
-reconciliation so a renamed or deleted file does not linger, and SOPS-encrypted podman
-secrets.
+reconciliation so a renamed or deleted file does not linger, SOPS-encrypted podman secrets,
+and encrypted per-app files decrypted into tmpfs at unit start.
 
 ## Contents
 
@@ -44,16 +44,15 @@ collections:
 ansible-galaxy collection install -r requirements.yml
 ```
 
-`community.sops` comes with it — the role calls `community.sops.load_vars` for any app that
-ships a `secrets.sops.yaml`, and decrypting one also needs the `sops` binary and a key on
-the controller.
+`community.sops` comes with it, for any app that ships a `secrets.sops.yaml`; decrypting one
+also needs the `sops` binary and a key on the controller. An app with encrypted `private/`
+files needs `age` and `sops` on the *target*, which is where those are decrypted.
 
 ## Use
 
-The role runs once per app, in a play that is privileged: it writes root-owned files,
-calls `podman` against the root store and drives system units. Rootful podman 4.5 or newer
-(5.0 for an app with a healthcheck), and systemd, are the host's side of the contract —
-in practice Fedora, or Debian 13 and later, which are the platforms it is tested on.
+Once per app, in a privileged play. The host's side of the contract is systemd and rootful
+podman 4.5 or newer, 5.0 for an app with a healthcheck: in practice Fedora, or Debian 13 and
+later, which are the platforms it is tested on.
 
 ```yaml
 - hosts: all
@@ -74,14 +73,13 @@ in practice Fedora, or Debian 13 and later, which are the platforms it is tested
       systemd_app_health_cmd: "wget -qO /dev/null http://127.0.0.1:8080/ || exit 1"
 ```
 
-Every parameter, both kinds, the manifest, routing, secrets and what makes a change take
-effect: [`roles/systemd_app/README.md`](roles/systemd_app/README.md).
+Every parameter, both kinds, the manifest, routing, secrets, private files and what makes a
+change take effect: [`roles/systemd_app/README.md`](roles/systemd_app/README.md).
 
 ## Versioning and changes
 
-[Semantic versioning](https://semver.org): the role's variables and the filters' names and
-return shapes are the collection's public API. What changed in each release is in
-[CHANGELOG.md](CHANGELOG.md).
+[Semantic versioning](https://semver.org): the role's variables and the plugins' names and
+return shapes are the public API. Each release is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 

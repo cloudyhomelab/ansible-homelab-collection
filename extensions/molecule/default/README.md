@@ -89,7 +89,9 @@ MOLECULE_DISTRO=debian MOLECULE_IMAGE=docker.io/library/debian:13 molecule test
 - **Private-files fixture.** Same argument as the secrets: plaintext in `molecule.yml`
   (`molecule_private_files`), each entry naming the tool its file name implies and what it
   decrypts to, so `verify.yml` asserts against the intent and not the rule under test.
-  `prepare.yml` also plays the fleet, installing the age identity at `/etc/homelab/age.key`.
+  `prepare.yml` also plays the fleet, installing the age identity at `/etc/homelab/age.key`,
+  and shares the container's mount propagation, without which a unit's `LoadCredential=`
+  store never leaves the namespace systemd builds it in and the decrypt finds no identity.
 - **Secret assertions** go through `filter_plugins/`: `secret_state` reads
   `podman secret inspect --showsecret` into `{name: {owner, digest, value}}`,
   `declared_secret_state` builds the same from the plaintext with the module's own `digest()`,

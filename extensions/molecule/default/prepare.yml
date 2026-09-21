@@ -24,6 +24,16 @@
       ansible.builtin.debug:
         msg: "{{ molecule_target_python.stdout_lines | map('trim') | select | list }}"
 
+    # systemd builds a unit's LoadCredential= store in a child mount namespace and gets it to
+    # /run/credentials/<unit> by propagation, which it leaves to the container manager rather
+    # than marking / shared itself when it was not the kernel that booted it. Podman's default
+    # is private, so the store dies with that child and the decrypt unit finds an empty
+    # $CREDENTIALS_DIRECTORY and no age identity, with nothing in the journal to say why.
+    - name: Share mount propagation, as a host booted by the kernel has it
+      ansible.builtin.command:
+        argv: [mount, --make-rshared, /]
+      changed_when: true
+
     # Copied out of the scenario so side_effect.yml can drop a file from an app's tree without
     # editing one under version control.
     - name: Copy the fixture app tree where a converge may mutate it

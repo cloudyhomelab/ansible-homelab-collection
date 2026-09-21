@@ -21,6 +21,8 @@
       # Deployed with systemd_app_enable_units and decommissioned without: the case a teardown
       # driven only by the caller's unit names cannot stop.
       - {name: molorphan, kind: source}
+      # Never started by the role at all, only by hand in the stage below.
+      - {name: molquiet, kind: source}
       # Refused before anything reached the host, so decommissioning it must stay green.
       - {name: molclaim, kind: inline}
 
@@ -192,6 +194,90 @@
           {{ molecule_after_drop.results | selectattr('stat.exists')
              | map(attribute='item') | list }}; units
           {{ molecule_after_drop_units.results | map(attribute='stdout') | list }}.
+        quiet: true
+
+    # --- an app the role never starts: brought up by hand, then a private file rotated ----
+    # Nothing so far has started molquiet, because its call names no systemd_app_enable_units.
+    # Starting it by hand is what an operator does with a 'source' app, and it is the only way
+    # to reach what the decrypt's try-restart is for: an instance that IS running when the next
+    # deploy changes a private file. Requires= is what pulls the decrypt in here; the role is
+    # not involved.
+    - name: Start the app the converge left alone
+      ansible.builtin.systemd:
+        name: molquiet.service
+        state: started
+
+    - name: Ask the hand-started container to read its private file
+      ansible.builtin.command:
+        argv: [podman, exec, molquiet, cat, /etc/molquiet/token]
+      changed_when: false
+      register: molecule_quiet_first
+
+    - name: Re-encrypt the quiet app's private file with a new value
+      ansible.builtin.command:
+        argv:
+          - age
+          - --encrypt
+          - --recipient
+          - "{{ molecule_sops_recipient }}"
+          - --output
+          - "{{ molecule_apps_dir }}/molquiet/private/token.age"
+        stdin: "{{ molecule_private_quiet.rotated }}"
+      changed_when: true
+      delegate_to: localhost
+      become: false
+
+    - name: Re-deploy the app whose units the call still does not name
+      ansible.builtin.include_role:
+        name: binarycodes.homelab.systemd_app
+      vars:
+        systemd_app_kind: source
+        systemd_app_name: molquiet
+
+    # This restart is systemd's, not the role's: the deploy returns once the decrypt instance
+    # has restarted, and the app's own restart is a job PartOf= put in the same transaction.
+    # So the job exists by now and waiting for the queue to drain is a wait, not a poll for
+    # something that may never be enqueued.
+    - name: Wait for the jobs the re-deploy propagated to drain
+      ansible.builtin.command:
+        argv: [systemctl, list-jobs, --no-legend]
+      changed_when: false
+      register: molecule_quiet_jobs
+      until: molecule_quiet_jobs.stdout_lines | select('search', 'molquiet') | list | length == 0
+      retries: 30
+      delay: 2
+
+    - name: Ask the container to read its private file after the rotation
+      ansible.builtin.command:
+        argv: [podman, exec, molquiet, cat, /etc/molquiet/token]
+      changed_when: false
+      register: molecule_quiet_rotated
+
+    - name: Ask systemd for the state of the hand-started app and its decrypt
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "{{ item }}"]
+      loop:
+        - molquiet.service
+        - homelab-private-decrypt@molquiet.service
+      changed_when: false
+      failed_when: false
+      register: molecule_quiet_units
+
+    - name: Assert the running app was carried onto the re-made runtime directory
+      ansible.builtin.assert:
+        that:
+          # The hand start pulled the decrypt in, so the first read is the original value.
+          - molecule_quiet_first.stdout == (molecule_private_quiet.first | trim)
+          # And the deploy reached a container the role never names.
+          - molecule_quiet_rotated.stdout == (molecule_private_quiet.rotated | trim)
+          - molecule_quiet_units.results | rejectattr('stdout', 'equalto', 'active')
+            | list | length == 0
+        fail_msg: >-
+          Read {{ molecule_quiet_first.stdout | default('') }} before the rotation and
+          {{ molecule_quiet_rotated.stdout | default('') }} after it, wanting
+          {{ molecule_private_quiet.rotated | trim }}; units
+          {{ molecule_quiet_units.results | map(attribute='item')
+             | zip(molecule_quiet_units.results | map(attribute='stdout')) | list }}.
         quiet: true
 
     # --- the same app, converted to the other kind -------------------------------------
@@ -493,9 +579,13 @@
         - /etc/containers/systemd/molecule.network
         - /var/app/molproxy/config/conf.d/molsource.caddy
         - /var/app/molproxy/config/conf.d/molinline.caddy
-        # The last app with private files: its drop-in and tmpfs tree go with it.
+        # The apps still holding private files by teardown: drop-ins and tmpfs trees go too.
         - /etc/systemd/system/molinline.service.d
         - /run/app/molinline
+        - /etc/systemd/system/molquiet.service.d
+        - /run/app/molquiet
+        - /var/app/molquiet
+        - /etc/containers/systemd/molquiet.container
       register: molecule_after_absent
 
     # In no app's manifest, so no app's decommission removes them.
@@ -516,6 +606,9 @@
         - molsecret.service
         - molorphan.service
         - homelab-private-decrypt@molinline.service
+        # Started by hand, so its teardown works only from what the manifest recorded.
+        - molquiet.service
+        - homelab-private-decrypt@molquiet.service
       changed_when: false
       failed_when: false
       register: molecule_absent_units

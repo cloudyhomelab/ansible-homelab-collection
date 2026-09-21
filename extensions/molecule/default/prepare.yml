@@ -188,6 +188,30 @@
       delegate_to: localhost
       become: false
 
+    # Its own tasks rather than another entry above, because molecule_private_files is what
+    # verify.yml reads out of /run and this app's file must not be there after a converge.
+    - name: Create the quiet app's private directory in the copied tree
+      ansible.builtin.file:
+        path: "{{ molecule_apps_dir }}/molquiet/private"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+
+    - name: Encrypt the quiet app's private file with age
+      ansible.builtin.command:
+        argv:
+          - age
+          - --encrypt
+          - --recipient
+          - "{{ molecule_sops_recipient }}"
+          - --output
+          - "{{ molecule_apps_dir }}/molquiet/private/token.age"
+        stdin: "{{ molecule_private_quiet.first }}"
+      changed_when: true
+      delegate_to: localhost
+      become: false
+
     # Units are ordered after basic.target, so a converge racing the boot sees them queued
     # rather than started. 'degraded' is expected: the image masks what a container cannot run.
     #

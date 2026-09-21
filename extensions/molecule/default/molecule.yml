@@ -81,6 +81,13 @@ provisioner:
             out: tls.key
             content: "not-really-a-key\n"
 
+        # Deliberately not in the list above: verify.yml reads that one out of /run, and this
+        # app's decrypt is asserted never to have run, because the call names no units for it.
+        # side_effect.yml starts it by hand and re-encrypts `rotated` over `first`.
+        molecule_private_quiet:
+          first: "first-token\n"
+          rotated: "rotated-token\n"
+
 # sops finds the identity through its own environment variable, as a consumer supplies it.
 # Interpolated by molecule before the provisioner runs; prepare.yml asserts the result is a
 # real file, so a failed interpolation says so rather than failing later inside sops.

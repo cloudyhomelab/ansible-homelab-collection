@@ -35,6 +35,11 @@
       - /var/app/molproxy/config/conf.d/molinline.caddy
       - /etc/containers/systemd/molsecret.container
       - /etc/containers/systemd/molorphan.container
+      # Installed in full although the call named no units to start.
+      - /etc/containers/systemd/molquiet.container
+      - /var/app/molquiet/private/token.age
+      - /etc/systemd/system/molquiet.service.d/10-private.conf
+      - /var/app/molquiet/.install-manifest
     # What a later deploy reconciles against: an entry missing here is a file that would
     # survive forever, an extra one a file deleted from under another app.
     molecule_expected_source_manifest:
@@ -388,6 +393,36 @@
             == (molecule_private_files | selectattr('app', 'equalto', 'molinline')
                 | first).content | trim
         fail_msg: "Container read {{ molecule_container_private.stdout | quote }}."
+        quiet: true
+
+    # The app the converge was never asked to start. An inactive decrypt instance is the whole
+    # of the try-restart: the role found it stopped and left it that way, so no plaintext was
+    # written for an app that is not running.
+    - name: Ask systemd for the state of the app whose units the call did not name
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "{{ item }}"]
+      loop:
+        - molquiet.service
+        - homelab-private-decrypt@molquiet.service
+      changed_when: false
+      failed_when: false
+      register: molecule_quiet_state
+
+    - name: Stat the runtime tree the quiet app's decrypt would have made
+      ansible.builtin.stat:
+        path: /run/app/molquiet
+      register: molecule_quiet_runtime
+
+    - name: Assert the quiet app was deployed, not started, and decrypted nothing
+      ansible.builtin.assert:
+        that:
+          - molecule_quiet_state.results | selectattr('stdout', 'equalto', 'active')
+            | list | length == 0
+          - not molecule_quiet_runtime.stat.exists
+        fail_msg: >-
+          {{ molecule_quiet_state.results | map(attribute='item')
+             | zip(molecule_quiet_state.results | map(attribute='stdout')) | list }};
+          /run/app/molquiet exists: {{ molecule_quiet_runtime.stat.exists }}.
         quiet: true
 
     - name: Ask systemd for the state of the managed units

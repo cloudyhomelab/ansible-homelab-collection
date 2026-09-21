@@ -24,6 +24,8 @@ destroy`. `verify` before `side_effect`, because it asserts what the converge le
 | `private/` lands on the host still encrypted, decrypts into `/run/app/<app>/private` under the name its suffix promises, mirrors subdirectories, keeps a plaintext member as it is, and is 0600 in a 0700 tree | `verify` | `molsource`, `molinline` |
 | Every unit an app installs gets a drop-in ordering it after that app's own decrypt instance, for either kind | `verify` | `molsource`, `molinline` |
 | A call site mounts a decrypted file where its image wants it, and the container reads it | `verify` | `molinline` |
+| An app whose call names no units is deployed but not started, and its decrypt instance is left inactive, so nothing is decrypted for an app that is not running | `verify` | `molquiet` |
+| A private file changed under an app started by hand reaches its container: the role restarts only the decrypt, and `PartOf=` carries that to a unit the role never names | `side_effect` | `molquiet` |
 | A renamed private file leaves both the host copy and the old decrypted name; dropping `private/` prunes the copies, the drop-ins and the directories they emptied, and stops the app's decrypt instance without disturbing another app's | `side_effect` | `molsource`, `molinline` |
 | The shared decrypt unit and its helper survive every app being decommissioned | `side_effect` | all |
 | Converting `source` → `inline` prunes what the other kind installed, disables the pruned plain unit before its file goes, and restarts from the rendered Quadlet | `side_effect` | `molsource` |
@@ -32,12 +34,16 @@ destroy`. `verify` before `side_effect`, because it asserts what the converge le
 | `absent` removes everything the apps owned, secrets included, stops a `source` app's container without being told its unit name, leaves no dangling `.wants` symlink, spares another app's secret, and stays green when repeated | `side_effect` | all |
 
 Fixtures under `apps/` are `molnet` (a network unit, installed but never joined:
-`Network=none` throughout keeps netavark out of every run), `molsource`, and `molorphan`
-(deployed with `systemd_app_enable_units`, decommissioned without). `molinline`, `molsecret`,
-`molclaim` and `molclash` exist only as role calls; `molsecret`'s single encrypted file and
-both apps' encrypted `private/` files are written by `prepare.yml`. The one committed member
-of a `private/` tree is `molsource/private/ca.crt`, which is encrypted with neither tool and
-so is copied straight through.
+`Network=none` throughout keeps netavark out of every run), `molsource`, `molorphan`
+(deployed with `systemd_app_enable_units`, decommissioned without) and `molquiet` (deployed
+with none, so the role starts nothing for it and `side_effect.yml` starts it by hand).
+`molinline`, `molsecret`, `molclaim` and `molclash` exist only as role calls; `molsecret`'s
+single encrypted file and every app's encrypted `private/` files are written by `prepare.yml`.
+The one committed member of a `private/` tree is `molsource/private/ca.crt`, which is
+encrypted with neither tool and so is copied straight through.
+
+`molquiet`'s file is kept out of `molecule_private_files`, which `verify.yml` reads out of
+`/run`: the assertion about that app is that nothing of its is there at all.
 
 ## Running it
 

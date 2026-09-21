@@ -43,6 +43,13 @@
       systemd_app_enable_units:
         - molorphan.service
 
+    # No systemd_app_enable_units, so the role installs its files and starts nothing. The only
+    # fixture whose decrypt instance a converge leaves inactive, which is what the decrypt's
+    # try-restart is for; side_effect.yml starts it by hand and then rotates its private file.
+    - role: binarycodes.homelab.systemd_app
+      systemd_app_kind: source
+      systemd_app_name: molquiet
+
     - role: binarycodes.homelab.systemd_app
       systemd_app_kind: inline
       systemd_app_name: molinline

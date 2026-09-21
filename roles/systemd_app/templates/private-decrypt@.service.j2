@@ -5,8 +5,8 @@
 Description=Decrypt the private files of app %i
 # No Condition*: a skipped unit still satisfies Requires=, so a host without the key would
 # start the app against an empty private directory instead of not starting it. Assert* fails
-# the start job naming the key; LoadCredential= below fails it too, but reports only
-# 243/CREDENTIALS.
+# the start job naming the key; LoadCredential= below fails it too, but only throws error
+# code 243.
 AssertPathExists={{ systemd_app_private_key_file }}
 
 [Service]

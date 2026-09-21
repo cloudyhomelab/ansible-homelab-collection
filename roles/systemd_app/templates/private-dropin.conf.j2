@@ -1,0 +1,13 @@
+{# Copyright (c) 2026 binarycodes
+   GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+   SPDX-License-Identifier: GPL-3.0-or-later #}
+# Written by the binarycodes.homelab.systemd_app role. A drop-in rather than a line in the
+# unit itself: a 'source' app's Quadlet is installed verbatim and an 'inline' app's is
+# rendered without a [Unit] escape hatch, and a drop-in under /etc overrides what the Quadlet
+# generator produces just as it overrides a plain unit.
+[Unit]
+After={{ systemd_app_private_unit }}@{{ systemd_app_name }}.service
+# Requires=, not Wants=: files that are not there are not a degraded start, they are a wrong
+# one. This also propagates a restart, so re-running the decrypt re-creates the container
+# against the new tmpfs tree rather than leaving it mounted on the old one.
+Requires={{ systemd_app_private_unit }}@{{ systemd_app_name }}.service

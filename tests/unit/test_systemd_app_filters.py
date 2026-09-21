@@ -19,16 +19,19 @@ import pytest
 import yaml
 from ansible.errors import AnsibleFilterError
 
+from conftest import ACTION_CASES
+
 # Through the checkout root, which pytest.ini puts on sys.path; mypy resolves the same
 # names to the same files, so every call below is checked against the filter's signature.
 from plugins.filter.app_validation_errors import app_validation_errors
 from plugins.filter.container_validation_errors import container_validation_errors
-from plugins.filter.manifest_units import manifest_units
+from plugins.filter.private_tree import action_for, private_tree
 from plugins.filter.reconcile_secrets import reconcile_secrets
 from plugins.filter.route_validation_errors import route_validation_errors
 from plugins.filter.secret_digests import secret_digests
 from plugins.filter.source_tree import source_tree
 from plugins.filter.systemd_env_lines import systemd_env_lines
+from plugins.filter.unit_names import unit_names
 
 
 def digest(value):
@@ -560,14 +563,14 @@ def test_every_scalar_the_inline_template_interpolates_reaches_the_filter():
     assert interpolated - checked == set()
 
 
-# --- manifest_units --------------------------------------------------------------------
+# --- unit_names ------------------------------------------------------------------------
 
 SYSTEM_DIR = "/etc/containers/systemd"
 UNIT_DIR = "/etc/systemd/system"
 
 
 def units(paths):
-    return manifest_units(paths, SYSTEM_DIR, UNIT_DIR)
+    return unit_names(paths, SYSTEM_DIR, UNIT_DIR)
 
 
 @pytest.mark.parametrize(
@@ -640,11 +643,99 @@ def test_the_manifest_a_source_app_records():
 
 def test_the_install_dirs_are_taken_from_the_caller():
     """Both are role variables, so a fleet that moved them must still tear down."""
-    assert manifest_units(
+    assert unit_names(
         ["/srv/quadlet/app.container", "/srv/units/app-extra.service"],
         "/srv/quadlet",
         "/srv/units",
     ) == ["app-extra.service", "app.service"]
+
+
+# --- private_tree ------------------------------------------------------------------------
+
+PRIVATE_DIR = "/var/app/myapp/private"
+
+
+def app_with(tmp_path, *relpaths):
+    """An app directory whose private/ holds these files, and the filter's answer for it."""
+    for relpath in relpaths:
+        path = tmp_path / "myapp" / "private" / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("cipher")
+    (tmp_path / "myapp").mkdir(exist_ok=True)
+    return private_tree(str(tmp_path / "myapp"), PRIVATE_DIR)
+
+
+@pytest.mark.parametrize("name, tool, out", ACTION_CASES)
+def test_the_filters_copy_of_the_rules_matches_the_shared_table(name, tool, out):
+    """The helper on the host and this filter on the controller must not drift apart."""
+    assert action_for(name) == (tool, out)
+
+
+def test_an_app_with_no_directory_has_no_private_files(tmp_path):
+    """Unlike a source app's tree, whose absence would silently prune everything."""
+    assert private_tree(str(tmp_path / "nothing-here"), PRIVATE_DIR) == {
+        "files": [], "dir": None, "installed": [], "errors": []
+    }
+
+
+def test_an_app_with_no_private_directory_has_no_private_files(tmp_path):
+    (tmp_path / "myapp").mkdir()
+    assert app_with(tmp_path) == {"files": [], "dir": None, "installed": [], "errors": []}
+
+
+def test_every_file_is_listed_with_what_it_decrypts_to(tmp_path):
+    tree = app_with(tmp_path, "db.env.age", "config.sops.yaml", "ca.crt")
+
+    assert [(f["path"], f["tool"], f["out"]) for f in tree["files"]] == [
+        ("ca.crt", "copy", "ca.crt"),
+        ("config.sops.yaml", "sops", "config.yaml"),
+        ("db.env.age", "age", "db.env"),
+    ]
+    assert tree["dir"] == str(tmp_path / "myapp" / "private")
+    assert tree["errors"] == []
+
+
+def test_the_host_paths_are_where_the_encrypted_files_land(tmp_path):
+    tree = app_with(tmp_path, "db.env.age", "tls/server.key.age")
+
+    # Still encrypted, and still under their own names: what decrypts them is on the host.
+    assert tree["installed"] == [
+        "/var/app/myapp/private/db.env.age",
+        "/var/app/myapp/private/tls/server.key.age",
+    ]
+
+
+def test_the_tree_is_walked_and_hidden_files_are_kept(tmp_path):
+    tree = app_with(tmp_path, ".env.age", "tls/chain/ca.crt")
+
+    assert [f["path"] for f in tree["files"]] == [".env.age", "tls/chain/ca.crt"]
+
+
+def test_a_symlink_to_a_file_counts_as_a_file(tmp_path):
+    app_with(tmp_path, "real.env.age")
+    link = tmp_path / "myapp" / "private" / "linked.env.age"
+    link.symlink_to(tmp_path / "myapp" / "private" / "real.env.age")
+
+    tree = private_tree(str(tmp_path / "myapp"), PRIVATE_DIR)
+    assert [f["path"] for f in tree["files"]] == ["linked.env.age", "real.env.age"]
+
+
+def test_two_files_decrypting_to_one_name_are_reported_rather_than_raised(tmp_path):
+    tree = app_with(tmp_path, "db.env", "db.env.age")
+
+    assert tree["errors"] == [
+        "private/db.env and private/db.env.age both decrypt to private/db.env"
+    ]
+    # The files are still described: the role asserts on errors, it does not guess.
+    assert len(tree["files"]) == 2
+
+
+def test_the_private_directory_is_taken_from_the_caller(tmp_path):
+    (tmp_path / "myapp" / "private").mkdir(parents=True)
+    (tmp_path / "myapp" / "private" / "a.age").write_text("cipher")
+
+    tree = private_tree(str(tmp_path / "myapp"), "/srv/state/myapp/private")
+    assert tree["installed"] == ["/srv/state/myapp/private/a.age"]
 
 
 # --- the fleet as it actually stands ---------------------------------------------------
@@ -772,12 +863,34 @@ def test_the_install_dirs_are_composed_from_the_caller(tmp_path):
 
 def test_the_molecule_fixture_records_what_the_scenario_expects():
     """The scenario's oracle for the source app's manifest, checked against the fixture tree
-    it is written for: the two must agree or one of them is wrong."""
+    it is written for: the two must agree or one of them is wrong.
+
+    Composed here the way roles/systemd_app/defaults/main.yml composes it — what the app
+    ships, plus its private files, plus one drop-in per unit those imply — so the oracle
+    stays an independent check rather than a copy of the role's answer. The private files
+    are not all in the tree: prepare.yml writes the encrypted ones from molecule.yml, so
+    they are read from there, which cross-checks the two scenario files as well.
+    """
     scenario = pathlib.Path(__file__).resolve().parents[2] / "extensions" / "molecule" / "default"
     verify = yaml.safe_load((scenario / "verify.yml").read_text())
+    molecule = yaml.safe_load((scenario / "molecule.yml").read_text())
     expected = verify[0]["vars"]["molecule_expected_source_manifest"]
-    got = source_tree(str(scenario / "apps" / "molsource"), SYSTEM_DIR, UNIT_DIR, "/var/app/molsource/config")
-    assert got["installed"] == sorted(expected)
+
+    app = str(scenario / "apps" / "molsource")
+    shipped = source_tree(app, SYSTEM_DIR, UNIT_DIR, "/var/app/molsource/config")["installed"]
+    committed_private = private_tree(app, "/var/app/molsource/private")["installed"]
+    written_private = [
+        "/var/app/molsource/private/%s" % entry["path"]
+        for entry in molecule["provisioner"]["inventory"]["group_vars"]["all"]["molecule_private_files"]
+        if entry["app"] == "molsource"
+    ]
+    base = shipped + committed_private + written_private
+    dropins = [
+        "%s/%s.d/10-private.conf" % (UNIT_DIR, unit)
+        for unit in unit_names(base, SYSTEM_DIR, UNIT_DIR)
+    ]
+
+    assert sorted(base + dropins) == sorted(expected)
 
 
 # --- systemd_env_lines -----------------------------------------------------------------

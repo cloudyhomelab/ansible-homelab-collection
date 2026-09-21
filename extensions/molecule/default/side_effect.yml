@@ -80,6 +80,124 @@
       vars:
         molecule_recorded: "{{ (molecule_pruned_manifest.content | b64decode).splitlines() }}"
 
+    # --- private files: renamed, then dropped altogether ---------------------------------
+    # The encrypted copy on the host is pruned like any other installed file, but the
+    # plaintext it made is in a RuntimeDirectory only the decrypt unit owns, so the old name
+    # goes from /run only if that unit was restarted. That is what this stage is for.
+    - name: Rename a private file in the fixture app tree
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ molecule_apps_dir }}/molsource/private/db.env.age"
+          - "{{ molecule_apps_dir }}/molsource/private/db-new.env.age"
+      changed_when: true
+      delegate_to: localhost
+      become: false
+
+    - name: Re-deploy the source app over the renamed private file
+      ansible.builtin.include_role:
+        name: binarycodes.homelab.systemd_app
+      vars:
+        systemd_app_kind: source
+        systemd_app_name: molsource
+        systemd_app_enable_units:
+          - molsource.service
+          - molsource-extra.service
+        systemd_app_domain: molsource.molecule.test
+
+    - name: Stat the private files before and after the rename
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /var/app/molsource/private/db.env.age
+        - /var/app/molsource/private/db-new.env.age
+        - /run/app/molsource/private/db.env
+        - /run/app/molsource/private/db-new.env
+        # Untouched by the rename, and still decrypted.
+        - /run/app/molsource/private/nested/conf.yaml
+      register: molecule_after_rename
+
+    - name: Assert the old name went from the host and from the runtime tree
+      ansible.builtin.assert:
+        that:
+          - not molecule_after_rename.results[0].stat.exists
+          - molecule_after_rename.results[1].stat.exists
+          # The decrypt unit was restarted, so its tmpfs tree was rebuilt rather than
+          # keeping the plaintext of a file the app no longer ships.
+          - not molecule_after_rename.results[2].stat.exists
+          - molecule_after_rename.results[3].stat.exists
+          - molecule_after_rename.results[4].stat.exists
+        fail_msg: >-
+          After the rename:
+          {{ molecule_after_rename.results | map(attribute='item')
+             | zip(molecule_after_rename.results | map(attribute='stat.exists')) | list }}.
+        quiet: true
+
+    - name: Drop the private directory from the fixture app tree
+      ansible.builtin.file:
+        path: "{{ molecule_apps_dir }}/molsource/private"
+        state: absent
+      delegate_to: localhost
+      become: false
+
+    - name: Re-deploy the source app with no private files at all
+      ansible.builtin.include_role:
+        name: binarycodes.homelab.systemd_app
+      vars:
+        systemd_app_kind: source
+        systemd_app_name: molsource
+        systemd_app_enable_units:
+          - molsource.service
+          - molsource-extra.service
+        systemd_app_domain: molsource.molecule.test
+
+    - name: Stat what an app that stopped shipping private files must not keep
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /var/app/molsource/private/db-new.env.age
+        # The manifest removes the files; the directories they emptied go with them.
+        - /var/app/molsource/private/nested
+        - /var/app/molsource/private
+        - /etc/systemd/system/molsource.service.d/10-private.conf
+        - /etc/systemd/system/molsource.service.d
+        - /etc/systemd/system/molsource-extra.service.d
+        - /run/app/molsource/private
+        # Another app's files are none of this app's business.
+        - /run/app/molinline/private/tls.key
+        - /etc/systemd/system/homelab-private-decrypt@.service
+      register: molecule_after_drop
+
+    - name: Ask systemd for the state of the app and of its decrypt instance
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "{{ item }}"]
+      loop:
+        - molsource.service
+        - homelab-private-decrypt@molsource.service
+        - homelab-private-decrypt@molinline.service
+      changed_when: false
+      failed_when: false
+      register: molecule_after_drop_units
+
+    - name: Assert the app kept nothing private, and no other app was touched
+      ansible.builtin.assert:
+        that:
+          - molecule_after_drop.results[:7] | rejectattr('stat.exists') | list | length == 7
+          # The shared unit and another app's plaintext are untouched: one app losing its
+          # private files must not disturb every other app on the host.
+          - molecule_after_drop.results[7].stat.exists
+          - molecule_after_drop.results[8].stat.exists
+          - molecule_after_drop_units.results[0].stdout == 'active'
+          # Stopped, which is what took its tmpfs tree away.
+          - molecule_after_drop_units.results[1].stdout != 'active'
+          - molecule_after_drop_units.results[2].stdout == 'active'
+        fail_msg: >-
+          Left behind:
+          {{ molecule_after_drop.results | selectattr('stat.exists')
+             | map(attribute='item') | list }}; units
+          {{ molecule_after_drop_units.results | map(attribute='stdout') | list }}.
+        quiet: true
+
     # --- the same app, converted to the other kind -------------------------------------
     # The role prunes and disables the unit file but cannot stop a unit the app no longer
     # ships, which is a caller's job once (see the role README). Stopped only, not disabled:
@@ -385,7 +503,22 @@
         - /etc/containers/systemd/molecule.network
         - /var/app/molproxy/config/conf.d/molsource.caddy
         - /var/app/molproxy/config/conf.d/molinline.caddy
+        # The last app with private files goes with the rest, so its drop-in, its encrypted
+        # copies and the tmpfs tree its decrypt unit held must all be gone with it.
+        - /etc/systemd/system/molinline.service.d
+        - /run/app/molinline
       register: molecule_after_absent
+
+    # Shared by every app on the host and written identically by each, so they are in no
+    # app's manifest and no app's decommission removes them — the call the role already
+    # makes for podman networks and named volumes.
+    - name: Stat the shared decrypt unit and helper after every app is gone
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/systemd/system/homelab-private-decrypt@.service
+        - /usr/local/libexec/homelab-decrypt-private
+      register: molecule_absent_shared
 
     - name: Ask systemd for the state of the decommissioned units
       ansible.builtin.command:
@@ -395,6 +528,7 @@
         - molinline.service
         - molsecret.service
         - molorphan.service
+        - homelab-private-decrypt@molinline.service
       changed_when: false
       failed_when: false
       register: molecule_absent_units
@@ -427,6 +561,9 @@
       ansible.builtin.assert:
         that:
           - molecule_after_absent.results | selectattr('stat.exists') | list | length == 0
+          # Not removed with the app: one app's teardown must not break every other app's
+          # decrypt on the host.
+          - molecule_absent_shared.results | rejectattr('stat.exists') | list | length == 0
           - molecule_absent_dangling.stdout_lines | length == 0
           - molecule_absent_units.results | selectattr('stdout', 'equalto', 'active')
             | list | length == 0

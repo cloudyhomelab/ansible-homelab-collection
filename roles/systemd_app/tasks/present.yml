@@ -56,6 +56,13 @@
   ansible.builtin.include_tasks: install-source.yml
   when: systemd_app_kind == 'source'
 
+# Either kind may ship private files. Included on the same grounds as install-source.yml
+# above, and before the manifest tasks below so the drop-ins exist by the time it records
+# them. Skipped entirely for the apps that ship none, which is most of them.
+- name: "Install the private files of app {{ systemd_app_name }}"
+  ansible.builtin.include_tasks: install-private.yml
+  when: systemd_app_has_private | bool
+
 # The config copy in install-source.yml creates this, but only for an app that ships a
 # config tree. Every app owns host state below it regardless: the install manifest recorded
 # just below, and for some also a bind-mounted data directory.
@@ -85,6 +92,7 @@
     system_dir: "{{ systemd_app_system_dir }}"
     unit_dir: "{{ systemd_app_unit_dir }}"
     config_dir: "{{ systemd_app_home }}/config"
+    private_dir: "{{ systemd_app_private_dir }}"
   check_mode: true
   changed_when: false
   register: systemd_app_manifest_plan
@@ -114,6 +122,7 @@
     system_dir: "{{ systemd_app_system_dir }}"
     unit_dir: "{{ systemd_app_unit_dir }}"
     config_dir: "{{ systemd_app_home }}/config"
+    private_dir: "{{ systemd_app_private_dir }}"
     owner: "{{ systemd_app_owner }}"
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_file_mode }}"
@@ -179,16 +188,72 @@
 #
 # A pruned config file counts as a config change, since a running app still reads it; a
 # pruned unit file leaves nothing to act on. The manifest module tells the two apart.
+#
+# A changed private file is a restart and not a config change, which is why the module
+# reports it as its own return: the plaintext the app reads lives in a RuntimeDirectory the
+# decrypt unit destroys and re-creates, so reloading would leave the container mounted on a
+# directory that is no longer there. The five terms for it are written out here rather than
+# composed in `vars:`, because a task variable holding a template reaches `bool` unrendered.
 - name: "Decide how this deploy reaches the running units of app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_restart_needed: >-
       {{ (systemd_app_secrets.changed | default(false))
          or (systemd_app_quadlet_render.changed | default(false))
          or (systemd_app_quadlet_install.changed | default(false))
-         or (systemd_app_unit_install.changed | default(false)) }}
+         or (systemd_app_unit_install.changed | default(false))
+         or (systemd_app_private_deploy.changed | default(false))
+         or (systemd_app_dropin_deploy.changed | default(false))
+         or (systemd_app_private_unit_install.changed | default(false))
+         or (systemd_app_helper_install.changed | default(false))
+         or (systemd_app_manifest.private_changed | default(false)) }}
     systemd_app_config_changed: >-
       {{ (systemd_app_config_deploy.changed | default(false))
          or (systemd_app_manifest.config_changed | default(false)) }}
+
+# Before the app's own units, so a decrypt that fails is reported as itself rather than as
+# every unit of the app failing to start against the Requires= in its drop-in. Restarted
+# rather than started when anything about the private files moved: the unit is
+# RemainAfterExit, so it would otherwise stay active from the last deploy and never re-read
+# what this one installed.
+- name: "Decrypt the private files of app {{ systemd_app_name }}"
+  ansible.builtin.systemd:
+    name: "{{ systemd_app_private_unit }}@{{ systemd_app_name }}.service"
+    state: "{{ 'restarted' if systemd_app_restart_needed | bool else 'started' }}"
+  when: systemd_app_has_private | bool
+
+# Restarting the decrypt above stops every unit whose drop-in Requires= it, and systemd does
+# not bring those back by itself. The role's own start task below covers
+# systemd_app_managed_units; this covers the rest, which is a 'source' app that named no
+# units and boots from its Quadlet's [Install] instead. Without it a changed private file
+# would silently leave such an app stopped. `started`, not `restarted`: either the
+# propagation stopped it and this starts it on the new files, or nothing was restarted and
+# there is nothing to do.
+- name: "Start the units the decrypt stopped for app {{ systemd_app_name }}"
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+  loop: "{{ systemd_app_private_units | difference(systemd_app_managed_units) }}"
+  when:
+    - systemd_app_has_private | bool
+    - systemd_app_restart_needed | bool
+
+# An app that used to ship private files and no longer does: its drop-ins and its copies are
+# pruned by the manifest above, but the instance they pulled in keeps running, holding a
+# tmpfs directory of plaintext for files that are gone. Asked only when the manifest just
+# pruned something under private/, which is exactly the app that had them and stopped: every
+# other app would be a systemd call per deploy to stop a unit that was never started.
+- name: "Stop the private decrypt of app {{ systemd_app_name }}"
+  ansible.builtin.systemd:
+    name: "{{ systemd_app_private_unit }}@{{ systemd_app_name }}.service"
+    state: stopped
+  when:
+    - not systemd_app_has_private | bool
+    - systemd_app_manifest.private_changed | default(false) | bool
+  register: systemd_app_private_stop
+  failed_when:
+    - systemd_app_private_stop is failed
+    - "'not loaded' not in (systemd_app_private_stop.msg | default('') | lower)"
+    - "'could not find' not in (systemd_app_private_stop.msg | default('') | lower)"
 
 # Registered for the reload below: the module returns the unit's `systemctl show`
 # properties, so no separate probe is needed to learn whether it can reload.

@@ -31,10 +31,48 @@ COLLECTION = "binarycodes.homelab"
 
 FILTER_FILES = sorted(p for p in FILTER_DIR.glob("*.py") if not p.name.startswith("_"))
 
+HELPER_MODULE = "roles.systemd_app.files.helpers.homelab_decrypt_private"
+
+# The one table of private-file suffix rules, as (file name, tool, decrypted name).
+#
+# The rules are written twice: the decrypt helper applies them on the host at unit start, and
+# plugins/filter/private_tree.py applies them on the controller so a name two files both
+# decrypt to is a failed play rather than a failed unit. Both copies are run against this
+# table, in test_decrypt_private.py and test_systemd_app_filters.py, so a rule changed in one
+# and not the other fails here rather than on a host.
+ACTION_CASES = [
+    ("db.env.age", "age", "db.env"),
+    ("tls.key.age", "age", "tls.key"),
+    ("a.age", "age", "a"),
+    ("config.sops.yaml", "sops", "config.yaml"),
+    ("settings.sops.json", "sops", "settings.json"),
+    ("a.b.sops.c.d", "sops", "a.b.c.d"),
+    ("ca.crt", "copy", "ca.crt"),
+    ("README", "copy", "README"),
+    (".hidden", "copy", ".hidden"),
+    # The marker needs something on both sides of it to be one.
+    ("x.sops", "copy", "x.sops"),
+    (".sops.yaml", "copy", ".sops.yaml"),
+    # A suffix with no name before it is a name, not a suffix.
+    (".age", "copy", ".age"),
+    # One layer comes off, not every layer: this is age around something still SOPS-shaped.
+    ("x.sops.yaml.age", "age", "x.sops.yaml"),
+]
+
 
 def import_filter(path):
     """The module of one plugins/filter/*.py, under the name every other test imports it by."""
     return importlib.import_module(f"plugins.filter.{path.stem}")
+
+
+def import_helper():
+    """The decrypt helper, from the role's files/ where the role ships it to the host from.
+
+    It is a host script, not a plugin, so it is imported by path through the checkout root
+    like the plugins are. Importing it runs nothing: everything below its top level is behind
+    `if __name__ == "__main__"`.
+    """
+    return importlib.import_module(HELPER_MODULE)
 
 
 @pytest.fixture(scope="session")

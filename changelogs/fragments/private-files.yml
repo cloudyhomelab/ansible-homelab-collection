@@ -1,0 +1,44 @@
+minor_changes:
+  - >-
+    The ``systemd_app`` role now installs an app's ``private/`` directory. A file named
+    ``*.age`` or ``*.sops.<ext>`` is copied to the host still encrypted and decrypted into
+    ``/run/app/<app>/private`` at unit start by ``homelab-private-decrypt@<app>.service``,
+    which the role orders every unit the app installs after with a drop-in it writes; any
+    other file in the tree is copied through unchanged. The marker is dropped from the
+    decrypted name, so ``db.env.age`` becomes ``db.env``. Nothing readable is written below
+    ``systemd_app_root`` and the controller never holds the key: the unit reads the age
+    identity from ``/etc/homelab/age.key`` as a systemd credential, and the plaintext lives
+    only in a tmpfs directory systemd destroys when the unit stops. The role renders no
+    ``Volume=`` of its own; mount the files where the image wants them, using
+    ``systemd_app_private_run_dir``. Both kinds of app may have a ``private/`` directory.
+    Deploying one needs ``age`` and ``sops`` on the target host.
+  - >-
+    The filter ``binarycodes.homelab.manifest_units`` is now called
+    ``binarycodes.homelab.unit_names``, and is no longer scheduled for removal. It answers
+    what a deploy is about to install as readily as what a manifest recorded, which the
+    ``units`` return of the ``binarycodes.homelab.install_manifest`` module cannot: that is
+    computed on the host, from what the previous deploy recorded, after the call that would
+    have to be told the answer.
+  - >-
+    ``binarycodes.homelab.install_manifest`` now removes a directory that a prune leaves
+    empty, walking up until a directory still holds something or one of its roots is
+    reached. A directory that is not empty is never removed, so a ``<unit>.d/`` holding a
+    hand-written override, or a config directory holding a file the app still ships,
+    survives. Previously an emptied subdirectory of an app's config tree was left behind
+    until the app was decommissioned.
+  - >-
+    New filter ``private_tree``: what an app keeps encrypted in ``private/``, the host path
+    each file is copied to, and what each decrypts to at unit start. Two files that would
+    decrypt to the same name are reported rather than raised, so one run names every clash.
+  - >-
+    ``binarycodes.homelab.install_manifest`` takes a new required ``private_dir``, records
+    and prunes the app's encrypted ``private/`` tree under it, and reports a prune there as
+    ``private_changed`` rather than ``config_changed``. It also admits a
+    ``<unit>.d/<name>.conf`` drop-in below ``unit_dir``, which nothing else about the
+    allowlist relaxes.
+
+deprecated_features:
+  - >-
+    The filter ``binarycodes.homelab.manifest_units`` is deprecated in favour of
+    ``binarycodes.homelab.unit_names``, which is the same filter under a name that says what
+    it computes. The old name keeps working, with a warning, until it is removed in 2.0.0.

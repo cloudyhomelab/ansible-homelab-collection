@@ -56,14 +56,71 @@
       vars:
         molecule_age_keyfile: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') }}"
 
-    # An 'inline' app that ships secrets has a directory holding just the encrypted file,
-    # which is why this one has no counterpart under the scenario's apps/ tree: git cannot
-    # carry an empty directory, and the file itself is written below rather than committed.
-    - name: Create the fixture secrets app's directory in the copied tree
+    # Private files are decrypted on the target, not here, so the target needs the tools.
+    # Copied from the controller rather than installed on the target: neither distribution
+    # packages sops, and a copy keeps the two ends on one version without a second pinned
+    # download and a checksum per architecture. Both are static binaries. The controller
+    # already needs sops for the app secrets; age is the scenario's one further tool.
+    - name: Look for the decrypt tools on the controller
+      ansible.builtin.shell: command -v age && command -v sops
+      changed_when: false
+      failed_when: false
+      delegate_to: localhost
+      become: false
+      register: molecule_controller_tools
+
+    - name: Assert the controller has age and sops
+      ansible.builtin.assert:
+        that:
+          - molecule_controller_tools.rc == 0
+        fail_msg: >-
+          This scenario needs both age and sops on the controller: sops to encrypt the
+          fixture secrets, age the fixture private files, and both are copied to the target,
+          which is where the role's decrypt unit runs them. Install them and re-run.
+        quiet: true
+      delegate_to: localhost
+      become: false
+
+    - name: Install the decrypt tools on the target
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "/usr/local/bin/{{ item | basename }}"
+        owner: root
+        group: root
+        mode: "0755"
+      loop: "{{ molecule_controller_tools.stdout_lines | map('trim') | select | list }}"
+
+    # The identity the role's shared decrypt unit loads as a systemd credential. The role
+    # never provisions it — how a host comes by its key is the fleet's business — so the
+    # scenario plays the fleet here, putting the same key sops uses on the controller where
+    # the unit's LoadCredential= expects it.
+    - name: Create the directory the host keeps its age identity in
       ansible.builtin.file:
-        path: "{{ molecule_apps_dir }}/molsecret"
+        path: /etc/homelab
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Install the host's age identity where the decrypt unit will load it
+      ansible.builtin.copy:
+        src: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') }}"
+        dest: /etc/homelab/age.key
+        owner: root
+        group: root
+        mode: "0400"
+
+    # An 'inline' app that ships secrets or private files has a directory holding just
+    # those, which is why neither has a counterpart under the scenario's committed apps/
+    # tree: git cannot carry an empty directory, and both are written below.
+    - name: Create the fixture app directories the copied tree needs
+      ansible.builtin.file:
+        path: "{{ molecule_apps_dir }}/{{ item }}"
         state: directory
         mode: "0755"
+      loop:
+        - molsecret
+        - molinline
       delegate_to: localhost
       become: false
 
@@ -76,6 +133,51 @@
         age: ["{{ molecule_sops_recipient }}"]
         content_yaml: "{{ molecule_secrets }}"
         mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    # The same argument as the secrets above: the plaintext lives in molecule.yml next to
+    # the assertions about it, and nothing has to be re-encrypted by hand when it changes.
+    # The role sees what a real app ships — files it must copy to the host without reading.
+    - name: Create the fixture private directories in the copied tree
+      ansible.builtin.file:
+        path: "{{ (molecule_apps_dir ~ '/' ~ item.app ~ '/private/' ~ item.path) | dirname }}"
+        state: directory
+        mode: "0755"
+      loop: "{{ molecule_private_files }}"
+      loop_control:
+        label: "{{ item.app }}/{{ item.path }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Encrypt the fixture private files with sops
+      community.sops.sops_encrypt:
+        path: "{{ molecule_apps_dir }}/{{ item.app }}/private/{{ item.path }}"
+        age: ["{{ molecule_sops_recipient }}"]
+        content_text: "{{ item.content }}"
+        mode: "0600"
+      loop: "{{ molecule_private_files | selectattr('tool', 'equalto', 'sops') | list }}"
+      loop_control:
+        label: "{{ item.app }}/{{ item.path }}"
+      delegate_to: localhost
+      become: false
+
+    # Raw age, which community.sops has no module for: the point of this fixture is that
+    # the role handles a file sops never touched.
+    - name: Encrypt the fixture private files with age
+      ansible.builtin.command:
+        argv:
+          - age
+          - --encrypt
+          - --recipient
+          - "{{ molecule_sops_recipient }}"
+          - --output
+          - "{{ molecule_apps_dir }}/{{ item.app }}/private/{{ item.path }}"
+        stdin: "{{ item.content }}"
+      loop: "{{ molecule_private_files | selectattr('tool', 'equalto', 'age') | list }}"
+      loop_control:
+        label: "{{ item.app }}/{{ item.path }}"
+      changed_when: true
       delegate_to: localhost
       become: false
 

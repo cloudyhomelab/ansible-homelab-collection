@@ -2,7 +2,7 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The ``manifest_units`` filter. Runs on the controller; touches no managed host."""
+"""The ``unit_names`` filter. Runs on the controller; touches no managed host."""
 
 from __future__ import annotations
 
@@ -11,26 +11,20 @@ from collections.abc import Callable, Iterable, Mapping
 
 
 DOCUMENTATION = r"""
-name: manifest_units
-short_description: The systemd units a recorded install manifest implies
-version_added: 1.0.0
+name: unit_names
+short_description: The systemd units a set of installed paths implies
+version_added: 1.2.0
 author:
   - binarycodes (@binarycodes)
-deprecated:
-  removed_in: 2.0.0
-  why: >-
-    The binarycodes.homelab.install_manifest module reconciles the record on the host and
-    returns the units it implies; nothing computes them on the controller any more.
-  alternative: The C(units) return value of the M(binarycodes.homelab.install_manifest) module.
 description:
-  - Works out which systemd units an app is running, from the paths its last deploy
-    recorded, so a decommission can stop them without being told their names.
-  - What this exists for is teardown. An app's unit names are an input to the role
-    (O(systemd_app_enable_units)), and a caller who does not repeat that input when setting
-    C(state=absent) would otherwise have its unit files deleted while its containers keep
-    running - the generated service gone from systemd's view, its C(ExecStopPost) never
-    fired, and the container orphaned. The manifest is on the host and needs no input, so
-    it can answer the question the caller did not.
+  - Works out which systemd units a list of installed host paths implies, so a caller that
+    knows what an app ships does not have to be told what that makes systemd run.
+  - Asked in two directions. Of the paths a deploy is about to install, to learn which units
+    it must write a drop-in for - answered before anything is on the host, which is why this
+    is a filter and not the C(units) return of the
+    M(binarycodes.homelab.install_manifest) module, computed on the host from what the
+    *previous* deploy recorded. Of the paths a previous deploy recorded, to learn what a
+    decommission has to stop without being told the names.
   - A Quadlet source file is not a unit; systemd's generator makes one from it, and the
     name it makes is not always the file's own. C(.container) and C(.kube) become
     C(<name>.service), C(.pod) becomes C(<name>-pod.service).
@@ -40,15 +34,17 @@ description:
     unit that declared it, and Caddy's certificates live in one. Naming their units here
     would suggest a teardown that this role does not do.
   - Paths are matched against the two install directories exactly, one segment deep. A
-    path anywhere else is ignored rather than refused; a manifest is validated where it is
-    read, and this filter is only asked what to stop.
+    path anywhere else is ignored rather than refused, which is what lets a whole install
+    list be passed in - a config file, or a drop-in already below C(<unit>.d/), contributes
+    no unit rather than an error.
   - The result is sorted and deduplicated, so a caller can compare or merge it without
-    caring what order the manifest happened to list its paths in.
+    caring what order the paths happened to arrive in.
 positional: system_dir, unit_dir
 options:
   _input:
     description:
-      - Paths recorded in the app's install manifest.
+      - Absolute host paths, either the ones a deploy installs or the ones a manifest
+        recorded.
     type: list
     elements: str
     required: true
@@ -64,21 +60,29 @@ options:
 
 RETURN = r"""
 _value:
-  description: Unit names, sorted and deduplicated. Empty when the manifest implies none.
+  description: Unit names, sorted and deduplicated. Empty when the paths imply none.
   type: list
   elements: str
 """
 
 EXAMPLES = r"""
+- name: Order every unit this deploy installs after the app's decrypt unit
+  ansible.builtin.template:
+    src: private-dropin.conf.j2
+    dest: "/etc/systemd/system/{{ item }}.d/10-private.conf"
+  loop: >-
+    {{ installed_paths
+       | binarycodes.homelab.unit_names('/etc/containers/systemd', '/etc/systemd/system') }}
+  # Installing /etc/containers/systemd/app.container and
+  # /etc/systemd/system/app-extra.service yields ['app-extra.service', 'app.service'].
+
 - name: Stop what the app is running, whether or not the caller named it
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: stopped
   loop: >-
     {{ recorded_paths
-       | binarycodes.homelab.manifest_units('/etc/containers/systemd', '/etc/systemd/system') }}
-  # A manifest listing /etc/containers/systemd/app.container and
-  # /etc/systemd/system/app-extra.service yields ['app-extra.service', 'app.service'].
+       | binarycodes.homelab.unit_names('/etc/containers/systemd', '/etc/systemd/system') }}
 """
 
 
@@ -111,8 +115,8 @@ def _unit_for(name: str, suffixes: Mapping[str, str]) -> str | None:
     return None
 
 
-def manifest_units(paths: Iterable[object] | None, system_dir: str, unit_dir: str) -> list[str]:
-    """The systemd units a recorded install manifest implies."""
+def unit_names(paths: Iterable[object] | None, system_dir: str, unit_dir: str) -> list[str]:
+    """The systemd units a set of installed host paths implies."""
     units: set[str] = set()
 
     for path in paths or []:
@@ -134,7 +138,7 @@ def manifest_units(paths: Iterable[object] | None, system_dir: str, unit_dir: st
 
 
 class FilterModule:
-    """What a decommission has to stop, read from the host rather than from the caller."""
+    """What a set of installed paths makes systemd run, derived rather than declared."""
 
     def filters(self) -> dict[str, Callable[..., object]]:
-        return {"manifest_units": manifest_units}
+        return {"unit_names": unit_names}

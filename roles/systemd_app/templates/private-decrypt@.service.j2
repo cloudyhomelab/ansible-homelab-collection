@@ -1,0 +1,24 @@
+{# Copyright (c) 2026 binarycodes
+   GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+   SPDX-License-Identifier: GPL-3.0-or-later #}
+[Unit]
+Description=Decrypt the private files of app %i
+# No Condition*: a host without the key must fail this unit, not skip it. A skipped unit
+# still satisfies the Requires= in each app's drop-in, which would start the app against an
+# empty private directory instead of not starting it at all.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The identity reaches only this unit's processes, on ramfs rather than read from disk by the
+# service, and swapping it for a TPM-sealed LoadCredentialEncrypted= later changes nothing
+# else. A missing file fails the unit here, before the helper runs.
+LoadCredential=age-key:{{ systemd_app_private_key_file }}
+# systemd makes and owns the tmpfs tree, and destroys it when this unit stops, so plaintext
+# never outlives the unit. The helper is told where through $RUNTIME_DIRECTORY.
+RuntimeDirectory=app/%i/private
+RuntimeDirectoryMode=0700
+ExecStart={{ systemd_app_private_helper }} %i
+
+{# No [Install]: each app's drop-in pulls its own instance in with Requires=, so there is no
+   instance to enable and none to leave behind when an app stops shipping private files. #}

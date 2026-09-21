@@ -1,0 +1,3 @@
+Fixture: a file in private/ that is neither age- nor sops-encrypted, and so is copied
+through to the runtime directory unchanged. A public certificate beside a private key is
+the real case; committing it in the clear is the point.

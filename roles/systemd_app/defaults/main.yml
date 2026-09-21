@@ -20,9 +20,10 @@ systemd_app_state: present
 #   quadlet/            -> Podman Quadlet files (*.container, *.pod, *.network, ...)
 #   unit/               -> plain systemd unit files (*.service, *.timer, *.socket, ...)
 #   config/             -> arbitrary config tree, copied recursively to the host
+#   private/            -> encrypted files, copied to the host as they are (see below)
 #   secrets.sops.yaml   -> SOPS-encrypted podman secrets (see below)
-# The first three belong to the 'source' kind; the secrets file is read for either kind, so
-# an 'inline' app with secrets has a directory holding just that.
+# The first three belong to the 'source' kind; the secrets file and private/ are read for
+# either kind, so an 'inline' app with either has a directory holding just those.
 #
 # Deliberately no default: where a fleet keeps its app definitions is a property of that
 # fleet's repository, not of this role, and a guess here is one that silently installs
@@ -67,13 +68,31 @@ systemd_app_source_tree: >-
        systemd_app_system_dir, systemd_app_unit_dir, systemd_app_home ~ '/config') }}
 
 # What this deploy installs, as the manifest records it: an 'inline' app's one rendered
-# Quadlet, or what a 'source' app's tree says. Read by the two manifest calls in
+# Quadlet or what a 'source' app's tree says, plus either kind's encrypted private files and
+# the drop-ins that order its units after the decrypt. Read by the two manifest calls in
 # tasks/present.yml — the check-mode one that learns which units to disable and the one that
 # prunes — so the two cannot be given different lists. Lazy, like systemd_app_source_tree
 # behind it, so an 'inline' app never reads the tree.
-systemd_app_installed_paths: >-
-  {{ [systemd_app_system_dir ~ '/' ~ systemd_app_name ~ '.container']
-     if systemd_app_kind == 'inline' else systemd_app_source_tree.installed }}
+systemd_app_base_paths: >-
+  {{ ([systemd_app_system_dir ~ '/' ~ systemd_app_name ~ '.container']
+      if systemd_app_kind == 'inline' else systemd_app_source_tree.installed)
+     + systemd_app_private_tree.installed }}
+
+# The units that read this app's private files, and the drop-ins that order each after its
+# decrypt. Derived here rather than by the manifest module, which cannot answer it: its
+# `units` return is computed from what the *last* deploy recorded, and it only exists after
+# the call that has to be told these paths. Split from systemd_app_base_paths above so the
+# unit derivation does not see the drop-ins it is producing.
+systemd_app_private_units: >-
+  {{ systemd_app_base_paths | binarycodes.homelab.unit_names(
+       systemd_app_system_dir, systemd_app_unit_dir)
+     if systemd_app_has_private | bool else [] }}
+systemd_app_private_dropins: >-
+  {{ systemd_app_private_units
+     | map('regex_replace', '^(.+)$', systemd_app_unit_dir ~ '/\1.d/10-private.conf')
+     | list }}
+
+systemd_app_installed_paths: "{{ systemd_app_base_paths + systemd_app_private_dropins }}"
 
 # Ownership / permissions applied to everything this role installs.
 systemd_app_owner: root
@@ -146,6 +165,52 @@ systemd_app_secret_values: >-
      if (systemd_app_apps_dir is defined and (systemd_app_secrets_file is file))
      else {} }}
 
+# An app that needs a *file* rather than an environment variable ships it in its own
+# private/ directory, encrypted, discovered the same way as quadlet/ and config/:
+#   private/db.env.age            -> age
+#   private/tls/server.sops.yaml  -> sops, decrypting to tls/server.yaml
+#   private/ca.crt                -> neither, copied through unchanged
+# The tree is copied to the host still encrypted, so nothing readable is ever written below
+# systemd_app_root. Plaintext exists only in tmpfs, written at unit start by the shared
+# decrypt unit and gone when that unit stops. Nothing here decrypts anything: the controller
+# never holds the key, and the filter only says what the host's unit will do — which is what
+# makes a name two files both decrypt to a failed play rather than a failed unit.
+#
+# This is the file-shaped channel; secrets.sops.yaml above is the environment-shaped one. An
+# app wanting a TLS key at a path its image chose needs this; one wanting DATABASE_URL in its
+# environment needs that. See the role README.
+
+# The shared decrypt unit's three fixed values. Not inputs: one unit file serves every app on
+# the host, so a per-app value would have the last app deployed silently rewrite the key path
+# for all of them. Named here so the prefix is a single edit, not so a call site can override
+# one. The role never provisions the key — how a host comes by its identity is the fleet's
+# business — and a host keeping it elsewhere symlinks it into place.
+systemd_app_private_key_file: /etc/homelab/age.key
+systemd_app_private_unit: homelab-private-decrypt
+systemd_app_private_helper: /usr/local/libexec/homelab-decrypt-private
+
+# Where this app's decrypted files appear, for a call site to mount from. Composed rather than
+# an input, like systemd_app_home: the path belongs to the shared unit, and an app able to move
+# it would move it for itself alone. The role renders no mount of its own, for either kind —
+# an image wants its file at a path only the app knows, and a role-invented one would be dead
+# weight beside the real mount — so name this in systemd_app_volumes, or in a 'source' app's
+# own Quadlet:
+#   - "{{ systemd_app_private_run_dir }}/tls.key:/etc/myapp/tls.key:ro"
+systemd_app_private_run_dir: "/run/app/{{ systemd_app_name }}/private"
+
+# The encrypted tree on the host, and what the app ships to fill it. Guarded on
+# systemd_app_apps_dir the way the secrets lookup above is: only an 'inline' app can leave it
+# unset, and then there is nowhere to look. Empty for an app with no private/ at all, which is
+# most of them — unlike systemd_app_source_tree, a missing directory here is the normal case
+# and not a deploy about to prune everything.
+systemd_app_private_dir: "{{ systemd_app_home }}/private"
+systemd_app_private_tree: >-
+  {{ ((systemd_app_apps_dir ~ '/' ~ systemd_app_name)
+      | binarycodes.homelab.private_tree(systemd_app_private_dir))
+     if systemd_app_apps_dir is defined
+     else {'files': [], 'dir': none, 'installed': [], 'errors': []} }}
+systemd_app_has_private: "{{ systemd_app_private_tree.files | length > 0 }}"
+
 # Directories to create before the container starts, for a bind mount whose contents the
 # app writes itself: podman would otherwise create the host path as root and a container
 # running unprivileged could not write in it. Each entry is {path, owner, group, mode},
@@ -194,5 +259,6 @@ systemd_app_managed_units: >-
 # systemd_app_auto_update:  optional — AutoUpdate= policy (default registry; never omits it).
 # systemd_app_restart:      optional — Restart= policy (default always).
 # systemd_app_data_dirs:    optional — bind-mount directories to pre-create with a given owner.
+# Private files are not a parameter: an app has them by shipping apps/<name>/private/.
 # systemd_app_health_cmd:   optional — probe command; set it to get a healthcheck and
 #   the auto-update rollback that depends on it. See the health defaults above.

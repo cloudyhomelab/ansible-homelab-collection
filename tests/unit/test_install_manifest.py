@@ -20,7 +20,7 @@ from plugins.modules import install_manifest as mod
 
 
 class Host:
-    """A tmp_path laid out as a host: the three roots, an app home, and a record inside it."""
+    """A tmp_path laid out as a host: the four roots, an app home, and a record inside it."""
 
     def __init__(self, root):
         self.root = root
@@ -28,8 +28,9 @@ class Host:
         self.unit_dir = str(root / "etc/systemd/system")
         self.home = root / "var/app/myapp"
         self.config_dir = str(self.home / "config")
+        self.private_dir = str(self.home / "private")
         self.manifest = str(self.home / ".install-manifest")
-        for directory in (self.system_dir, self.unit_dir, self.config_dir):
+        for directory in (self.system_dir, self.unit_dir, self.config_dir, self.private_dir):
             os.makedirs(directory)
 
     def quadlet(self, name):
@@ -38,8 +39,14 @@ class Host:
     def unit(self, name):
         return "%s/%s" % (self.unit_dir, name)
 
+    def dropin(self, unit, name="10-private.conf"):
+        return "%s/%s.d/%s" % (self.unit_dir, unit, name)
+
     def config(self, rel):
         return "%s/%s" % (self.config_dir, rel)
+
+    def private(self, rel):
+        return "%s/%s" % (self.private_dir, rel)
 
     def touch(self, *paths):
         for path in paths:
@@ -59,7 +66,7 @@ class Host:
     def reconcile(self, installed=(), state="present", check_mode=False):
         return mod.reconcile(
             mod.Files(), self.manifest, list(installed), self.system_dir, self.unit_dir,
-            self.config_dir, state, check_mode,
+            self.config_dir, self.private_dir, state, check_mode,
         )
 
 
@@ -301,8 +308,8 @@ def test_a_recorded_path_outside_every_root_refuses_the_whole_record(host, state
     error = refused(host, legal, "/etc/passwd", state=state)
 
     assert "/etc/passwd" in error.msg and "outside" in error.msg
-    assert error.fields["refused"] == ["/etc/passwd is outside %s, %s and %s" % (
-        host.system_dir, host.unit_dir, host.config_dir)]
+    assert error.fields["refused"] == ["/etc/passwd is outside %s, %s, %s and %s" % (
+        host.system_dir, host.unit_dir, host.config_dir, host.private_dir)]
     # Refused as a whole: the legal line was not acted on either.
     assert os.path.exists(legal)
     assert os.path.exists(host.manifest)
@@ -423,7 +430,7 @@ def test_the_diff_is_the_record_before_and_after(host):
 
 
 # --- units ------------------------------------------------------------------------------
-# The rules the deprecated manifest_units filter documents, now answered by the module.
+# The same rules the unit_names filter documents, answered here on the host.
 
 SYSTEM_DIR = "/etc/containers/systemd"
 UNIT_DIR = "/etc/systemd/system"
@@ -500,6 +507,174 @@ def test_the_install_dirs_are_taken_from_the_caller():
     ) == ["app-extra.service", "app.service"]
 
 
+# --- private files ----------------------------------------------------------------------
+
+def test_a_private_file_is_recorded_and_pruned_like_a_config_file(host):
+    files = host.touch(host.private("db.env.age"), host.private("tls/server.key.age"))
+    host.record(*files)
+
+    result = host.reconcile([files[0]])
+
+    assert result["pruned"] == [files[1]]
+    assert not os.path.exists(files[1]) and os.path.exists(files[0])
+
+
+def test_a_pruned_private_file_is_a_private_change_and_not_a_config_change(host):
+    """The answer to it is restarting the decrypt unit, not reloading the app."""
+    host.record(*host.touch(host.private("db.env.age")))
+    result = host.reconcile([])
+
+    assert result["private_changed"] is True and result["config_changed"] is False
+
+
+def test_a_pruned_config_file_is_not_a_private_change(host):
+    host.record(*host.touch(host.config("app.conf")))
+    assert host.reconcile([])["private_changed"] is False
+
+
+def test_nothing_pruned_is_no_private_change(host):
+    installed = host.touch(host.private("db.env.age"))
+    host.record(*installed)
+    assert host.reconcile(installed)["private_changed"] is False
+
+
+def test_a_private_path_that_could_climb_out_of_its_root_is_refused(host):
+    error = refused(host, host.private("../../../etc/shadow"))
+    assert "'..' segment" in error.msg
+
+
+# --- drop-ins ---------------------------------------------------------------------------
+
+def test_a_drop_in_beside_a_unit_is_recorded(host):
+    installed = host.touch(host.quadlet("myapp.container"), host.dropin("myapp.service"))
+    assert host.reconcile(installed)["recorded"] == sorted(installed)
+
+
+@pytest.mark.parametrize(
+    "unit", ["app.service", "app.socket", "app.timer", "app.path", "app.mount", "app.automount"]
+)
+def test_a_drop_in_is_allowed_beside_any_unit_systemd_would_run(host, unit):
+    assert mod.check_shape(
+        host.dropin(unit), host.system_dir, host.unit_dir, host.config_dir, host.private_dir
+    ) is None
+
+
+@pytest.mark.parametrize(
+    "path, why",
+    [
+        # A directory that names no unit is not a drop-in directory.
+        ("app.target.d/10-private.conf", "drop-in"),
+        ("app.d/10-private.conf", "drop-in"),
+        (".service.d/10-private.conf", "drop-in"),
+        # Drop-ins are .conf files, one level down, and no deeper.
+        ("app.service.d/notes.txt", "drop-in"),
+        ("app.service.d/.conf", "drop-in"),
+        ("app.service.d/nested/10-private.conf", "drop-in"),
+        # A plain nested path under the unit directory is still refused.
+        ("nested/app.service", "drop-in"),
+    ],
+)
+def test_what_is_not_a_drop_in_is_still_refused_below_the_unit_directory(host, path, why):
+    reason = mod.check_shape(
+        "%s/%s" % (host.unit_dir, path), host.system_dir, host.unit_dir, host.config_dir,
+        host.private_dir,
+    )
+    assert reason is not None and why in reason
+
+
+def test_a_drop_in_shape_is_not_allowed_in_the_quadlet_directory(host):
+    """A Quadlet file is read from the top of it; a drop-in there would override nothing."""
+    reason = mod.check_shape(
+        "%s/myapp.service.d/10-private.conf" % host.system_dir, host.system_dir, host.unit_dir,
+        host.config_dir, host.private_dir,
+    )
+    assert reason is not None and "single path segment" in reason
+
+
+def test_a_drop_in_names_no_unit_of_its_own(host):
+    """Its parent is <unit>.d, not the unit directory, so it must not read as a unit."""
+    assert mod.units_of(
+        [host.dropin("myapp.service"), host.unit("myapp.service")], host.system_dir, host.unit_dir
+    ) == ["myapp.service"]
+
+
+def test_an_app_that_stops_shipping_private_files_loses_its_drop_ins(host):
+    files = host.touch(host.quadlet("myapp.container"), host.dropin("myapp.service"),
+                       host.private("db.env.age"))
+    host.record(*files)
+
+    result = host.reconcile([files[0]])
+
+    assert not os.path.exists(host.dropin("myapp.service"))
+    assert result["private_changed"] is True
+    # The unit itself is untouched: only the ordering the app no longer needs goes.
+    assert os.path.exists(files[0])
+
+
+# --- directories a prune empties ---------------------------------------------------------
+
+def test_a_directory_the_prune_empties_is_removed(host):
+    host.record(*host.touch(host.config("nested/deep/app.conf")))
+    result = host.reconcile([])
+
+    assert not os.path.exists(host.config("nested"))
+    # Removed deepest first, reported sorted, as every other list this module returns is.
+    assert result["pruned_dirs"] == [host.config("nested"), host.config("nested/deep")]
+
+
+def test_the_roots_themselves_are_never_removed(host):
+    host.record(*host.touch(host.config("app.conf"), host.private("db.env.age"),
+                            host.quadlet("myapp.container"), host.unit("myapp-extra.service")))
+    result = host.reconcile([])
+
+    for root in (host.config_dir, host.private_dir, host.system_dir, host.unit_dir):
+        assert os.path.isdir(root)
+    assert result["pruned_dirs"] == []
+
+
+def test_a_directory_still_holding_something_survives(host):
+    kept, gone = host.touch(host.config("nested/kept.conf"), host.config("nested/gone.conf"))
+    host.record(kept, gone)
+    result = host.reconcile([kept])
+
+    assert os.path.isdir(host.config("nested")) and result["pruned_dirs"] == []
+
+
+def test_a_drop_in_directory_with_a_hand_written_override_beside_ours_survives(host):
+    ours = host.touch(host.dropin("myapp.service"))[0]
+    host.touch(host.dropin("myapp.service", "99-local.conf"))
+    host.record(ours)
+
+    result = host.reconcile([])
+
+    assert not os.path.exists(ours)
+    assert os.path.isdir("%s/myapp.service.d" % host.unit_dir)
+    assert result["pruned_dirs"] == []
+
+
+def test_an_emptied_drop_in_directory_is_removed(host):
+    host.record(*host.touch(host.dropin("myapp.service")))
+    result = host.reconcile([])
+
+    assert result["pruned_dirs"] == ["%s/myapp.service.d" % host.unit_dir]
+
+
+def test_check_mode_removes_no_directory(host):
+    host.record(*host.touch(host.config("nested/app.conf")))
+    result = host.reconcile([], check_mode=True)
+
+    assert os.path.isdir(host.config("nested")) and result["pruned_dirs"] == []
+
+
+def test_absent_takes_the_directories_with_the_files(host):
+    host.record(*host.touch(host.private("tls/server.key.age"), host.config("nested/app.conf")))
+    host.reconcile(state="absent")
+
+    assert not os.path.exists(host.private("tls"))
+    assert not os.path.exists(host.config("nested"))
+    assert os.path.isdir(host.private_dir) and os.path.isdir(host.config_dir)
+
+
 # --- docs -------------------------------------------------------------------------------
 
 def test_ansible_doc_renders_the_module(collection_path):
@@ -508,4 +683,5 @@ def test_ansible_doc_renders_the_module(collection_path):
     doc = json.loads(result.stdout)[f"{COLLECTION}.install_manifest"]["doc"]
     assert doc["short_description"]
     # The file-attribute options come from the `files` fragment, alongside the module's own.
-    assert {"path", "installed", "system_dir", "unit_dir", "config_dir", "state", "owner", "mode"} <= set(doc["options"])
+    assert {"path", "installed", "system_dir", "unit_dir", "config_dir", "private_dir", "state",
+            "owner", "mode"} <= set(doc["options"])

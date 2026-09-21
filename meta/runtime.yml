@@ -43,9 +43,10 @@ plugin_routing:
         warning_text: >-
           The binarycodes.homelab.podman_secrets module reconciles the store in one call,
           from labels on the secrets rather than a recorded file.
+    # Renamed in 1.2.0. The old name said "manifest", but the role now asks the same
+    # question of the paths a deploy is about to install, before any manifest exists.
     manifest_units:
+      redirect: binarycodes.homelab.unit_names
       deprecation:
         removal_version: 2.0.0
-        warning_text: >-
-          The binarycodes.homelab.install_manifest module reads and reconciles the record on
-          the host, and returns the units it implies as `units`.
+        warning_text: The filter is now called binarycodes.homelab.unit_names.

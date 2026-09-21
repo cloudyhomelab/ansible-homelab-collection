@@ -60,6 +60,11 @@
       systemd_app_container_options:
         - Exec=sleep 86400
         - AutoUpdate=local
+      # The role renders no mount for an app's private files: the image chooses the path,
+      # so the call site names it. systemd_app_private_run_dir saves repeating the host
+      # side of it, and verify.yml reads the file back through this mount.
+      systemd_app_volumes:
+        - "{{ systemd_app_private_run_dir }}/tls.key:/etc/molinline/tls.key:ro"
       systemd_app_restart: on-failure
       systemd_app_data_dirs:
         - path: data

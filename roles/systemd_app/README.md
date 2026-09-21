@@ -46,10 +46,16 @@ directories have to exist already: the role installs into `systemd_app_system_di
 systemd's. What it does create is what it owns — `systemd_app_root` and each app's home
 below it, and `systemd_app_caddy_confd` for a routed app.
 
+An app that ships [private files](#private-files) needs `age` and `sops` on the *target*
+host as well, which is where those are decrypted. Both are packaged by Fedora 43 and Debian
+13. The role checks for them before it copies anything, so a host without them is a clear
+failure rather than a unit that will not start.
+
 **On the controller:** no privilege, and nothing beyond ansible-core — unless an app ships
 encrypted secrets, which need the `community.sops` collection, the `sops` binary, and a key
-that can decrypt the file (see [secrets](#secrets)). Nothing is written on the controller
-either way; the app definitions are only read.
+that can decrypt the file (see [secrets](#secrets)). Private files need none of that here:
+they are copied still encrypted and the controller never holds the key. Nothing is written
+on the controller either way; the app definitions are only read.
 
 ## Kinds
 
@@ -65,11 +71,12 @@ apps/
     quadlet/            # *.container, *.pod, *.network, *.volume, *.kube, ... (optional)
     unit/               # plain *.service, *.timer, *.socket, ...              (optional)
     config/             # arbitrary tree, copied recursively to the host       (optional)
+    private/            # encrypted files, copied to the host as they are      (optional)
     secrets.sops.yaml   # SOPS-encrypted podman secrets                        (optional)
 ```
 
-An `inline` app has no such directory, except when it needs secrets: then it holds that one
-file and nothing else.
+An `inline` app has no such directory, except when it needs secrets or private files: then
+it holds only those.
 
 Each subdirectory is optional — an app may ship only a Quadlet, only config, etc.
 
@@ -203,7 +210,8 @@ decommission of either kind never reads it: it works from the host alone.
 A deploy records the absolute host paths it installed to
 `/var/app/<app>/.install-manifest`, one per line — a `source` app's Quadlet files,
 systemd units and every file of its config tree, an `inline` app's one rendered
-`<name>.container`. It sits inside the app's own home so the two share
+`<name>.container`, and for either kind its encrypted
+[private files](#private-files) and the drop-ins written for them. It sits inside the app's own home so the two share
 fate: `absent` drops that tree and the manifest goes with it, and a hand-removed or
 restored `/var/app/<app>` cannot leave a stale record behind. Both a later deploy and a decommission work from that
 file rather than re-deriving from `apps/<app>/`, which by then may name different files
@@ -212,10 +220,11 @@ decommission needs no source tree at all.
 
 Reading, pruning and recording are one call of the `install_manifest` module, on the host.
 The manifest is acted on as root, so every line is checked first: a single path segment
-directly inside `systemd_app_system_dir` / `systemd_app_unit_dir`, or a path under this
-app's own `/var/app/<app>/config` with no empty, `.` or `..` segment, and a regular file,
-symlink or missing path — never a directory, since nothing recorded is removed recursively.
-One illegal line fails the run without deleting anything.
+directly inside `systemd_app_system_dir` / `systemd_app_unit_dir`, a `<unit>.d/<name>.conf`
+drop-in inside `systemd_app_unit_dir`, or a path under this app's own
+`/var/app/<app>/config` or `/var/app/<app>/private` with no empty, `.` or `..` segment, and
+a regular file, symlink or missing path — never a directory, since nothing recorded is
+removed recursively. One illegal line fails the run without deleting anything.
 
 `absent` reads it too, and has to: the Quadlet files and systemd units it must remove
 live in `/etc/containers/systemd/` and `/etc/systemd/system/`, which are shared with
@@ -240,10 +249,13 @@ Deleting whatever is not in `<app>/config/` would wipe all of them on every conv
 manifest only ever removes what a previous deploy recorded installing, so generated and
 runtime files are invisible to it.
 
-Only files are reconciled — a pruned tree can leave empty directories behind. And a unit
-dropped from the app that is still running keeps running until it is stopped or the host
-reboots: remove it from `systemd_app_enable_units` and stop it once by hand. That applies
-to a change of kind as much as to a deleted file.
+Only files are recorded, but a directory a prune leaves empty goes too, upwards until a
+directory still holds something. `rmdir` refuses a directory that is not empty, so a
+`<unit>.d/` holding a hand-written override beside the role's own, or a config directory
+holding a file the app still ships, survives by construction. A unit dropped from the app
+that is still running keeps running until it is stopped or the host reboots: remove it from
+`systemd_app_enable_units` and stop it once by hand. That applies to a change of kind as
+much as to a deleted file.
 
 An app last deployed before the role recorded a manifest for its kind has none, so its
 first converge under this role prunes nothing and records one — the reconciliation starts
@@ -317,6 +329,10 @@ Two consequences worth knowing:
   since a running app is still reading what is now gone. A pruned unit file does not — it
   leaves nothing to act on, and a unit dropped from the app keeps running until it is
   stopped by hand (see [install manifest](#install-manifest)).
+- **A changed private file is a restart, not a reload.** Its plaintext lives in a
+  `RuntimeDirectory` that the app's decrypt unit destroys and re-creates, so a reload would
+  leave the container mounted on a directory that is no longer there. The role restarts the
+  decrypt instance first and the app after it (see [private files](#private-files)).
 
 Generated route snippets are not part of any app's config tree, so they are outside this
 entirely; your play applies those centrally once every app has converged (see
@@ -500,6 +516,83 @@ How the key reaches the controller is outside this role: sops finds it the usual
 is your project's `.sops.yaml`. In CI that usually means one secret in the job environment
 and nothing on disk.
 
+## Private files
+
+Secrets above are the environment-shaped channel: a value an app reads as `DATABASE_URL`.
+Some apps need the other shape, a *file* at a path their image chose — a TLS key, a
+service-account JSON, a `.env` read at startup. Those go in the app's own `private/`
+directory, encrypted:
+
+```
+apps/myapp/private/
+  db.env.age              # raw age
+  tls/server.sops.yaml    # SOPS, decrypting to tls/server.yaml
+  ca.crt                  # neither; copied through unchanged
+```
+
+A `.age` suffix means the file is raw age and a `.sops.<ext>` component means it is SOPS;
+the marker is dropped from the decrypted name. Anything else is copied through, so a public
+certificate can sit beside the private key it belongs to. `private/` is a tree, like
+`config/`, and subdirectories are mirrored. Two files that would decrypt to the same name
+fail the play, named, before anything is installed.
+
+**Nothing readable is written to disk.** The role copies the tree to
+`{{ systemd_app_home }}/private` **still encrypted**, so a backup of `systemd_app_root`
+carries no plaintext and the controller never sees the key. The decryption happens on the
+host, at unit start, into `/run/app/<app>/private` — tmpfs, mode 0700, made and destroyed by
+systemd with the unit:
+
+```
+apps/myapp/private/db.env.age      (controller, encrypted)
+  -> /var/app/myapp/private/db.env.age      (host, still encrypted, 0600)
+     -> /run/app/myapp/private/db.env       (tmpfs, 0600, gone when the unit stops)
+```
+
+The unit that does it is `homelab-private-decrypt@<app>.service`, one template unit shared
+by every app on the host, installed by whichever app needs it first. The role writes a
+drop-in for **every unit the app installs** ordering it after that instance and requiring
+it, so no app author has to remember the dependency and an `inline` app — which has no
+`[Unit]` escape hatch — gets it too:
+
+```ini
+# /etc/systemd/system/myapp.service.d/10-private.conf, written by the role
+[Unit]
+After=homelab-private-decrypt@myapp.service
+Requires=homelab-private-decrypt@myapp.service
+```
+
+`Requires=`, not `Wants=`: files that are not there are not a degraded start but a wrong
+one. If the decrypt fails — no key, a key that does not match, `age` or `sops` missing — the
+app does not start, rather than starting against an empty directory.
+
+**Mounting it.** The role renders no `Volume=` of its own, for either kind. An image wants
+its file at a path only the app knows, so name it yourself;
+`systemd_app_private_run_dir` saves you repeating the host side:
+
+```yaml
+# inline
+systemd_app_volumes:
+  - "{{ systemd_app_private_run_dir }}/tls.key:/etc/myapp/tls.key:ro"
+```
+
+```ini
+# source, in the app's own quadlet/myapp.container
+Volume=/run/app/myapp/private/tls.key:/etc/myapp/tls.key:ro
+```
+
+**The key.** The unit reads it as a systemd credential from `/etc/homelab/age.key`, so it
+reaches only that unit's processes and lives on ramfs rather than being read off disk by the
+service. The role never provisions it — how a host comes by its identity is your fleet's
+business — and a host that keeps it elsewhere symlinks it into place. The path is fixed
+rather than a parameter: one unit file serves every app on the host, so a per-app value
+would have the last app deployed rewrite it for all of them.
+
+**On decommission** the app's own instance is stopped, taking its tmpfs tree with it, and
+its copies and drop-ins are removed with everything else it installed. The shared template
+unit and the helper it runs are left behind: every app on the host writes them identically
+and shares them, so removing them with one app would break the rest. Same call the role
+makes for podman networks and named volumes.
+
 ## Pre-created data directories
 
 A container that writes to a bind mount needs the host directory to exist with the right
@@ -620,6 +713,8 @@ resolve wherever the collection is installed:
 | `podman_secrets`     | module | Reconciling the app's podman secrets against the store, on the host. |
 | `install_manifest`   | module | Reading, pruning and recording the install manifest, on the host; on `absent`, the units it implies. |
 | `source_tree`        | filter | Reading what a `source` app ships from its directory, and the host paths it installs to. |
+| `private_tree`       | filter | Reading what an app keeps encrypted in `private/`, where it is copied, and what it decrypts to. |
+| `unit_names`         | filter | The units a set of installed paths implies, for the drop-ins that order them after the decrypt. |
 | `app_validation_errors`       | filter | Checking `systemd_app_name`, `_kind`, `_state`, what each kind requires (a `source` app's directory included), `_data_dirs`, and the secret names. |
 | `route_validation_errors`     | filter | Checking `systemd_app_domain` / `_upstream` / `_port`.             |
 | `container_validation_errors` | filter | Checking what would be interpolated into a rendered Quadlet.      |
@@ -636,7 +731,8 @@ than in a YAML scalar.
 
 They are collection-global public API: anyone who installs the collection can call them,
 whether or not they use this role, which is why they are named for what they compute
-rather than for the role that calls them. Three filters are deprecated and go in 2.0.0:
+rather than for the role that calls them. Two filters are deprecated and go in 2.0.0:
 `secret_digests` and `reconcile_secrets`, whose work the secrets module does from labels on
-the secrets themselves, and `manifest_units`, whose answer the manifest module returns as
-`units`.
+the secrets themselves. `manifest_units` was renamed `unit_names` in 1.2.0, when the role
+began asking it what a deploy is *about* to install rather than only what a manifest
+recorded; the old name still resolves, with a warning, until 2.0.0.

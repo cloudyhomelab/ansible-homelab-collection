@@ -78,6 +78,30 @@ provisioner:
         molecule_secrets_rotated:
           molsecret-token: rotated-token-value
 
+        # The fixture private files, in plaintext, encrypted into the copied app tree by
+        # prepare.yml for the same reason the secrets above are: what the host is asserted
+        # to decrypt to is then readable next to the assertion. `tool` is what the file's
+        # name tells the host's decrypt unit to use, and `out` what it decrypts to — both
+        # named here so verify.yml asserts against the intent rather than re-deriving the
+        # rule under test. The plaintext member of the tree is committed instead
+        # (apps/molsource/private/ca.crt): there is nothing to encrypt about it.
+        molecule_private_files:
+          - app: molsource
+            path: db.env.age
+            tool: age
+            out: db.env
+            content: "DATABASE_URL=postgres://molsource\n"
+          - app: molsource
+            path: nested/conf.sops.yaml
+            tool: sops
+            out: nested/conf.yaml
+            content: "molsource_nested: nested-private-value\n"
+          - app: molinline
+            path: tls.key.age
+            tool: age
+            out: tls.key
+            content: "not-really-a-key\n"
+
 # sops finds the identity through its own environment variable, not through an option on
 # the task: the call that needs it is the role's own community.sops.load_vars, and a
 # consumer supplies the key the same way. Interpolated by molecule, which resolves

@@ -296,8 +296,9 @@ Three consequences worth knowing:
   the unit keeps running until stopped by hand.
 - **A changed private file is a restart, not a reload.** Its plaintext lives in a
   `RuntimeDirectory` the decrypt unit destroys and re-creates, so a reload would leave the
-  container on a directory that is gone. The decrypt instance is restarted first, the app
-  after (see [private files](#private-files)).
+  container on a directory that is gone. The role restarts the decrypt instance and `PartOf=`
+  carries that through to the app (see [private files](#private-files)). A decrypt instance that
+  is not running is left alone: deploying an app is not starting it.
 
 Generated route snippets are outside this entirely; the play applies those centrally once every
 app has converged (see [Caddy routing](#caddy-routing)).
@@ -498,10 +499,22 @@ no `[Unit]` escape hatch, gets it too:
 [Unit]
 After=homelab-private-decrypt@myapp.service
 Requires=homelab-private-decrypt@myapp.service
+PartOf=homelab-private-decrypt@myapp.service
 ```
 
 `Requires=`, not `Wants=`: missing files are a wrong start, not a degraded one. If the decrypt
 fails — no key, a key that does not match, `age` or `sops` missing — the app does not start.
+
+`PartOf=` on top, because the decrypt unit owns the `RuntimeDirectory` the plaintext lives in
+and systemd destroys that directory when the unit stops. A deploy that changes a private file
+restarts the decrypt, and `PartOf=` propagates that restart to the app, which comes back on the
+re-made directory instead of holding the destroyed one. Stopping and restarting is all it does,
+which is why it accompanies `Requires=` rather than replacing it.
+
+The role only ever *re*-starts a decrypt instance, never starts one. An instance that is not
+running is left that way and no plaintext is written: a `source` app whose units the call never
+named is deployed, not run, and `Requires=` pulls a fresh instance in the moment one of its
+units is actually started.
 
 **Mounting it.** The role renders no `Volume=` of its own, for either kind: an image wants its
 file at a path only the app knows. `systemd_app_private_run_dir` saves repeating the host side.

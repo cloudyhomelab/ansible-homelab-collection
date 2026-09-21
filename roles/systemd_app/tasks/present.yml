@@ -179,26 +179,27 @@
       {{ (systemd_app_config_deploy.changed | default(false))
          or (systemd_app_manifest.config_changed | default(false)) }}
 
-# Before the app's own units, so a failed decrypt is reported as itself rather than as every
-# unit failing its Requires=. RemainAfterExit, so it must be restarted to re-read what this
-# deploy installed.
-- name: "Decrypt the private files of app {{ systemd_app_name }}"
+# No state, so the module only reports: it is `systemctl show` for the instance, and the unit
+# is a template whose instance is simply inactive when the app has never run.
+- name: "Check whether the private decrypt of app {{ systemd_app_name }} is running"
   ansible.builtin.systemd:
     name: "{{ systemd_app_private_unit }}@{{ systemd_app_name }}.service"
-    state: "{{ 'restarted' if systemd_app_restart_needed | bool else 'started' }}"
+  register: systemd_app_private_state
   when: systemd_app_has_private | bool
 
-# Restarting the decrypt stops every unit whose drop-in Requires= it, and systemd does not
-# bring those back. The start task below covers systemd_app_managed_units; this covers the
-# rest, which is a 'source' app that named no units and boots from its Quadlet's [Install].
-- name: "Start the units the decrypt stopped for app {{ systemd_app_name }}"
+# A try-restart: RemainAfterExit means a running instance must be restarted to re-read what
+# this deploy installed, but an instance that is not running is left alone rather than started.
+# Deploying an app is not starting it, and Requires= pulls a fresh instance in if a unit does
+# start. Before the app's own units, so a failed decrypt is reported as itself rather than as
+# every unit failing its Requires=.
+- name: "Re-decrypt the private files of app {{ systemd_app_name }}"
   ansible.builtin.systemd:
-    name: "{{ item }}"
-    state: started
-  loop: "{{ systemd_app_private_units | difference(systemd_app_managed_units) }}"
+    name: "{{ systemd_app_private_unit }}@{{ systemd_app_name }}.service"
+    state: restarted
   when:
     - systemd_app_has_private | bool
     - systemd_app_restart_needed | bool
+    - (systemd_app_private_state.status.ActiveState | default('inactive')) == 'active'
 
 # An app that stopped shipping private files: its copies and drop-ins are pruned above, but
 # the instance they pulled in keeps holding a tmpfs tree of plaintext for files that are gone.

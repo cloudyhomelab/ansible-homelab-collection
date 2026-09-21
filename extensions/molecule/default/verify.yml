@@ -340,12 +340,16 @@
         - molinline.service
       register: molecule_dropins
 
-    - name: Assert every unit is ordered after its own app's decrypt instance
+    # PartOf= as well as Requires=: it is what carries a re-decrypt through to the app, so a
+    # drop-in that lost it would leave the app on a RuntimeDirectory systemd had destroyed.
+    - name: Assert every unit is tied to its own app's decrypt instance
       ansible.builtin.assert:
         that:
           - molecule_dropin_text[0] is search('Requires=homelab-private-decrypt@molsource.service')
           - molecule_dropin_text[1] is search('After=homelab-private-decrypt@molsource.service')
+          - molecule_dropin_text[1] is search('PartOf=homelab-private-decrypt@molsource.service')
           - molecule_dropin_text[2] is search('Requires=homelab-private-decrypt@molinline.service')
+          - molecule_dropin_text[2] is search('PartOf=homelab-private-decrypt@molinline.service')
         fail_msg: "{{ molecule_dropin_text }}"
         quiet: true
       vars:

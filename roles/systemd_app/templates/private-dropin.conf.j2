@@ -8,3 +8,7 @@
 After={{ systemd_app_private_unit }}@{{ systemd_app_name }}.service
 # Requires=, not Wants=: missing files are a wrong start, not a degraded one.
 Requires={{ systemd_app_private_unit }}@{{ systemd_app_name }}.service
+# PartOf=, so re-decrypting restarts this unit onto the re-made RuntimeDirectory instead of
+# leaving it on the destroyed one. Requires= is documented to propagate a restart too, but
+# propagation is all PartOf= does, which is the whole of what is wanted here.
+PartOf={{ systemd_app_private_unit }}@{{ systemd_app_name }}.service

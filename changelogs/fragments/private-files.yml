@@ -3,7 +3,9 @@ minor_changes:
     The ``systemd_app`` role now installs an app's ``private/`` directory. A file named
     ``*.age`` or ``*.sops.<ext>`` is copied to the host still encrypted and decrypted into
     ``/run/app/<app>/private`` at unit start by ``homelab-private-decrypt@<app>.service``,
-    which the role orders every unit the app installs after with a drop-in it writes; any
+    which the role writes a drop-in for on every unit the app installs, ordering the unit after
+    it, requiring it, and making the unit ``PartOf=`` it so that re-decrypting restarts the unit
+    onto the re-made directory rather than leaving it on the destroyed one; any
     other file in the tree is copied through unchanged. The marker is dropped from the
     decrypted name, so ``db.env.age`` becomes ``db.env``. Nothing readable is written below
     ``systemd_app_root``: the unit reads the age identity from ``/etc/homelab/age.key`` as a

@@ -633,7 +633,8 @@ def test_nothing_recorded_names_no_unit():
 
 
 def test_the_manifest_a_source_app_records():
-    """What item 7's orphan actually is: the app's container service, unnamed by the call."""
+    """A 'source' app deployed without systemd_app_enable_units: its container service is a
+    unit the call never names, and deriving it is how a decommission finds what to stop."""
     assert units([
         f"{SYSTEM_DIR}/molsource.container",
         f"{UNIT_DIR}/molsource-extra.service",

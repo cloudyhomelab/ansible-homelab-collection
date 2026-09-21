@@ -16,7 +16,7 @@ LoadCredential=age-key:{{ systemd_app_private_key_file }}
 # the path from $RUNTIME_DIRECTORY.
 RuntimeDirectory=app/%i/private
 RuntimeDirectoryMode=0700
-ExecStart={{ systemd_app_private_helper }} %i
+ExecStart=/usr/bin/python3 {{ systemd_app_private_helper }} %i
 
 {# No [Install]: each app's drop-in pulls its instance in with Requires=, so there is none to
    enable and none left behind when an app stops shipping private files. #}

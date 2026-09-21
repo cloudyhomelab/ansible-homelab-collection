@@ -63,7 +63,8 @@ provisioner:
 
         # Same argument as the secrets above. `tool` and `out` are named rather than derived,
         # so verify.yml asserts against the intent and not against the rule under test. The
-        # tree's plaintext member is committed instead (apps/molsource/private/ca.crt).
+        # tree's plaintext member is committed instead (apps/molsource/private/ca.crt). A
+        # sops fixture's content is a YAML document, which is what its suffix decrypts to.
         molecule_private_files:
           - app: molsource
             path: db.env.age

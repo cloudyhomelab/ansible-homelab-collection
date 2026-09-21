@@ -172,7 +172,9 @@
       community.sops.sops_encrypt:
         path: "{{ molecule_apps_dir }}/{{ item.app }}/private/{{ item.path }}"
         age: ["{{ molecule_sops_recipient }}"]
-        content_text: "{{ item.content }}"
+        # As YAML, because sops picks its store from the name: content_text would file the
+        # whole fixture under `data:` and a decrypt of a .yaml would hand back that wrapper.
+        content_yaml: "{{ item.content | from_yaml }}"
         mode: "0600"
       loop: "{{ molecule_private_files | selectattr('tool', 'equalto', 'sops') | list }}"
       loop_control:

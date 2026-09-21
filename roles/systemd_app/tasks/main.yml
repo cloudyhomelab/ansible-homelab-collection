@@ -127,10 +127,14 @@
     - systemd_app_kind == 'inline'
 
 # Facts and registers persist for the play and this role runs once per app, so an app could
-# otherwise inherit another's paths — into a task that deletes them. The install registers are
-# here for a related reason: each is skipped for the kind or the app that does not use it, so
-# a stale one would decide how the next app is restarted. tests/unit/test_fact_reset.py holds
-# this list to what the tasks actually register.
+# otherwise inherit another's paths — into a task that deletes them.
+#
+# What makes the install registers need this, and not every register: a task skipped by its
+# own `when` still writes its register, as a skipped result with changed=false, so it corrects
+# itself. A task inside a skipped `include_tasks` never runs at all, and its register keeps the
+# last app's value. install-source.yml and install-private.yml are both conditional includes,
+# so everything registered in them would otherwise decide how the *next* app is restarted.
+# tests/unit/test_fact_reset.py holds this list to what the tasks actually register.
 - name: "Reset install path facts for app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_manifest: {}

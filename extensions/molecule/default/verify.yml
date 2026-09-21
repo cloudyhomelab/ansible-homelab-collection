@@ -304,20 +304,34 @@
         label: "{{ item.app }}/{{ item.out }}"
       register: molecule_private_plain
 
+    # Marker gone: db.env.age -> db.env, conf.sops.yaml -> conf.yaml.
     - name: Assert each file decrypted, under the name its suffix promised
       ansible.builtin.assert:
         that:
           - molecule_private_runtime.results | rejectattr('stat.exists') | list | length == 0
-          # Marker gone: db.env.age -> db.env, conf.sops.yaml -> conf.yaml.
-          - molecule_private_plain.results | map(attribute='content') | map('b64decode') | list
-            == molecule_private_files | map(attribute='content') | list
           # Root only, in a directory systemd made and will take away again.
           - molecule_private_runtime.results | map(attribute='stat.mode')
             | reject('equalto', '0600') | list | length == 0
         fail_msg: >-
           Missing: {{ molecule_private_runtime.results | rejectattr('stat.exists')
-                      | map(attribute='item') | list }}.
+                      | map(attribute='item.out') | list }}; modes
+          {{ molecule_private_runtime.results | map(attribute='stat.mode') | list }}.
         quiet: true
+
+    # Its own assert: a mismatch here is about the bytes, and the one above reports paths.
+    - name: Assert each decrypted file holds the bytes that were encrypted
+      ansible.builtin.assert:
+        that:
+          - molecule_private_decrypted == molecule_private_files | map(attribute='content') | list
+        # Lengths, not contents: the sizes say which file and by how much, and the plaintext
+        # of a private file has no business in a CI log.
+        fail_msg: >-
+          Decrypted {{ molecule_private_decrypted | map('length') | list }} bytes for
+          {{ molecule_private_files | map(attribute='out') | list }}, expected
+          {{ molecule_private_files | map(attribute='content') | map('length') | list }}.
+        quiet: true
+      vars:
+        molecule_private_decrypted: "{{ molecule_private_plain.results | map(attribute='content') | map('b64decode') | list }}"
 
     - name: Stat the directories the decrypt unit made
       ansible.builtin.stat:

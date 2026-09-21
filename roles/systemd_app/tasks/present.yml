@@ -156,8 +156,17 @@
 #
 # A changed private file is a restart: its plaintext lives in a RuntimeDirectory the decrypt
 # unit destroys and re-creates, so reloading would leave the container on a directory that is
-# gone. Terms written out rather than composed in `vars:`, which ansible-lint templates as raw
-# text and then coerces through `bool` (an error from ansible-core 2.23).
+# gone. Its own fact rather than a `vars:` entry on the task below, which ansible-lint
+# evaluates as raw text and coerces through `bool` (an error from ansible-core 2.23).
+- name: "Decide whether the private files moved for app {{ systemd_app_name }}"
+  ansible.builtin.set_fact:
+    systemd_app_private_changed: >-
+      {{ (systemd_app_private_deploy.changed | default(false))
+         or (systemd_app_dropin_deploy.changed | default(false))
+         or (systemd_app_private_unit_install.changed | default(false))
+         or (systemd_app_helper_install.changed | default(false))
+         or (systemd_app_manifest.private_changed | default(false)) }}
+
 - name: "Decide how this deploy reaches the running units of app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_restart_needed: >-
@@ -165,11 +174,7 @@
          or (systemd_app_quadlet_render.changed | default(false))
          or (systemd_app_quadlet_install.changed | default(false))
          or (systemd_app_unit_install.changed | default(false))
-         or (systemd_app_private_deploy.changed | default(false))
-         or (systemd_app_dropin_deploy.changed | default(false))
-         or (systemd_app_private_unit_install.changed | default(false))
-         or (systemd_app_helper_install.changed | default(false))
-         or (systemd_app_manifest.private_changed | default(false)) }}
+         or (systemd_app_private_changed | bool) }}
     systemd_app_config_changed: >-
       {{ (systemd_app_config_deploy.changed | default(false))
          or (systemd_app_manifest.config_changed | default(false)) }}

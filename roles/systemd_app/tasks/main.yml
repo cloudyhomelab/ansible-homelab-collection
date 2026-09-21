@@ -149,6 +149,7 @@
     systemd_app_start_result: {}
     systemd_app_restart_needed: false
     systemd_app_config_changed: false
+    systemd_app_private_changed: false
 
 - name: "Deploy app {{ systemd_app_name }}"
   ansible.builtin.include_tasks: present.yml

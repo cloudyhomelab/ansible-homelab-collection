@@ -232,7 +232,10 @@ all of them every converge.
 
 Only files are recorded, but a directory a prune empties goes too, upwards until one still
 holds something. `rmdir` refuses a non-empty directory, so a `<unit>.d/` with a hand-written
-override beside the role's own survives by construction.
+override beside the role's own survives by construction. The unit directories are the host's
+and are never removed; `<app>/config` and `<app>/private` hold nothing but what the app ships,
+so an app that stops shipping either loses the directory as well, and the walk ends there
+rather than climbing into the app's home.
 
 An app last deployed before the role recorded a manifest for its kind has none, so its first
 converge prunes nothing and records one. `absent` covers that gap for an `inline` app by also

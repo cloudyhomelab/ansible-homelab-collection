@@ -24,8 +24,10 @@ description:
     nothing is ever removed recursively. One illegal line refuses the whole record.
     O(installed) is held to the same rules.
   - A directory a prune empties is removed too, upwards until a directory still holds
-    something or a root is reached. C(rmdir) refuses a non-empty directory, so a C(<unit>.d/)
-    with a hand-written override survives by construction rather than by a check.
+    something. O(system_dir) and O(unit_dir) are the host's and are never removed; O(config_dir)
+    and O(private_dir) hold nothing but what the app ships, so an emptied one goes and the walk
+    ends there. C(rmdir) refuses a non-empty directory, so a C(<unit>.d/) with a hand-written
+    override survives by construction rather than by a check.
   - The record is written last, so a failure part-way leaves the older, wider record standing.
   - Supports check mode and diff mode.
 options:
@@ -397,18 +399,24 @@ def _text(paths: Iterable[str]) -> str:
     return "".join(path + "\n" for path in paths)
 
 
-def prune_dirs(files: Files, pruned: Iterable[str], roots: Iterable[str]) -> list[str]:
-    """Remove the directories a prune emptied, deepest first, never a root. `rmdir` refusing a
-    non-empty directory is what stops the walk, so no check of its own is needed."""
-    stops = set(root.rstrip("/") for root in roots)
+def prune_dirs(files: Files, pruned: Iterable[str], stops: Iterable[str],
+               removable: Iterable[str]) -> list[str]:
+    """Remove the directories a prune emptied, deepest first. A `stops` root is the host's and
+    is never removed; a `removable` root is the app's own, so an emptied one goes and the walk
+    ends there rather than climbing into the app's home. `rmdir` refusing a non-empty directory
+    is what stops the walk otherwise, so no check of its own is needed."""
+    keep = set(root.rstrip("/") for root in stops)
+    ends = set(root.rstrip("/") for root in removable)
     removed: list[str] = []
     parents = sorted(set(os.path.dirname(entry) for entry in pruned), key=len, reverse=True)
     for parent in parents:
         directory = parent
-        while directory and directory != "/" and directory not in stops:
+        while directory and directory != "/" and directory not in keep:
             if not files.rmdir(directory):
                 break
             removed.append(directory)
+            if directory in ends:
+                break
             directory = os.path.dirname(directory)
     return sorted(set(removed))
 
@@ -440,7 +448,7 @@ def reconcile(files: Files, path: str, installed: Iterable[object], system_dir: 
         for entry in pruned:
             files.unlink(entry)
         # Before the record, like the unlinks: an empty directory left behind is harmless.
-        pruned_dirs = prune_dirs(files, pruned, (system_dir, unit_dir, config_dir, private_dir))
+        pruned_dirs = prune_dirs(files, pruned, (system_dir, unit_dir), (config_dir, private_dir))
         if state == "present":
             if record_changes:
                 files.write(path, _text(recorded_after))

@@ -22,10 +22,12 @@ minor_changes:
     the host, from the previous deploy, after the call that would have to be told the answer.
   - >-
     ``binarycodes.homelab.install_manifest`` now removes a directory that a prune leaves
-    empty, walking up until a directory still holds something or one of its roots is reached.
-    A non-empty directory is never removed, so a ``<unit>.d/`` holding a hand-written
-    override survives. Previously an emptied subdirectory of an app's config tree was left
-    behind until the app was decommissioned.
+    empty, walking up until a directory still holds something. The systemd directories are
+    the host's and are never removed; an app's own ``config/`` and ``private/`` hold nothing
+    but what it ships, so an emptied one goes too and the walk ends there rather than
+    climbing into the app's home. A non-empty directory is never removed, so a ``<unit>.d/``
+    holding a hand-written override survives. Previously an emptied subdirectory of an app's
+    config tree was left behind until the app was decommissioned.
   - >-
     New filter ``private_tree``: what an app keeps encrypted in ``private/``, the host path
     each file is copied to, and what each decrypts to at unit start. Two files that would

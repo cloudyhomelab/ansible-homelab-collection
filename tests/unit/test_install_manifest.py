@@ -619,17 +619,28 @@ def test_a_directory_the_prune_empties_is_removed(host):
 
     assert not os.path.exists(host.config("nested"))
     # Removed deepest first, reported sorted, as every other list this module returns is.
-    assert result["pruned_dirs"] == [host.config("nested"), host.config("nested/deep")]
+    assert result["pruned_dirs"] == [host.config_dir, host.config("nested"),
+                                     host.config("nested/deep")]
 
 
-def test_the_roots_themselves_are_never_removed(host):
-    host.record(*host.touch(host.config("app.conf"), host.private("db.env.age"),
-                            host.quadlet("myapp.container"), host.unit("myapp-extra.service")))
+def test_the_host_owned_roots_are_never_removed(host):
+    host.record(*host.touch(host.quadlet("myapp.container"), host.unit("myapp-extra.service")))
     result = host.reconcile([])
 
-    for root in (host.config_dir, host.private_dir, host.system_dir, host.unit_dir):
+    for root in (host.system_dir, host.unit_dir):
         assert os.path.isdir(root)
     assert result["pruned_dirs"] == []
+
+
+def test_an_emptied_config_or_private_root_goes_with_its_files(host):
+    host.record(*host.touch(host.config("app.conf"), host.private("db.env.age")))
+
+    result = host.reconcile([])
+
+    assert not os.path.exists(host.config_dir) and not os.path.exists(host.private_dir)
+    # The walk ends at the root it removed: the app's home is not the manifest's to take.
+    assert os.path.isdir(host.home)
+    assert result["pruned_dirs"] == [host.config_dir, host.private_dir]
 
 
 def test_a_directory_still_holding_something_survives(host):
@@ -672,7 +683,9 @@ def test_absent_takes_the_directories_with_the_files(host):
 
     assert not os.path.exists(host.private("tls"))
     assert not os.path.exists(host.config("nested"))
-    assert os.path.isdir(host.private_dir) and os.path.isdir(host.config_dir)
+    assert not os.path.exists(host.private_dir) and not os.path.exists(host.config_dir)
+    # The home is removed by the role, by name, after this call: the record is still in it here.
+    assert os.path.isdir(host.home)
 
 
 # --- docs -------------------------------------------------------------------------------

@@ -1,9 +1,0 @@
-release_summary: >-
-  Apps can now ship encrypted configuration and data. The ``systemd_app`` role installs an
-  app's ``private/`` directory to the host still encrypted, and a companion unit decrypts
-  the ``*.age`` and ``*.sops.<ext>`` files into a tmpfs directory at unit start, so no
-  plaintext is written below ``systemd_app_root``. Deploying such an app needs ``age`` and
-  ``sops`` on the target host. The new ``private_tree`` filter describes that tree, the
-  ``install_manifest`` module records and prunes it and now removes directories a prune
-  leaves empty, and the ``manifest_units`` filter is renamed ``unit_names``, with the old
-  name deprecated until 2.0.0.

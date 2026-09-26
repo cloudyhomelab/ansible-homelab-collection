@@ -162,6 +162,7 @@
         - /etc/systemd/system/molsource.service.d
         - /etc/systemd/system/molsource-extra.service.d
         - /run/app/molsource/private
+        - /run/app/molsource
         # Another app's files are none of this app's business.
         - /run/app/molinline/private/tls.key
         - /etc/systemd/system/homelab-private-decrypt@.service
@@ -181,10 +182,10 @@
     - name: Assert the app kept nothing private, and no other app was touched
       ansible.builtin.assert:
         that:
-          - molecule_after_drop.results[:7] | rejectattr('stat.exists') | list | length == 7
+          - molecule_after_drop.results[:8] | rejectattr('stat.exists') | list | length == 8
           # One app losing its private files must not disturb any other.
-          - molecule_after_drop.results[7].stat.exists
           - molecule_after_drop.results[8].stat.exists
+          - molecule_after_drop.results[9].stat.exists
           - molecule_after_drop_units.results[0].stdout == 'active'
           # Stopping it is what took the tmpfs tree away.
           - molecule_after_drop_units.results[1].stdout != 'active'

@@ -216,7 +216,7 @@ def test_it_takes_exactly_one_app_name(capsys):
     "env, expected",
     [
         ({}, "RUNTIME_DIRECTORY is unset"),
-        ({"RUNTIME_DIRECTORY": "/run/app/x/private"}, "CREDENTIALS_DIRECTORY is unset"),
+        ({"RUNTIME_DIRECTORY": "/run/app/x"}, "CREDENTIALS_DIRECTORY is unset"),
     ],
 )
 def test_run_outside_its_unit_it_says_so(monkeypatch, capsys, env, expected):
@@ -235,3 +235,17 @@ def test_a_credentials_directory_without_the_key_is_named(tmp_path, monkeypatch,
 
     assert mod.main(["myapp"]) == 1
     assert "no age identity at" in capsys.readouterr().err
+
+
+def test_it_decrypts_into_private_under_the_runtime_directory(tmp_path, monkeypatch):
+    # systemd removes only the innermost directory it was given, so the unit is given the
+    # app's own and private/ is the helper's to make.
+    (tmp_path / "src").mkdir()
+    (tmp_path / "age-key").write_text("identity")
+    monkeypatch.setenv("SYSTEMD_APP_PRIVATE_SRC", str(tmp_path / "src"))
+    monkeypatch.setenv("RUNTIME_DIRECTORY", str(tmp_path / "run"))
+    monkeypatch.setenv("CREDENTIALS_DIRECTORY", str(tmp_path))
+    (tmp_path / "run").mkdir(mode=0o700)
+
+    assert mod.main(["myapp"]) == 0
+    assert mode_of(tmp_path / "run" / "private") == 0o700

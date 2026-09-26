@@ -5,8 +5,8 @@
 """Installed to the host as ``/usr/local/libexec/homelab-decrypt-private``.
 
 Run by ``homelab-private-decrypt@<app>.service`` at unit start: decrypts
-``/var/app/<app>/private`` into the unit's ``RuntimeDirectory``, which is tmpfs and goes when
-the unit stops. Never runs on the controller.
+``/var/app/<app>/private`` into ``private/`` under the unit's ``RuntimeDirectory``, which is
+tmpfs and goes when the unit stops. Never runs on the controller.
 """
 
 from __future__ import annotations
@@ -169,7 +169,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise DecryptError("no age identity at %s; the unit's LoadCredential= found none." % key_file)
         if not os.path.isdir(src_dir):
             raise DecryptError("%s does not exist, so app %s ships no private files." % (src_dir, app))
-        decrypt(src_dir, runtime, key_file, Runner())
+        private = os.path.join(runtime, "private")
+        os.makedirs(private, mode=0o700, exist_ok=True)
+        decrypt(src_dir, private, key_file, Runner())
     except DecryptError as exc:
         sys.stderr.write("homelab-decrypt-private: %s\n" % exc)
         return 1

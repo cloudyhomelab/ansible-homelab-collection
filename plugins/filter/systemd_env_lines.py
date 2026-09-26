@@ -21,18 +21,16 @@ author:
   - binarycodes (@binarycodes)
 description:
   - Renders a mapping as C(Environment=) directives for a systemd unit or Quadlet.
-  - systemd splits C(Environment=) on whitespace, so a bare value with a space would set the
-    variable to its first word and read the rest as further assignments. Inside double
-    quotes a backslash and a quote need escaping, and a lone C(%) opens a specifier unless
-    doubled.
-  - Quoting and escaping are one rule, not two, which is why they live together here rather
-    than half in a template - removing the quotes there would silently break the escaping.
-  - Output is sorted by key, so the rendered unit does not change when a call site reorders
-    its variables, which would otherwise restart the container for nothing.
-  - A control character raises, having no representation in a unit file at any quoting level.
-    The M(binarycodes.homelab.container_validation_errors) filter refuses one long before this point;
-    this is the backstop for a caller that renders without validating first, so the two
-    cannot drift apart.
+  - systemd splits C(Environment=) on whitespace, so an unquoted value with a space sets the
+    variable to its first word and reads the rest as further assignments. Inside quotes a
+    backslash and a quote need escaping, and a lone C(%) opens a specifier unless doubled.
+  - Quoting and escaping are one rule, kept together rather than half in a template where
+    dropping the quotes would silently break the escaping.
+  - Sorted by key, so reordering a call site's variables does not rewrite the unit and restart
+    the container.
+  - A control character raises - it has no representation at any quoting level.
+    M(binarycodes.homelab.container_validation_errors) refuses one first; this is the backstop
+    for a caller that renders without validating.
 options:
   _input:
     description: Variable names mapped to their values. Values are stringified.

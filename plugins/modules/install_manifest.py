@@ -14,15 +14,20 @@ version_added: 1.1.0
 author:
   - binarycodes (@binarycodes)
 description:
-  - Keeps one app's install manifest, a file listing the absolute host paths its last deploy
-    installed, one per line. Prunes what that record names and O(installed) does not, then
-    records O(installed). On O(state=absent), removes everything recorded and the record.
-  - The record is acted on as root, so every line is checked before anything is removed. A
-    line must be one segment directly inside O(system_dir) or O(unit_dir), or nested under
-    O(config_dir) with no empty, C(.) or C(..) segment; and it must be a regular file, a
-    symlink or missing. A directory is refused - the record is a list of files, and nothing
-    on it is ever removed recursively. One illegal line refuses the whole record and removes
-    nothing. O(installed) is held to the same rules before it is recorded.
+  - Keeps one app's install manifest - the absolute host paths its last deploy installed, one
+    per line. Prunes what the record names and O(installed) does not, then records
+    O(installed). On O(state=absent) removes everything recorded, and the record.
+  - Acted on as root, so every line is checked first. A line must be one segment directly
+    inside O(system_dir) or O(unit_dir), a C(<unit>.d/<name>.conf) drop-in inside
+    O(unit_dir), or nested under O(config_dir) or O(private_dir) with no empty, C(.) or C(..)
+    segment - and must be a regular file, a symlink or missing. A directory is refused;
+    nothing is ever removed recursively. One illegal line refuses the whole record.
+    O(installed) is held to the same rules.
+  - A directory a prune empties is removed too, upwards until a directory still holds
+    something. O(system_dir) and O(unit_dir) are the host's and are never removed; O(config_dir)
+    and O(private_dir) hold nothing but what the app ships, so an emptied one goes and the walk
+    ends there. C(rmdir) refuses a non-empty directory, so a C(<unit>.d/) with a hand-written
+    override survives by construction rather than by a check.
   - The record is written last, so a failure part-way leaves the older, wider record standing.
   - Supports check mode and diff mode.
 options:
@@ -49,6 +54,14 @@ options:
     description: The app's own deployed config tree, normally C(/var/app/<app>/config).
     type: path
     required: true
+  private_dir:
+    description:
+      - The app's encrypted private files, normally C(/var/app/<app>/private). Recorded and
+        pruned like O(config_dir), but reported separately - a change there is acted on by
+        the app's decrypt unit, not the app.
+    type: path
+    required: true
+    version_added: 1.2.0
   state:
     description:
       - C(present) prunes and records. C(absent) removes everything recorded and the record.
@@ -65,10 +78,13 @@ EXAMPLES = r"""
     path: /var/app/myapp/.install-manifest
     installed:
       - /etc/containers/systemd/myapp.container
+      - /etc/systemd/system/myapp.service.d/10-private.conf
       - /var/app/myapp/config/app.conf
+      - /var/app/myapp/private/db.env.age
     system_dir: /etc/containers/systemd
     unit_dir: /etc/systemd/system
     config_dir: /var/app/myapp/config
+    private_dir: /var/app/myapp/private
     mode: "0644"
   register: myapp_manifest
 
@@ -78,6 +94,7 @@ EXAMPLES = r"""
     system_dir: /etc/containers/systemd
     unit_dir: /etc/systemd/system
     config_dir: /var/app/myapp/config
+    private_dir: /var/app/myapp/private
     state: absent
   check_mode: true
   register: myapp_manifest
@@ -94,6 +111,7 @@ EXAMPLES = r"""
     system_dir: /etc/containers/systemd
     unit_dir: /etc/systemd/system
     config_dir: /var/app/myapp/config
+    private_dir: /var/app/myapp/private
     state: absent
 """
 
@@ -112,21 +130,33 @@ config_changed:
   description: Whether any pruned path was under O(config_dir) - a change a running app still reads.
   type: bool
   returned: always
+private_changed:
+  description:
+    - Whether any pruned path was under O(private_dir). Answered by restarting the app's
+      decrypt unit, which owns the runtime copy, not by reloading the app.
+  type: bool
+  returned: always
+  version_added: 1.2.0
+pruned_dirs:
+  description: Directories removed because the prune left them empty.
+  type: list
+  elements: str
+  returned: always
+  version_added: 1.2.0
 pruned_units:
   description:
     - The units the pruned paths implied, mapped as RV(units) is, so a deploy can disable a
-      unit the app stopped shipping while its file still exists to be disabled - in check
-      mode, before the call that removes it. On O(state=absent) this is every unit recorded.
+      unit while its file still exists - in check mode, before the call that removes it. On
+      O(state=absent), every unit recorded.
   type: list
   elements: str
   returned: always
 units:
   description:
-    - The systemd units the record implied when read, so a decommission can stop them without
-      being told the names. C(.container) and C(.kube) map to C(<name>.service), C(.pod) to
-      C(<name>-pod.service); C(.volume), C(.network), C(.image) and C(.build) are not units
-      that run anything and are left out. A plain C(.service), C(.socket), C(.timer),
-      C(.path), C(.mount) or C(.automount) under O(unit_dir) is its own name.
+    - The units the record implied when read, so a decommission needs no unit names.
+      C(.container) and C(.kube) map to C(<name>.service), C(.pod) to C(<name>-pod.service);
+      C(.volume), C(.network), C(.image) and C(.build) run nothing and are left out. A plain
+      unit file under O(unit_dir) is its own name.
   type: list
   elements: str
   returned: always
@@ -159,8 +189,11 @@ _PLAIN_UNIT_SUFFIXES = (
     ".automount",
 )
 
-# Segments no recorded path may contain. An empty one is a doubled or trailing slash, and the
-# other two are how a path climbs out of its root.
+# A drop-in lives in <unit>.d/ beside its unit: two segments, the second a .conf file.
+_DROPIN_DIR_SUFFIX = ".d"
+_DROPIN_FILE_SUFFIX = ".conf"
+
+# An empty segment is a doubled or trailing slash; the other two climb out of the root.
 _FORBIDDEN_SEGMENTS = frozenset(["", ".", ".."])
 
 # What sits at a path, as `Files.kind` reports it.
@@ -179,6 +212,8 @@ class Result(TypedDict):
     pruned: list[str]
     recorded: list[str]
     config_changed: bool
+    private_changed: bool
+    pruned_dirs: list[str]
     pruned_units: list[str]
     units: list[str]
     diff: Diff
@@ -227,6 +262,15 @@ class Files:
             if exc.errno != errno.ENOENT:
                 raise
 
+    def rmdir(self, path: str) -> bool:
+        """Remove `path` if it is an empty directory. Every refusal means leave it alone, so
+        ENOTEMPTY, ENOENT and ENOTDIR are not told apart."""
+        try:
+            os.rmdir(path)
+        except OSError:
+            return False
+        return True
+
     def write(self, path: str, text: str) -> None:
         """Replace the record atomically; a replaced one keeps its mode, a new one is 0644."""
         existing = self.kind(path)
@@ -269,30 +313,51 @@ def _under(path: str, root: str) -> list[str] | None:
     return path[len(prefix):].split("/")
 
 
-def check_shape(path: str, system_dir: str, unit_dir: str, config_dir: str) -> str | None:
-    """Why `path` may not be recorded, or None when it is one of the two legal shapes."""
+def _is_dropin(segments: list[str]) -> bool:
+    """Whether these segments below the unit directory spell a unit's drop-in file."""
+    if len(segments) != 2:
+        return False
+    directory, name = segments
+    if not directory.endswith(_DROPIN_DIR_SUFFIX):
+        return False
+    unit = directory[: -len(_DROPIN_DIR_SUFFIX)]
+    if unit.startswith(".") or not unit.endswith(_PLAIN_UNIT_SUFFIXES):
+        return False
+    return name.endswith(_DROPIN_FILE_SUFFIX) and len(name) > len(_DROPIN_FILE_SUFFIX)
+
+
+def check_shape(path: str, system_dir: str, unit_dir: str, config_dir: str,
+                private_dir: str) -> str | None:
+    """Why `path` may not be recorded, or None when it is one of the legal shapes."""
     if not path.startswith("/"):
         return "is not an absolute path"
     for root in (system_dir, unit_dir):
         segments = _under(path, root)
         if segments is not None:
-            if len(segments) != 1 or segments[0] in _FORBIDDEN_SEGMENTS:
-                return "is not a single path segment directly inside %s" % root
+            if len(segments) == 1 and segments[0] not in _FORBIDDEN_SEGMENTS:
+                return None
+            # Unit directory only: a drop-in under system_dir would override nothing.
+            if root == unit_dir and _is_dropin(segments):
+                return None
+            if root == unit_dir:
+                return ("is neither a single path segment directly inside %s nor a "
+                        "<unit>.d/<name>.conf drop-in below it" % root)
+            return "is not a single path segment directly inside %s" % root
+    for root in (config_dir, private_dir):
+        segments = _under(path, root)
+        if segments is not None:
+            if any(segment in _FORBIDDEN_SEGMENTS for segment in segments):
+                return "has an empty, '.' or '..' segment below %s" % root
             return None
-    segments = _under(path, config_dir)
-    if segments is not None:
-        if any(segment in _FORBIDDEN_SEGMENTS for segment in segments):
-            return "has an empty, '.' or '..' segment below %s" % config_dir
-        return None
-    return "is outside %s, %s and %s" % (system_dir, unit_dir, config_dir)
+    return "is outside %s, %s, %s and %s" % (system_dir, unit_dir, config_dir, private_dir)
 
 
 def validate(paths: Iterable[str], files: Files, system_dir: str, unit_dir: str, config_dir: str,
-             what: str) -> None:
+             private_dir: str, what: str) -> None:
     """Refuse the whole list if any path is the wrong shape or names something not a file."""
     refused: list[str] = []
     for path in paths:
-        why = check_shape(path, system_dir, unit_dir, config_dir)
+        why = check_shape(path, system_dir, unit_dir, config_dir, private_dir)
         if why is None and files.kind(path) == "other":
             why = "names a directory or something else that is not a regular file or symlink"
         if why is not None:
@@ -334,17 +399,41 @@ def _text(paths: Iterable[str]) -> str:
     return "".join(path + "\n" for path in paths)
 
 
+def prune_dirs(files: Files, pruned: Iterable[str], stops: Iterable[str],
+               removable: Iterable[str]) -> list[str]:
+    """Remove the directories a prune emptied, deepest first. A `stops` root is the host's and
+    is never removed; a `removable` root is the app's own, so an emptied one goes and the walk
+    ends there rather than climbing into the app's home. `rmdir` refusing a non-empty directory
+    is what stops the walk otherwise, so no check of its own is needed."""
+    keep = set(root.rstrip("/") for root in stops)
+    ends = set(root.rstrip("/") for root in removable)
+    removed: list[str] = []
+    parents = sorted(set(os.path.dirname(entry) for entry in pruned), key=len, reverse=True)
+    for parent in parents:
+        directory = parent
+        while directory and directory != "/" and directory not in keep:
+            if not files.rmdir(directory):
+                break
+            removed.append(directory)
+            if directory in ends:
+                break
+            directory = os.path.dirname(directory)
+    return sorted(set(removed))
+
+
 def reconcile(files: Files, path: str, installed: Iterable[object], system_dir: str, unit_dir: str,
-              config_dir: str, state: str, check_mode: bool) -> Result:
+              config_dir: str, private_dir: str, state: str, check_mode: bool) -> Result:
     """Prune, record or remove, and describe what was done, in the module's return shape."""
     recorded_before = files.read_lines(path)
     had_record = recorded_before is not None
     recorded_before = sorted(set(recorded_before or []))
-    validate(recorded_before, files, system_dir, unit_dir, config_dir, "the record %s" % path)
+    validate(recorded_before, files, system_dir, unit_dir, config_dir, private_dir,
+             "the record %s" % path)
 
     if state == "present":
         recorded_after = sorted(set(str(entry) for entry in installed))
-        validate(recorded_after, files, system_dir, unit_dir, config_dir, "'installed'")
+        validate(recorded_after, files, system_dir, unit_dir, config_dir, private_dir,
+                 "'installed'")
     else:
         recorded_after = []
 
@@ -352,11 +441,14 @@ def reconcile(files: Files, path: str, installed: Iterable[object], system_dir: 
     pruned = [entry for entry in recorded_before if entry not in keep]
     record_changes = recorded_after != recorded_before or (state == "absent" and had_record)
 
+    pruned_dirs: list[str] = []
     if not check_mode:
         # Removals first and the record last: a failure between the two leaves the older,
         # wider record in place, so nothing is forgotten.
         for entry in pruned:
             files.unlink(entry)
+        # Before the record, like the unlinks: an empty directory left behind is harmless.
+        pruned_dirs = prune_dirs(files, pruned, (system_dir, unit_dir), (config_dir, private_dir))
         if state == "present":
             if record_changes:
                 files.write(path, _text(recorded_after))
@@ -364,11 +456,14 @@ def reconcile(files: Files, path: str, installed: Iterable[object], system_dir: 
             files.unlink(path)
 
     config_prefix = config_dir.rstrip("/") + "/"
+    private_prefix = private_dir.rstrip("/") + "/"
     return {
         "changed": bool(pruned) or record_changes,
         "pruned": pruned,
         "recorded": recorded_after,
         "config_changed": any(entry.startswith(config_prefix) for entry in pruned),
+        "private_changed": any(entry.startswith(private_prefix) for entry in pruned),
+        "pruned_dirs": pruned_dirs,
         "pruned_units": units_of(pruned, system_dir, unit_dir),
         "units": units_of(recorded_before, system_dir, unit_dir),
         "diff": {"before": _text(recorded_before), "after": _text(recorded_after)},
@@ -383,6 +478,7 @@ def main() -> None:
             system_dir=dict(type="path", required=True),
             unit_dir=dict(type="path", required=True),
             config_dir=dict(type="path", required=True),
+            private_dir=dict(type="path", required=True),
             state=dict(type="str", choices=["present", "absent"], default="present"),
         ),
         add_file_common_args=True,
@@ -393,7 +489,8 @@ def main() -> None:
     try:
         result = reconcile(
             Files(), params["path"], params["installed"], params["system_dir"],
-            params["unit_dir"], params["config_dir"], params["state"], module.check_mode,
+            params["unit_dir"], params["config_dir"], params["private_dir"], params["state"],
+            module.check_mode,
         )
     except InstallManifestError as exc:
         module.fail_json(msg=exc.msg, **exc.fields)

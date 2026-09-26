@@ -3,16 +3,12 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# systemd_app_kind selects the deployment model and is REQUIRED at every call
-# site (deliberately no default, so the mode is always explicit):
-#   source -> install an app's files from a controller directory (see below).
-#   inline -> render a single-container Quadlet from call-site params (image, env,
-#             volumes, ...) with no source directory. See README.
+# systemd_app_kind is REQUIRED at every call site; no default, so the mode is explicit.
+#   source -> install an app's files from a controller directory
+#   inline -> render a single-container Quadlet from call-site params
 
-# Lifecycle: 'present' deploys the app and starts its units, dropping any file a
-# previous deploy installed and this one does not; 'absent' stops those units and
-# removes everything the app owns on the host, config and data included (then delete
-# the role call). Destructive — back the app up first. See README.
+# 'absent' removes everything the app owns on the host, config and data included. Destructive;
+# back the app up first. See README.
 systemd_app_state: present
 
 # App definitions on the Ansible controller.
@@ -20,16 +16,13 @@ systemd_app_state: present
 #   quadlet/            -> Podman Quadlet files (*.container, *.pod, *.network, ...)
 #   unit/               -> plain systemd unit files (*.service, *.timer, *.socket, ...)
 #   config/             -> arbitrary config tree, copied recursively to the host
+#   private/            -> encrypted files, copied to the host as they are (see below)
 #   secrets.sops.yaml   -> SOPS-encrypted podman secrets (see below)
-# The first three belong to the 'source' kind; the secrets file is read for either kind, so
-# an 'inline' app with secrets has a directory holding just that.
+# The first three are 'source' only; secrets.sops.yaml and private/ are read for either kind.
 #
-# Deliberately no default: where a fleet keeps its app definitions is a property of that
-# fleet's repository, not of this role, and a guess here is one that silently installs
-# nothing (see the source-directory check in tasks/main.yml). Set it once as a play
-# variable — every app in a play shares it. Deploying a 'source' app requires it; an
-# 'inline' app needs it only to be found by the secrets lookup, which is skipped without
-# it; a decommission of either kind never reads it.
+# No default: a guess here silently installs nothing (see the directory check in
+# tasks/main.yml). Set it once as a play variable. Required for a 'source' deploy; an 'inline'
+# app needs it only to be found by the secrets and private lookups; absent never reads it.
 # systemd_app_apps_dir: /path/to/apps
 
 # Destinations on the target host.
@@ -37,43 +30,43 @@ systemd_app_system_dir: /etc/containers/systemd   # Quadlet files (read by the g
 systemd_app_unit_dir: /etc/systemd/system         # plain systemd units
 systemd_app_root: /var/app                        # each app's home: {{ root }}/{app}
 
-# Everything this app owns on the host below systemd_app_root: its deployed
-# config tree, plus any data a Quadlet bind-mounts under the same directory. Removed
-# wholesale on absent, so back the app up before decommissioning it.
+# Everything this app owns below systemd_app_root. Removed wholesale on absent.
 systemd_app_home: "{{ systemd_app_root }}/{{ systemd_app_name }}"
 
-# Where an app records the host paths it installed — a 'source' app's Quadlet files,
-# systemd units and config tree, an 'inline' app's one rendered Quadlet. Both a later
-# deploy (to drop files it no longer installs) and decommission read this manifest
-# instead of re-deriving from the controller's apps/<name>/ tree, which by then may name
-# different files or be gone. Recorded for both kinds so that converting an app from one
-# to the other reconciles: what the old kind installed is what the new kind prunes.
-#
-# It lives inside the app's own home so the two share fate: the absent path drops
-# that whole tree, which takes the manifest with it, and a hand-removed or restored
-# /var/app/<app> cannot leave a stale record behind. Root-owned; every recorded path is
-# allowlisted before anything is removed.
+# The host paths this app's last deploy installed. A later deploy and a decommission both read
+# it instead of re-deriving from apps/<name>/, which by then may name different files or be
+# gone; recorded for both kinds, so a change of kind reconciles. Inside the app's home so the
+# two share fate — a hand-removed /var/app/<app> cannot leave a stale record behind.
 systemd_app_manifest_file: "{{ systemd_app_home }}/.install-manifest"
 
-# What a 'source' deploy installs, read from the app's directory on the controller: the
-# files of quadlet/ and unit/, every file of the config/ tree, and the host path each lands
-# at, which is what the install manifest records. One filter rather than globs and a find,
-# so the manifest is composed where it is tested. Evaluated where it is referenced, which is
-# only in tasks/install-source.yml and a branch the manifest task takes for 'source' alone,
-# so an 'inline' app never reads it. A missing directory raises, though main.yml refuses one
-# before this is ever read.
+# What a 'source' deploy installs, and the host path each lands at. A filter rather than globs
+# and a find, so the manifest is composed where it is tested. Lazy, so an 'inline' app never
+# reads it; a missing directory raises, though main.yml refuses one first.
 systemd_app_source_tree: >-
   {{ (systemd_app_apps_dir ~ '/' ~ systemd_app_name) | binarycodes.homelab.source_tree(
        systemd_app_system_dir, systemd_app_unit_dir, systemd_app_home ~ '/config') }}
 
-# What this deploy installs, as the manifest records it: an 'inline' app's one rendered
-# Quadlet, or what a 'source' app's tree says. Read by the two manifest calls in
-# tasks/present.yml — the check-mode one that learns which units to disable and the one that
-# prunes — so the two cannot be given different lists. Lazy, like systemd_app_source_tree
-# behind it, so an 'inline' app never reads the tree.
-systemd_app_installed_paths: >-
-  {{ [systemd_app_system_dir ~ '/' ~ systemd_app_name ~ '.container']
-     if systemd_app_kind == 'inline' else systemd_app_source_tree.installed }}
+# What this deploy installs, as the manifest records it. Read by both manifest calls in
+# present.yml, so the check-mode one and the one that prunes cannot be given different lists.
+systemd_app_base_paths: >-
+  {{ ([systemd_app_system_dir ~ '/' ~ systemd_app_name ~ '.container']
+      if systemd_app_kind == 'inline' else systemd_app_source_tree.installed)
+     + systemd_app_private_tree.installed }}
+
+# The units that read this app's private files, and their ordering drop-ins. Not the manifest
+# module's `units`: that is computed from what the *last* deploy recorded, and only exists
+# after the call that has to be told these paths. Split from base_paths so the unit derivation
+# does not see the drop-ins it is producing.
+systemd_app_private_units: >-
+  {{ systemd_app_base_paths | binarycodes.homelab.unit_names(
+       systemd_app_system_dir, systemd_app_unit_dir)
+     if systemd_app_has_private | bool else [] }}
+systemd_app_private_dropins: >-
+  {{ systemd_app_private_units
+     | map('regex_replace', '^(.+)$', systemd_app_unit_dir ~ '/\1.d/10-private.conf')
+     | list }}
+
+systemd_app_installed_paths: "{{ systemd_app_base_paths + systemd_app_private_dropins }}"
 
 # Ownership / permissions applied to everything this role installs.
 systemd_app_owner: root
@@ -81,27 +74,18 @@ systemd_app_group: root
 systemd_app_file_mode: "0644"
 systemd_app_dir_mode: "0755"
 
-# Caddy auto-routing: when systemd_app_domain is set, a per-app route snippet
-# lands here and is imported by the Caddyfile (`import /etc/caddy/conf.d/*.caddy`),
-# so a routed app needs no edit to the central Caddyfile. Caddy is reloaded once
-# by the deploy playbook (post-task), not here.
-#
-# Composed from systemd_app_root rather than written out, so the routes follow the app
-# directories when that root moves. It is still the reverse proxy's own config tree —
-# the one directory this role writes into that belongs to another app — so an app named
-# something other than 'reverse_proxy' overrides this.
+# When systemd_app_domain is set, a per-app route snippet lands here and is imported by the
+# Caddyfile (`import /etc/caddy/conf.d/*.caddy`). Caddy is reloaded once by the deploy
+# playbook, not here. This is the reverse proxy's own config tree, the one directory this role
+# writes into that belongs to another app, so a proxy not named 'reverse_proxy' overrides it.
 systemd_app_caddy_confd: "{{ systemd_app_root }}/reverse_proxy/config/conf.d"
 
-# Route target when systemd_app_domain is set. The upstream defaults to the app
-# name (the common case where ContainerName matches, including every 'inline'
-# app), but an app whose routable container is named differently overrides
-# systemd_app_upstream.
+# Route target. The upstream defaults to the app name, which is the ContainerName for every
+# 'inline' app; override it for an app whose routable container is named otherwise.
 systemd_app_port: 8080                       # internal upstream port for the Caddy route
 systemd_app_upstream: "{{ systemd_app_name }}"   # upstream host (container name on the shared network)
 
-# 'inline'-kind defaults for the rendered single container. Override at the call
-# site as needed; ignored by 'source'-kind apps (they declare these in their own
-# Quadlet files).
+# 'inline' only; a 'source' app declares these in its own Quadlet.
 systemd_app_network: web.network             # shared network the container joins
 systemd_app_env: {}                          # rendered as Environment= lines
 systemd_app_volumes: []                      # raw Volume= values
@@ -109,69 +93,83 @@ systemd_app_publish_ports: []                # raw PublishPort= values
 systemd_app_container_options: []            # extra raw [Container] lines
 systemd_app_service_options: []              # extra raw [Service] lines
 
-# Policy the rendered container runs under: fleet-wide defaults for a long-running
-# service, overridden per app. 'registry' enrols the container in `podman auto-update`
-# (see the health defaults below for what makes that safe); 'local' follows a locally
-# built image instead; 'never' writes no AutoUpdate= line, for an image pinned by digest,
-# which has nothing to follow. Restart= takes any value systemd accepts — 'on-failure' for
-# an app whose clean exit means it is done rather than down.
+# 'registry' enrols the container in `podman auto-update` (the health defaults below are what
+# make that safe), 'local' follows a locally built image, 'never' writes no AutoUpdate= line
+# and suits an image pinned by digest. Restart= takes any value systemd accepts.
 systemd_app_auto_update: registry
 systemd_app_restart: always
 
-# An app that needs secrets ships one SOPS-encrypted file in its own directory, keyed by
-# the podman secret names its Quadlet references with Secret=:
-#   whichday-oidc-client-secret: ENC[AES256_GCM,...]
-# Discovered, not declared — like the app's quadlet/ and config/ directories — so the
-# encrypted file is the single place the set is written down. It sits at the app root,
-# outside the three directories this role installs from, so nothing copies it to the host.
-# Nothing sensitive is stored in a file this role installs either: a unit file is
-# world-readable by design, which is what makes Environment= the wrong home for a secret.
-# Names are host-global, so prefix them with the app name to keep two apps apart. An
-# 'inline' app gets its Secret= lines rendered from these names, the variable being the
-# name upper-cased with dashes as underscores; a 'source' app writes the line itself and
-# can point it at any variable. See the role README.
+# The environment-shaped secret channel: one SOPS file keyed by the podman secret names the
+# app's Quadlet references with Secret=. Discovered, not declared, and outside the directories
+# the role installs from, so nothing copies it to the host — a unit file is world-readable,
+# which is what makes Environment= the wrong home for a secret. Names are host-global, so
+# prefix them with the app name. An 'inline' app gets its Secret= lines rendered from these;
+# a 'source' app writes them itself. See README.
 systemd_app_secrets_file: "{{ systemd_app_apps_dir }}/{{ systemd_app_name }}/secrets.sops.yaml"
 
-# The decrypted file as one dict, evaluated where it is used and stored nowhere. A lookup
-# rather than community.sops.load_vars, whose result becomes a host fact: a fact persists for
-# the play, so one app's decrypted values would be visible to every app that follows it in
-# the same run — including an 'absent' run, which never sets its own. A default is recomputed
-# on each reference, so sops runs a few times per app instead of once; that is a handful of
-# subprocess calls on the controller, and the price of there being nothing to reset or leak.
-# The keys are podman secret names, not legal variable names, and nothing sensitive becomes a
-# play variable. Empty when the app ships no file, or when systemd_app_apps_dir is unset —
-# which only an 'inline' app can leave unset, and then there is nowhere to look.
+# A lookup, not community.sops.load_vars: that result becomes a host fact, and a fact persists
+# for the play, so one app's decrypted values would be visible to every app after it. The cost
+# is that sops runs once per reference rather than once per app. Empty when the app ships no
+# file or systemd_app_apps_dir is unset.
 systemd_app_secret_values: >-
   {{ (lookup('community.sops.sops', systemd_app_secrets_file) | from_yaml)
      if (systemd_app_apps_dir is defined and (systemd_app_secrets_file is file))
      else {} }}
 
-# Directories to create before the container starts, for a bind mount whose contents the
-# app writes itself: podman would otherwise create the host path as root and a container
-# running unprivileged could not write in it. Each entry is {path, owner, group, mode},
-# where path is relative to this app's own home — so it cannot name another app's:
+# The file-shaped secret channel: an app's private/ tree, discovered like quadlet/ and config/.
+#   private/db.env.age            -> age
+#   private/tls/server.sops.yaml  -> sops, decrypting to tls/server.yaml
+#   private/ca.crt                -> neither, copied through unchanged
+# Copied to the host still encrypted, so nothing readable is written below systemd_app_root;
+# plaintext exists only in tmpfs, written at unit start and gone when the unit stops. The
+# controller never holds the key — the filter only says what the host's unit will do, which is
+# what makes two files decrypting to one name a failed play rather than a failed unit.
+
+# Not inputs: one unit file serves every app on the host, so a per-app value would have the
+# last app deployed rewrite the key path for all of them. The role never provisions the key; a
+# host keeping it elsewhere symlinks it into place.
+systemd_app_private_key_file: /etc/homelab/age.key
+systemd_app_private_unit: homelab-private-decrypt
+systemd_app_private_helper: /usr/local/libexec/homelab-decrypt-private
+
+# Where this app's decrypted files appear, for a call site to mount from. The role renders no
+# mount of its own for either kind: an image wants its file at a path only the app knows.
+#   systemd_app_volumes:
+#     - "{{ systemd_app_private_run_dir }}/tls.key:/etc/myapp/tls.key:ro"
+systemd_app_private_run_dir: "/run/app/{{ systemd_app_name }}/private"
+
+# Guarded on systemd_app_apps_dir like the secrets lookup. Empty rather than raising for an app
+# with no private/, which is most of them: unlike source_tree, a missing directory here is the
+# normal case, not a deploy about to prune everything.
+systemd_app_private_dir: "{{ systemd_app_home }}/private"
+systemd_app_private_tree: >-
+  {{ ((systemd_app_apps_dir ~ '/' ~ systemd_app_name)
+      | binarycodes.homelab.private_tree(systemd_app_private_dir))
+     if systemd_app_apps_dir is defined
+     else {'files': [], 'dir': none, 'installed': [], 'errors': []} }}
+systemd_app_has_private: "{{ systemd_app_private_tree.files | length > 0 }}"
+
+# Bind-mount targets the app writes to. Podman would create a missing host path as root, which
+# an unprivileged container cannot write in. Each entry is {path, owner, group, mode}, path
+# relative to this app's home so it cannot name another app's:
 #   - path: data            # -> {{ systemd_app_home }}/data
 #     owner: "10001"        # the image's non-root user, by numeric id
 systemd_app_data_dirs: []
 
-# Healthcheck policy for an 'inline' app. The probe itself cannot have a useful default
-# — an HTTP app wants a request, Postgres wants pg_isready — so it comes from the call
-# site, and the rest of the block is fleet policy set once here. Naming a command turns
-# on Notify=healthy, which is what makes a bad image a failed start that
-# `podman auto-update` rolls back instead of a container that is up and serving nothing.
+# 'inline' healthchecks. The probe has no useful default, so it comes from the call site;
+# naming one turns on Notify=healthy, which is what makes a bad image a failed start that
+# `podman auto-update` rolls back rather than a container that is up and serving nothing.
 # Leave systemd_app_health_cmd empty for an app that cannot be probed.
 systemd_app_health_cmd: ""                   # e.g. pg_isready -q -U postgres
 systemd_app_health_interval: 15s
 systemd_app_health_retries: 3
 systemd_app_health_start_period: 60s
-# Deadline for the first passing probe: Notify=healthy makes systemd's 90s default a
-# hard limit, which is tight for a cold start and would roll back a good image.
+# Notify=healthy makes systemd's 90s default a hard deadline for the first passing probe,
+# which is tight for a cold start and would roll back a good image.
 systemd_app_start_timeout: 180
 
-# Units this role starts/enables (present) and stops (absent). An 'inline' app
-# renders exactly one <name>.service, so default to that when the caller names
-# none; a 'source' app starts nothing unless it lists units (boot comes from the
-# Quadlet [Install] section, e.g. the network-only 'shared' app has no service).
+# Units this role starts and enables. An 'inline' app renders exactly one <name>.service; a
+# 'source' app starts nothing unless it lists units, boot coming from the Quadlet [Install].
 systemd_app_managed_units: >-
   {{ (systemd_app_enable_units | default([]))
      if (systemd_app_enable_units | default([]) | length > 0)
@@ -194,5 +192,5 @@ systemd_app_managed_units: >-
 # systemd_app_auto_update:  optional — AutoUpdate= policy (default registry; never omits it).
 # systemd_app_restart:      optional — Restart= policy (default always).
 # systemd_app_data_dirs:    optional — bind-mount directories to pre-create with a given owner.
-# systemd_app_health_cmd:   optional — probe command; set it to get a healthcheck and
-#   the auto-update rollback that depends on it. See the health defaults above.
+# systemd_app_health_cmd:   optional — probe command; enables the auto-update rollback.
+# Secrets and private files are not parameters: an app has them by shipping the files.

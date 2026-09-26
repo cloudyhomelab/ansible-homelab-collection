@@ -3,9 +3,9 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# The rest of an app's life, which a converge alone never reaches: a file dropped from its
-# source tree, a change of kind, and decommissioning. Each stage asserts immediately after
-# the role runs, because the state it produces is the input to the next one.
+# The rest of an app's life: a dropped file, private files renamed and removed, a change of
+# kind, secrets rotated, decommissioning. Each stage asserts right after the role runs,
+# because its state is the next stage's input.
 - name: Side effect
   hosts: all
   become: true
@@ -13,17 +13,17 @@
 
   vars:
     molecule_fixture_apps:
-      # The kind each app is in by the time this play tears it down — molsource has been
-      # flipped to inline by then, and absent prunes from the manifest either way.
+      # The kind each app is in by teardown; molsource has been flipped to inline by then.
       - {name: molinline, kind: inline}
       - {name: molsource, kind: inline}
       - {name: molnet, kind: source}
       - {name: molsecret, kind: inline}
-      # Deployed with systemd_app_enable_units, decommissioned without it — the case a
-      # teardown that works only from the caller's unit names cannot stop.
+      # Deployed with systemd_app_enable_units and decommissioned without: the case a teardown
+      # driven only by the caller's unit names cannot stop.
       - {name: molorphan, kind: source}
-      # Refused at its secrets before anything reached the host; here so a decommission of
-      # an app that was never deployed stays green.
+      # Never started by the role at all, only by hand in the stage below.
+      - {name: molquiet, kind: source}
+      # Refused before anything reached the host, so decommissioning it must stay green.
       - {name: molclaim, kind: inline}
 
   tasks:
@@ -80,11 +80,212 @@
       vars:
         molecule_recorded: "{{ (molecule_pruned_manifest.content | b64decode).splitlines() }}"
 
+    # --- private files: renamed, then dropped altogether ---------------------------------
+    # The encrypted copy is pruned like any installed file, but the plaintext is in a
+    # RuntimeDirectory only the decrypt unit owns, so the old name leaves /run only if that
+    # unit was restarted.
+    - name: Rename a private file in the fixture app tree
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ molecule_apps_dir }}/molsource/private/db.env.age"
+          - "{{ molecule_apps_dir }}/molsource/private/db-new.env.age"
+      changed_when: true
+      delegate_to: localhost
+      become: false
+
+    - name: Re-deploy the source app over the renamed private file
+      ansible.builtin.include_role:
+        name: binarycodes.homelab.systemd_app
+      vars:
+        systemd_app_kind: source
+        systemd_app_name: molsource
+        systemd_app_enable_units:
+          - molsource.service
+          - molsource-extra.service
+        systemd_app_domain: molsource.molecule.test
+
+    - name: Stat the private files before and after the rename
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /var/app/molsource/private/db.env.age
+        - /var/app/molsource/private/db-new.env.age
+        - /run/app/molsource/private/db.env
+        - /run/app/molsource/private/db-new.env
+        # Untouched by the rename.
+        - /run/app/molsource/private/nested/conf.yaml
+      register: molecule_after_rename
+
+    - name: Assert the old name went from the host and from the runtime tree
+      ansible.builtin.assert:
+        that:
+          - not molecule_after_rename.results[0].stat.exists
+          - molecule_after_rename.results[1].stat.exists
+          # The tmpfs tree was rebuilt, not left holding a file the app no longer ships.
+          - not molecule_after_rename.results[2].stat.exists
+          - molecule_after_rename.results[3].stat.exists
+          - molecule_after_rename.results[4].stat.exists
+        fail_msg: >-
+          After the rename:
+          {{ molecule_after_rename.results | map(attribute='item')
+             | zip(molecule_after_rename.results | map(attribute='stat.exists')) | list }}.
+        quiet: true
+
+    - name: Drop the private directory from the fixture app tree
+      ansible.builtin.file:
+        path: "{{ molecule_apps_dir }}/molsource/private"
+        state: absent
+      delegate_to: localhost
+      become: false
+
+    - name: Re-deploy the source app with no private files at all
+      ansible.builtin.include_role:
+        name: binarycodes.homelab.systemd_app
+      vars:
+        systemd_app_kind: source
+        systemd_app_name: molsource
+        systemd_app_enable_units:
+          - molsource.service
+          - molsource-extra.service
+        systemd_app_domain: molsource.molecule.test
+
+    - name: Stat what an app that stopped shipping private files must not keep
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /var/app/molsource/private/db-new.env.age
+        # The files, then the directories they emptied.
+        - /var/app/molsource/private/nested
+        - /var/app/molsource/private
+        - /etc/systemd/system/molsource.service.d/10-private.conf
+        - /etc/systemd/system/molsource.service.d
+        - /etc/systemd/system/molsource-extra.service.d
+        - /run/app/molsource/private
+        - /run/app/molsource
+        # Another app's files are none of this app's business.
+        - /run/app/molinline/private/tls.key
+        - /etc/systemd/system/homelab-private-decrypt@.service
+      register: molecule_after_drop
+
+    - name: Ask systemd for the state of the app and of its decrypt instance
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "{{ item }}"]
+      loop:
+        - molsource.service
+        - homelab-private-decrypt@molsource.service
+        - homelab-private-decrypt@molinline.service
+      changed_when: false
+      failed_when: false
+      register: molecule_after_drop_units
+
+    - name: Assert the app kept nothing private, and no other app was touched
+      ansible.builtin.assert:
+        that:
+          - molecule_after_drop.results[:8] | rejectattr('stat.exists') | list | length == 8
+          # One app losing its private files must not disturb any other.
+          - molecule_after_drop.results[8].stat.exists
+          - molecule_after_drop.results[9].stat.exists
+          - molecule_after_drop_units.results[0].stdout == 'active'
+          # Stopping it is what took the tmpfs tree away.
+          - molecule_after_drop_units.results[1].stdout != 'active'
+          - molecule_after_drop_units.results[2].stdout == 'active'
+        fail_msg: >-
+          Left behind:
+          {{ molecule_after_drop.results | selectattr('stat.exists')
+             | map(attribute='item') | list }}; units
+          {{ molecule_after_drop_units.results | map(attribute='stdout') | list }}.
+        quiet: true
+
+    # --- an app the role never starts: brought up by hand, then a private file rotated ----
+    # Nothing so far has started molquiet, because its call names no systemd_app_enable_units.
+    # Starting it by hand is what an operator does with a 'source' app, and it is the only way
+    # to reach what the decrypt's try-restart is for: an instance that IS running when the next
+    # deploy changes a private file. Requires= is what pulls the decrypt in here; the role is
+    # not involved.
+    - name: Start the app the converge left alone
+      ansible.builtin.systemd:
+        name: molquiet.service
+        state: started
+
+    - name: Ask the hand-started container to read its private file
+      ansible.builtin.command:
+        argv: [podman, exec, molquiet, cat, /etc/molquiet/token]
+      changed_when: false
+      register: molecule_quiet_first
+
+    - name: Re-encrypt the quiet app's private file with a new value
+      ansible.builtin.command:
+        argv:
+          - age
+          - --encrypt
+          - --recipient
+          - "{{ molecule_sops_recipient }}"
+          - --output
+          - "{{ molecule_apps_dir }}/molquiet/private/token.age"
+        stdin: "{{ molecule_private_quiet.rotated }}"
+        stdin_add_newline: false
+      changed_when: true
+      delegate_to: localhost
+      become: false
+
+    - name: Re-deploy the app whose units the call still does not name
+      ansible.builtin.include_role:
+        name: binarycodes.homelab.systemd_app
+      vars:
+        systemd_app_kind: source
+        systemd_app_name: molquiet
+
+    # This restart is systemd's, not the role's: the deploy returns once the decrypt instance
+    # has restarted, and the app's own restart is a job PartOf= put in the same transaction.
+    # So the job exists by now and waiting for the queue to drain is a wait, not a poll for
+    # something that may never be enqueued.
+    - name: Wait for the jobs the re-deploy propagated to drain
+      ansible.builtin.command:
+        argv: [systemctl, list-jobs, --no-legend]
+      changed_when: false
+      register: molecule_quiet_jobs
+      until: molecule_quiet_jobs.stdout_lines | select('search', 'molquiet') | list | length == 0
+      retries: 30
+      delay: 2
+
+    - name: Ask the container to read its private file after the rotation
+      ansible.builtin.command:
+        argv: [podman, exec, molquiet, cat, /etc/molquiet/token]
+      changed_when: false
+      register: molecule_quiet_rotated
+
+    - name: Ask systemd for the state of the hand-started app and its decrypt
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "{{ item }}"]
+      loop:
+        - molquiet.service
+        - homelab-private-decrypt@molquiet.service
+      changed_when: false
+      failed_when: false
+      register: molecule_quiet_units
+
+    - name: Assert the running app was carried onto the re-made runtime directory
+      ansible.builtin.assert:
+        that:
+          # The hand start pulled the decrypt in, so the first read is the original value.
+          - molecule_quiet_first.stdout == (molecule_private_quiet.first | trim)
+          # And the deploy reached a container the role never names.
+          - molecule_quiet_rotated.stdout == (molecule_private_quiet.rotated | trim)
+          - molecule_quiet_units.results | rejectattr('stdout', 'equalto', 'active')
+            | list | length == 0
+        fail_msg: >-
+          Read {{ molecule_quiet_first.stdout | default('') }} before the rotation and
+          {{ molecule_quiet_rotated.stdout | default('') }} after it, wanting
+          {{ molecule_private_quiet.rotated | trim }}; units
+          {{ molecule_quiet_units.results | map(attribute='item')
+             | zip(molecule_quiet_units.results | map(attribute='stdout')) | list }}.
+        quiet: true
+
     # --- the same app, converted to the other kind -------------------------------------
     # The role prunes and disables the unit file but cannot stop a unit the app no longer
-    # ships, which is a caller's job once (see the role README). Stopped only, not disabled:
-    # the `.wants/` symlink its enable wrote is the role's to remove, and the assertion
-    # after the flip is that it did.
+    # ships; that is the caller's job, once. Stopped only, not disabled: removing the
+    # `.wants/` symlink is the role's job, and the assertion after the flip is that it did.
     - name: Stop the unit the converted app will no longer ship
       ansible.builtin.systemd:
         name: molsource-extra.service
@@ -124,9 +325,8 @@
       changed_when: false
       register: molecule_flipped_unit
 
-    # -xtype l is the dangling-link test: a symlink whose target is gone. The enable of the
-    # plain unit wrote one into multi-user.target.wants/, and the prune took the file it
-    # pointed at, so anything found here is a unit systemd will report not-found for good.
+    # -xtype l finds a symlink whose target is gone: the enable wrote one into
+    # multi-user.target.wants/ and the prune took what it pointed at.
     - name: Look for dangling unit symlinks after the flip
       ansible.builtin.command:
         argv: [find, /etc/systemd/system, -xtype, l, -name, "mol*"]
@@ -136,21 +336,18 @@
     - name: Assert the conversion pruned the other kind and runs from the rendered Quadlet
       ansible.builtin.assert:
         that:
-          # What the 'source' deploy installed and the 'inline' one does not: the prune
-          # crossing kinds is the whole reason a manifest is recorded for both.
+          # The prune crossing kinds is why a manifest is recorded for both.
           - not molecule_after_flip.results[0].stat.exists
           - not molecule_after_flip.results[1].stat.exists
           - molecule_after_flip.results[2].stat.exists
           - molecule_flip_recorded == ['/etc/containers/systemd/molsource.container']
-          # The file at that path is now the rendered one, not the fixture's copy.
+          # Now the rendered file, not the fixture's copy.
           - "'Molecule fixture source container' not in molecule_flip_rendered"
           - "'ContainerName=molsource' in molecule_flip_rendered"
           - "'AutoUpdate=registry' in molecule_flip_rendered"
-          # A changed unit definition means a new container, so the app is restarted
-          # rather than left running on the definition it started with.
+          # A changed unit definition means a new container.
           - molecule_flipped_unit.stdout == 'active'
-          # The pruned plain unit was disabled before its file went, so nothing in a
-          # .wants/ directory still names it.
+          # Disabled before its file went, so no .wants/ entry still names it.
           - molecule_flip_dangling.stdout_lines | length == 0
         fail_msg: >-
           Recorded after the flip: {{ molecule_flip_recorded }}; dangling:
@@ -161,10 +358,9 @@
         molecule_flip_rendered: "{{ molecule_flip_files.results[1].content | b64decode }}"
 
     # --- secrets: rotated, dropped, and re-stored after drift ----------------------------
-    # Storing is create-only and podman cannot update a secret in place, so a changed value
-    # is a remove followed by a create — decided by the podman_secrets module from the
-    # declared values and the labels each stored secret carries. The unit tests cover that
-    # arithmetic against a fake store; what is covered here is a real podman accepting it.
+    # podman cannot update a secret in place, so a changed value is a remove then a create.
+    # The unit tests cover that arithmetic against a fake store; this covers a real podman
+    # accepting it.
     - name: Re-encrypt the fixture secrets with one value changed and one name gone
       community.sops.sops_encrypt:
         path: "{{ molecule_apps_dir }}/molsecret/secrets.sops.yaml"
@@ -385,7 +581,23 @@
         - /etc/containers/systemd/molecule.network
         - /var/app/molproxy/config/conf.d/molsource.caddy
         - /var/app/molproxy/config/conf.d/molinline.caddy
+        # The apps still holding private files by teardown: drop-ins and tmpfs trees go too.
+        - /etc/systemd/system/molinline.service.d
+        - /run/app/molinline
+        - /etc/systemd/system/molquiet.service.d
+        - /run/app/molquiet
+        - /var/app/molquiet
+        - /etc/containers/systemd/molquiet.container
       register: molecule_after_absent
+
+    # In no app's manifest, so no app's decommission removes them.
+    - name: Stat the shared decrypt unit and helper after every app is gone
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/systemd/system/homelab-private-decrypt@.service
+        - /usr/local/libexec/homelab-decrypt-private
+      register: molecule_absent_shared
 
     - name: Ask systemd for the state of the decommissioned units
       ansible.builtin.command:
@@ -395,22 +607,23 @@
         - molinline.service
         - molsecret.service
         - molorphan.service
+        - homelab-private-decrypt@molinline.service
+        # Started by hand, so its teardown works only from what the manifest recorded.
+        - molquiet.service
+        - homelab-private-decrypt@molquiet.service
       changed_when: false
       failed_when: false
       register: molecule_absent_units
 
-    # systemctl alone cannot answer this. Once a Quadlet file is deleted and systemd
-    # reloaded, its generated service is gone from systemd's view and is-active reports
-    # 'inactive' — whether the container stopped or is still running unsupervised. Podman
-    # is the only witness that a decommission actually decommissioned.
+    # systemctl cannot answer this: once the Quadlet file is gone, is-active reports
+    # 'inactive' whether the container stopped or is still running unsupervised.
     - name: Ask podman what containers still exist
       ansible.builtin.command:
         argv: [podman, ps, --all, --format, "{{ '{{' }}.Names{{ '}}' }}"]
       changed_when: false
       register: molecule_absent_containers
 
-    # Podman secrets are host-global, so they are not part of the app tree removed above:
-    # nothing else would have taken them with it.
+    # Host-global, so nothing else would have taken them with the app tree.
     - name: Ask podman what secrets it still holds
       ansible.builtin.command:
         argv: [podman, secret, ls, --format, "{{ '{{' }}.Name{{ '}}' }}"]
@@ -427,13 +640,14 @@
       ansible.builtin.assert:
         that:
           - molecule_after_absent.results | selectattr('stat.exists') | list | length == 0
+          # One app's teardown must not break every other app's decrypt.
+          - molecule_absent_shared.results | rejectattr('stat.exists') | list | length == 0
           - molecule_absent_dangling.stdout_lines | length == 0
           - molecule_absent_units.results | selectattr('stdout', 'equalto', 'active')
             | list | length == 0
           - molecule_absent_secrets.stdout_lines | select('match', '^molsecret-')
             | list | length == 0
-          # molclaim's decommission ran with the other app's secret still on the host, and
-          # ownership is what says it was not molclaim's to remove.
+          # Ownership is what says the other app's secret was not molclaim's to remove.
           - "'molclaim-token' in molecule_absent_secrets.stdout_lines"
           - molecule_absent_containers.stdout_lines
             | intersect(molecule_fixture_apps | map(attribute='name') | list) | length == 0

@@ -3,40 +3,25 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Secrets: an app that needs any ships apps/<app>/secrets.sops.yaml, keyed by the podman
-# secret names. Found rather than declared, like the app's quadlet/ and config/
-# directories, so that file is the only place the set is written down. Decrypted on the
-# controller by the lookup behind systemd_app_secret_values (see defaults/main.yml), which
-# is why no task here loads anything: the values are evaluated where they are used and are
-# never a fact. The names were checked with the rest of the input in main.yml; the values
-# are checked by the module below, which is the first task here so that a value the store
-# refuses fails the deploy before any file is installed.
-#
-# One module call does the whole of the store: creates what is missing, removes and
-# re-creates what changed (podman cannot update a secret in place), drops what the app has
-# stopped declaring, and refuses a name another app owns. Ownership and the value's digest
-# live as labels on the secret itself, so the store is the only record and a secret removed
-# by hand is simply missing and comes back. The values are a no_log parameter, so a podman
-# failure is reported with its name, exit code and stderr while the value stays out of the
-# log. Registered for the restart decision below: podman reads a secret when it *creates*
-# a container, so a changed one is only live once the app is restarted.
+# Decrypted by the lookup behind systemd_app_secret_values, which is why no task here loads
+# anything: the values are evaluated where used and are never a fact. First task in the file,
+# so a value the store refuses fails the deploy before any file is installed. Registered for
+# the restart decision below — podman reads a secret when it *creates* a container.
 - name: "Reconcile podman secrets of app {{ systemd_app_name }}"
   binarycodes.homelab.podman_secrets:
     app: "{{ systemd_app_name }}"
     secrets: "{{ systemd_app_secret_values }}"
   register: systemd_app_secrets
 
-# Written by releases before 1.1.0, which recorded the digests in a file rather than on the
-# secrets. The module adopts a secret stored that way on the first deploy after upgrading,
-# so the file is not read; it is removed so a backup of the app no longer carries a digest
-# of every secret it ever had. Remove this task at 2.0.0.
+# Pre-1.1.0 recorded digests in a file rather than on the secrets. The module adopts those, so
+# the file is not read; it goes so a backup carries no digest of every secret the app ever
+# had. Remove at 2.0.0.
 - name: "Remove the pre-1.1.0 secret digest record of app {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_home }}/.secret-digests"
     state: absent
 
-# 'inline' kind: render the single-container Quadlet from call-site params. 'source'
-# kind installs its container from a file instead (install-source.yml).
+# 'inline' only; a 'source' app installs its container from a file (install-source.yml).
 - name: "Render Quadlet for container {{ systemd_app_name }}"
   ansible.builtin.template:
     src: inline.container.j2
@@ -48,17 +33,20 @@
   register: systemd_app_quadlet_render
   notify: systemd_app reload systemd
 
-# Included rather than written here with `when: systemd_app_kind == 'source'` on each task:
-# Ansible evaluates a task's `loop` before its `when`, so a loop over
-# systemd_app_source_tree would read the tree for an 'inline' app too, and the filter
-# behind it refuses an app directory that is not there.
+# Included rather than guarded per task: Ansible evaluates `loop` before `when`, so a loop over
+# systemd_app_source_tree would read the tree for an 'inline' app too, and that raises.
 - name: "Install the files of source app {{ systemd_app_name }}"
   ansible.builtin.include_tasks: install-source.yml
   when: systemd_app_kind == 'source'
 
-# The config copy in install-source.yml creates this, but only for an app that ships a
-# config tree. Every app owns host state below it regardless: the install manifest recorded
-# just below, and for some also a bind-mounted data directory.
+# Included on the same grounds as install-source.yml, and before the manifest tasks so the
+# drop-ins exist by the time they are recorded.
+- name: "Install the private files of app {{ systemd_app_name }}"
+  ansible.builtin.include_tasks: install-private.yml
+  when: systemd_app_has_private | bool
+
+# install-source.yml creates this only for an app that ships a config tree; every app owns the
+# manifest below it regardless.
 - name: "Ensure the home directory exists for app {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_home }}"
@@ -67,17 +55,13 @@
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_dir_mode }}"
 
-# Files the last deploy installed that this one does not — renamed, dropped, or belonging to
-# the kind the app has just stopped being — are still live host state if left behind: the
-# generator keeps making services from stale unit files, stale config stays mounted. One call
-# prunes them and records this deploy, after the installs so the app is never without its
-# files. The record is read for either kind, which is what makes a change of kind converge.
-# A pruned unit keeps running until stopped by hand, once (see README).
+# A file the last deploy installed and this one does not is still live host state: the
+# generator keeps making services from stale unit files, stale config stays mounted. Pruned
+# after the installs, so the app is never without its files.
 #
-# Asked in check mode first, for the units the prune is about to take the files of: enabling
-# a plain unit wrote a symlink into a `.wants/` directory, and `systemctl disable` can only
-# remove it while the unit file that names the target still exists. The same shape absent.yml
-# uses to learn what to stop.
+# Check mode first, for the units the prune is about to take the files of: enabling a plain
+# unit wrote a `.wants/` symlink, and `systemctl disable` can only remove it while the unit
+# file still exists. The same shape absent.yml uses to learn what to stop.
 - name: "Plan the install manifest reconciliation of app {{ systemd_app_name }}"
   binarycodes.homelab.install_manifest:
     path: "{{ systemd_app_manifest_file }}"
@@ -85,14 +69,14 @@
     system_dir: "{{ systemd_app_system_dir }}"
     unit_dir: "{{ systemd_app_unit_dir }}"
     config_dir: "{{ systemd_app_home }}/config"
+    private_dir: "{{ systemd_app_private_dir }}"
   check_mode: true
   changed_when: false
   register: systemd_app_manifest_plan
 
-# Disable, not stop: the process is the caller's to stop (see README), but a unit whose file
-# is about to go must not leave a `.wants/` symlink to a unit systemd can no longer find. The
-# tolerated failures are the enable task's — a Quadlet-generated service cannot be disabled
-# any more than enabled, and a plain unit without [Install] was never enabled to begin with.
+# Disable, not stop: stopping is the caller's job (see README), but a unit whose file is about
+# to go must not leave a `.wants/` symlink systemd cannot resolve. Tolerated failures as in the
+# enable task below.
 - name: "Disable the units no longer shipped by app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ item }}"
@@ -105,8 +89,7 @@
     - "'no installation config' not in (systemd_app_disable_result.msg | default('') | lower)"
 
 # The Caddy route is not recorded: it lives in the reverse proxy's tree, outside what the
-# module admits, and absent.yml removes it by name. The reload is for a pruned unit file; a
-# record-only change reloads once for nothing, cheaper than a second task to tell them apart.
+# module admits, and absent.yml removes it by name.
 - name: "Reconcile the install manifest of app {{ systemd_app_name }}"
   binarycodes.homelab.install_manifest:
     path: "{{ systemd_app_manifest_file }}"
@@ -114,19 +97,17 @@
     system_dir: "{{ systemd_app_system_dir }}"
     unit_dir: "{{ systemd_app_unit_dir }}"
     config_dir: "{{ systemd_app_home }}/config"
+    private_dir: "{{ systemd_app_private_dir }}"
     owner: "{{ systemd_app_owner }}"
     group: "{{ systemd_app_group }}"
     mode: "{{ systemd_app_file_mode }}"
   register: systemd_app_manifest
   notify: systemd_app reload systemd
 
-# Bind-mount targets the app itself writes to, named relative to the app's home.
-# Podman creates a missing host path as root:root, which an unprivileged container cannot
-# write in, so the directory is made here with the owner the image runs as. The deploy
-# would not notice otherwise: the mount succeeds either way, and only the app hits the
-# failure, later, when it tries to write. That each path is relative and '..'-free was
-# checked with the rest of the input in main.yml, since a path that climbed out of this
-# app's home would be created as root here and removed with the tree on absent.
+# Made with the owner the image runs as. The deploy would not notice otherwise: the mount
+# succeeds either way and only the app hits the failure, later, when it writes. Paths were
+# checked relative and '..'-free in main.yml, since one that climbed out would be created as
+# root here and removed with the tree on absent.
 - name: "Ensure data directories exist for app {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_home }}/{{ item.path }}"
@@ -138,9 +119,8 @@
   loop_control:
     label: "{{ item.path }}"
 
-# Caddy route: only written when the app opts in with systemd_app_domain. The
-# snippet is imported by the central Caddyfile, so no daemon-reload is needed and
-# Caddy is reloaded once by the deploy playbook (post-task), not by this role.
+# Imported by the central Caddyfile, so no daemon-reload; the deploy playbook reloads Caddy
+# once, post-task.
 - name: "Ensure Caddy conf.d directory exists for route of {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_caddy_confd }}"
@@ -159,39 +139,87 @@
     mode: "{{ systemd_app_file_mode }}"
   when: systemd_app_domain is defined and (systemd_app_domain | string | length > 0)
 
-# Regenerate Quadlet-derived services and pick up new unit files before we
-# touch their state. Handlers notified above run here, not at end of play.
+# Handlers notified above run here, not at end of play, so the state tasks below see the
+# regenerated units.
 - name: Apply unit changes (systemd daemon-reload)
   ansible.builtin.meta: flush_handlers
 
 # Nothing this deploy wrote is live yet, and the two ways it becomes live differ.
 #
-# A new container is the only way a changed secret or unit definition takes effect: podman
-# reads a secret when it *creates* the container, and the daemon-reload above only
-# regenerates the service file — systemd never acts on a unit it merely re-read, so the
-# container keeps running from the image and options it was created with. 'started' would
-# report success on both and leave the app serving the old ones.
+# Restart: a changed secret or unit definition only takes effect in a new container. podman
+# reads a secret at container creation, and the daemon-reload above regenerates the service
+# file but systemd never acts on a unit it merely re-read.
 #
-# Config is different: the file is bind-mounted, so it is already in place and only the
-# process needs telling. Which is why this is not folded into the restart above — an app
-# whose unit declares ExecReload= means it can take config without dropping what it is
-# serving, and cycling it anyway would throw that away.
+# Reload: config is bind-mounted and already in place, so only the process needs telling. A
+# unit with ExecReload= can take it without dropping what it is serving. A pruned config file
+# counts as a config change, a pruned unit file leaves nothing to act on.
 #
-# A pruned config file counts as a config change, since a running app still reads it; a
-# pruned unit file leaves nothing to act on. The manifest module tells the two apart.
+# A changed private file is a restart: its plaintext lives in a RuntimeDirectory the decrypt
+# unit destroys and re-creates, so reloading would leave the container on a directory that is
+# gone. Its own fact rather than a `vars:` entry on the task below, which ansible-lint
+# evaluates as raw text and coerces through `bool` (an error from ansible-core 2.23).
+- name: "Decide whether the private files moved for app {{ systemd_app_name }}"
+  ansible.builtin.set_fact:
+    systemd_app_private_changed: >-
+      {{ (systemd_app_private_deploy.changed | default(false))
+         or (systemd_app_dropin_deploy.changed | default(false))
+         or (systemd_app_private_unit_install.changed | default(false))
+         or (systemd_app_helper_install.changed | default(false))
+         or (systemd_app_manifest.private_changed | default(false)) }}
+
 - name: "Decide how this deploy reaches the running units of app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_restart_needed: >-
       {{ (systemd_app_secrets.changed | default(false))
          or (systemd_app_quadlet_render.changed | default(false))
          or (systemd_app_quadlet_install.changed | default(false))
-         or (systemd_app_unit_install.changed | default(false)) }}
+         or (systemd_app_unit_install.changed | default(false))
+         or (systemd_app_private_changed | bool) }}
     systemd_app_config_changed: >-
       {{ (systemd_app_config_deploy.changed | default(false))
          or (systemd_app_manifest.config_changed | default(false)) }}
 
-# Registered for the reload below: the module returns the unit's `systemctl show`
-# properties, so no separate probe is needed to learn whether it can reload.
+# No state, so the module only reports: it is `systemctl show` for the instance, and the unit
+# is a template whose instance is simply inactive when the app has never run.
+- name: "Check whether the private decrypt is running for app {{ systemd_app_name }}"
+  ansible.builtin.systemd:
+    name: "{{ systemd_app_private_unit }}@{{ systemd_app_name }}.service"
+  register: systemd_app_private_state
+  when: systemd_app_has_private | bool
+
+# A try-restart: RemainAfterExit means a running instance must be restarted to re-read what
+# this deploy installed, but an instance that is not running is left alone rather than started.
+# Deploying an app is not starting it, and Requires= pulls a fresh instance in if a unit does
+# start. Before the app's own units, so a failed decrypt is reported as itself rather than as
+# every unit failing its Requires=.
+- name: "Re-decrypt the private files of app {{ systemd_app_name }}"
+  ansible.builtin.systemd:
+    name: "{{ systemd_app_private_unit }}@{{ systemd_app_name }}.service"
+    state: restarted
+  when:
+    - systemd_app_has_private | bool
+    - systemd_app_restart_needed | bool
+    - (systemd_app_private_state.status.ActiveState | default('inactive')) == 'active'
+
+# An app that stopped shipping private files: its copies and drop-ins are pruned above, but
+# the instance they pulled in keeps holding a tmpfs tree of plaintext for files that are gone.
+# Only when the manifest just pruned under private/, so this is not a systemd call per deploy
+# for every app that never had any.
+- name: "Stop the private decrypt of app {{ systemd_app_name }}"
+  ansible.builtin.systemd:
+    name: "{{ systemd_app_private_unit }}@{{ systemd_app_name }}.service"
+    state: stopped
+  when:
+    - not systemd_app_has_private | bool
+    - systemd_app_manifest.private_changed | default(false) | bool
+  register: systemd_app_private_stop
+  failed_when:
+    - systemd_app_private_stop is failed
+    - "'not loaded' not in (systemd_app_private_stop.msg | default('') | lower)"
+    - "'could not find' not in (systemd_app_private_stop.msg | default('') | lower)"
+
+# Registered for the reload below: the module returns `systemctl show` properties, so no
+# separate probe is needed to learn whether a unit can reload.
 - name: "Start units for app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ item }}"
@@ -199,9 +227,8 @@
   loop: "{{ systemd_app_managed_units }}"
   register: systemd_app_start_result
 
-# Skipped when the app was restarted just above, which already picked the config up. An
-# app whose unit has no ExecReload= reports CanReload=no and is restarted instead — the
-# blunt path, but the only one that gets the change into the process.
+# Skipped when the restart above already picked the config up. A unit with no ExecReload=
+# reports CanReload=no and is restarted instead.
 - name: "Apply changed config to units of app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ item.item }}"
@@ -213,9 +240,8 @@
     - systemd_app_config_changed | bool
     - not systemd_app_restart_needed | bool
 
-# Quadlet-generated services live in /run and are "transient or generated",
-# so `systemctl enable` on them fails — boot persistence comes from their
-# [Install] section instead. Tolerate exactly that case; fail on anything else.
+# A Quadlet-generated service is "transient or generated" and cannot be enabled; its boot
+# persistence comes from [Install]. Tolerate exactly that, fail on anything else.
 - name: "Enable boot-start of units for app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ item }}"

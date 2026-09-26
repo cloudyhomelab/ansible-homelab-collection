@@ -3,10 +3,9 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# A consumer's play, in miniature: the fleet-wide inputs come from group_vars (see
-# molecule.yml), each app's own from the role call. Both kinds are here, and the
-# 'source' app ships one of everything it can ship — a Quadlet, a plain unit, and a
-# nested config tree — because what the manifest records is what the next deploy prunes.
+# A consumer's play in miniature: fleet-wide inputs from group_vars, each app's own from the
+# role call. The 'source' app ships one of everything it can, because what the manifest
+# records is what the next deploy prunes.
 - name: Converge
   hosts: all
   become: true
@@ -44,22 +43,31 @@
       systemd_app_enable_units:
         - molorphan.service
 
+    # No systemd_app_enable_units, so the role installs its files and starts nothing. The only
+    # fixture whose decrypt instance a converge leaves inactive, which is what the decrypt's
+    # try-restart is for; side_effect.yml starts it by hand and then rotates its private file.
+    - role: binarycodes.homelab.systemd_app
+      systemd_app_kind: source
+      systemd_app_name: molquiet
+
     - role: binarycodes.homelab.systemd_app
       systemd_app_kind: inline
       systemd_app_name: molinline
       systemd_app_description: Molecule fixture inline container
       systemd_app_image: "{{ molecule_image }}"
       systemd_app_domain: molinline.molecule.test
-      # A value with a space, so the rendered unit exercises the quoting in
-      # systemd_env_lines rather than only the trivial path through it.
+      # A space, so the rendered unit exercises systemd_env_lines' quoting.
       systemd_app_env:
         MOLECULE_GREETING: hello world
-      # A second AutoUpdate= behind the rendered one: Quadlet reads the last instance of a
-      # key, which is the README's promise that a raw line overrides a rendered policy
-      # line. Observed in verify.yml on the container's label rather than in the file.
+      # A second AutoUpdate= behind the rendered one: Quadlet reads the last instance, which is
+      # the README's promise that a raw line overrides a rendered one. verify.yml checks the
+      # resulting label, not the file.
       systemd_app_container_options:
         - Exec=sleep 86400
         - AutoUpdate=local
+      # The role renders no mount for private files; the call site names the path.
+      systemd_app_volumes:
+        - "{{ systemd_app_private_run_dir }}/tls.key:/etc/molinline/tls.key:ro"
       systemd_app_restart: on-failure
       systemd_app_data_dirs:
         - path: data
@@ -67,25 +75,22 @@
           group: "10001"
           mode: "0700"
 
-    # Its own app rather than secrets bolted onto the one above: the secrets path is the
-    # most stateful thing the role does — rotate, drop, re-store after drift — and each of
-    # those is a further deploy in side_effect.yml. Kept apart, those deploys carry two
-    # parameters instead of the eight the app above needs to stay identical across them.
+    # Its own app rather than secrets on the one above: the secrets path is the most stateful
+    # thing the role does, and each step is a further deploy in side_effect.yml, which then
+    # carries two parameters instead of the eight the app above needs to stay identical.
     - role: binarycodes.homelab.systemd_app
       systemd_app_kind: inline
       systemd_app_name: molsecret
       systemd_app_image: "{{ molecule_image }}"
       systemd_app_container_options:
         - Exec=sleep 86400
-      # The digest-pinned case: no AutoUpdate= line and no label. Repeated by every
-      # redeploy in side_effect.yml.
+      # The digest-pinned case: no AutoUpdate= line and no label.
       systemd_app_auto_update: never
 
   post_tasks:
-    # An idempotence failure names only the task that reported 'changed', and for the
-    # unit tasks that is nearly always a unit that did not stay up — a container that
-    # exited, with Restart=always cycling it. Reported on every converge, so the log of
-    # the run that fails already carries the reason and needs no second run to find it.
+    # An idempotence failure names only the task that reported 'changed', which for the unit
+    # tasks is nearly always a container that exited and is being cycled. Reported every
+    # converge, so the failing run's log already carries the reason.
     - name: Collect the state of the managed units
       ansible.builtin.command:
         argv: [systemctl, is-active, "{{ molecule_unit }}"]

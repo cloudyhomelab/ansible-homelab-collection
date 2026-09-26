@@ -1,0 +1,14 @@
+{# Copyright (c) 2026 binarycodes
+   GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+   SPDX-License-Identifier: GPL-3.0-or-later #}
+# Written by the binarycodes.homelab.systemd_app role. A drop-in, not a line in the unit: a
+# 'source' Quadlet is installed verbatim and an 'inline' one has no [Unit] escape hatch, and a
+# drop-in under /etc overrides generator output as readily as a plain unit.
+[Unit]
+After={{ systemd_app_private_unit }}@{{ systemd_app_name }}.service
+# Requires=, not Wants=: missing files are a wrong start, not a degraded one.
+Requires={{ systemd_app_private_unit }}@{{ systemd_app_name }}.service
+# PartOf=, so re-decrypting restarts this unit onto the re-made RuntimeDirectory instead of
+# leaving it on the destroyed one. Requires= is documented to propagate a restart too, but
+# propagation is all PartOf= does, which is the whole of what is wanted here.
+PartOf={{ systemd_app_private_unit }}@{{ systemd_app_name }}.service

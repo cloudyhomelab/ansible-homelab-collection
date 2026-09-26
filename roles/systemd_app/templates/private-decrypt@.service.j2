@@ -1,0 +1,24 @@
+{# Copyright (c) 2026 binarycodes
+   GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+   SPDX-License-Identifier: GPL-3.0-or-later #}
+[Unit]
+Description=Decrypt the private files of app %i
+# No Condition*: a skipped unit still satisfies Requires=, so a host without the key would
+# start the app against an empty private directory instead of not starting it. Assert* fails
+# the start job naming the key; LoadCredential= below fails it too, but only throws error
+# code 243.
+AssertPathExists={{ systemd_app_private_key_file }}
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# ramfs, this unit's processes only, and LoadCredentialEncrypted= later is a one-word change.
+LoadCredential=age-key:{{ systemd_app_private_key_file }}
+# systemd destroys this when the unit stops, so plaintext never outlives it. Only the innermost
+# directory goes, so it is the app's own and the helper makes private/ inside it.
+RuntimeDirectory=app/%i
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/python3 {{ systemd_app_private_helper }} %i
+
+{# No [Install]: each app's drop-in pulls its instance in with Requires=, so there is none to
+   enable and none left behind when an app stops shipping private files. #}

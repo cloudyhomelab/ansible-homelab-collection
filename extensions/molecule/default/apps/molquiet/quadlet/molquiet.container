@@ -1,0 +1,25 @@
+# Fixture: a 'source' app deployed with no systemd_app_enable_units, so the role installs it
+# and starts nothing. Every other app here names its units, which leaves the shape that reaches
+# the decrypt's try-restart untested: an instance the role must not start on a deploy, and must
+# restart once something else has. side_effect.yml starts this one by hand, as an operator does.
+#
+# Network=none and a numeric sleep for the same reasons as molsource.container.
+[Unit]
+Description=Molecule fixture quiet source container
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=quay.io/libpod/alpine:latest
+ContainerName=molquiet
+Network=none
+# The role renders no mount for private files; a 'source' app names its own. Nothing creates
+# this path until the decrypt instance runs, which the role's drop-in orders before this unit.
+Volume=/run/app/molquiet/private/token:/etc/molquiet/token:ro
+Exec=sleep 86400
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target default.target

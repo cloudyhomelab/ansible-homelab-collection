@@ -1,14 +1,14 @@
 # `systemd_app` molecule scenario
 
 Runs the `systemd_app` role against a throwaway container with systemd as PID 1 and podman
-inside it, then asserts the host state. `tests/unit/` covers the role's arithmetic and
-input checks as Python; this covers what only a real host shows.
+inside it, then asserts the host state. `tests/unit/` covers the arithmetic; this covers what
+only a real host shows.
 
 ## What is tested
 
 Sequence: `destroy → create → prepare → converge → idempotence → verify → side_effect →
-destroy`. `verify` runs before `side_effect` because it asserts what the converge left,
-and `side_effect` then mutates that state stage by stage, asserting after each.
+destroy`. `verify` before `side_effect`, because it asserts what the converge left and
+`side_effect` then mutates that stage by stage.
 
 | Premise | Asserted in | Fixture |
 | --- | --- | --- |
@@ -21,16 +21,29 @@ and `side_effect` then mutates that state stage by stage, asserting after each.
 | Every managed unit is active, and a plain unit is enabled at boot | `verify` | all |
 | A second converge changes nothing | `idempotence` | all |
 | A file dropped from the source tree is removed from the host and the manifest; the app stays up | `side_effect` | `molsource` |
+| `private/` lands on the host still encrypted, decrypts into `/run/app/<app>/private` under the name its suffix promises, mirrors subdirectories, keeps a plaintext member as it is, and is 0600 in a 0700 tree | `verify` | `molsource`, `molinline` |
+| Every unit an app installs gets a drop-in ordering it after that app's own decrypt instance, for either kind | `verify` | `molsource`, `molinline` |
+| A call site mounts a decrypted file where its image wants it, and the container reads it | `verify` | `molinline` |
+| An app whose call names no units is deployed but not started, and its decrypt instance is left inactive, so nothing is decrypted for an app that is not running | `verify` | `molquiet` |
+| A private file changed under an app started by hand reaches its container: the role restarts only the decrypt, and `PartOf=` carries that to a unit the role never names | `side_effect` | `molquiet` |
+| A renamed private file leaves both the host copy and the old decrypted name; dropping `private/` prunes the copies, the drop-ins and the directories they emptied, and stops the app's decrypt instance without disturbing another app's | `side_effect` | `molsource`, `molinline` |
+| The shared decrypt unit and its helper survive every app being decommissioned | `side_effect` | all |
 | Converting `source` → `inline` prunes what the other kind installed, disables the pruned plain unit before its file goes, and restarts from the rendered Quadlet | `side_effect` | `molsource` |
 | A changed secret is removed and re-created; a dropped one leaves the store; one removed behind the role's back comes back | `side_effect` | `molsecret` |
 | A secret another app owns is refused by name and owner, and left untouched | `side_effect` | `molclaim` |
 | `absent` removes everything the apps owned, secrets included, stops a `source` app's container without being told its unit name, leaves no dangling `.wants` symlink, spares another app's secret, and stays green when repeated | `side_effect` | all |
 
 Fixtures under `apps/` are `molnet` (a network unit, installed but never joined:
-`Network=none` throughout keeps netavark out of every run), `molsource`, and `molorphan`
-(deployed with `systemd_app_enable_units`, decommissioned without). `molinline`, `molsecret`,
-`molclaim` and `molclash` exist only as role calls; `molsecret`'s single encrypted file is
-written by `prepare.yml`.
+`Network=none` throughout keeps netavark out of every run), `molsource`, `molorphan`
+(deployed with `systemd_app_enable_units`, decommissioned without) and `molquiet` (deployed
+with none, so the role starts nothing for it and `side_effect.yml` starts it by hand).
+`molinline`, `molsecret`, `molclaim` and `molclash` exist only as role calls; `molsecret`'s
+single encrypted file and every app's encrypted `private/` files are written by `prepare.yml`.
+The one committed member of a `private/` tree is `molsource/private/ca.crt`, which is
+encrypted with neither tool and so is copied straight through.
+
+`molquiet`'s file is kept out of `molecule_private_files`, which `verify.yml` reads out of
+`/run`: the assertion about that app is that nothing of its is there at all.
 
 ## Running it
 
@@ -49,8 +62,11 @@ MOLECULE_DISTRO=debian MOLECULE_IMAGE=docker.io/library/debian:13 molecule test
   `roles/systemd_app/meta/main.yml` claims (`.github/workflows/molecule.yml`, where the
   Debian tag is pinned). The state file is per scenario: `destroy` before switching
   families, or a bare `converge` skips `create` and targets a container that does not exist.
-- **sops** must be on PATH: `prepare.yml` encrypts the fixture secrets with it and the role
-  decrypts them. The CI workflow pins the release it installs.
+- **sops and age** must be on PATH. `prepare.yml` encrypts the fixture secrets and private
+  files with them, and copies both binaries into the target, which is where the role's own
+  decrypt unit runs them — neither distribution packages sops, and one copy keeps the two
+  ends on a single version. The CI workflow pins the sops release it installs and takes age
+  from the runner's apt.
 - **Rootful podman.** If `create` fails on the privileged container, run under `sudo`, naming
   both collection roots since root's search path holds neither:
 
@@ -67,13 +83,16 @@ MOLECULE_DISTRO=debian MOLECULE_IMAGE=docker.io/library/debian:13 molecule test
 
 ## Notes
 
-- **Secrets fixture.** Plaintext lives in `molecule.yml`; `prepare.yml` encrypts it into
-  the copied tree, so nothing encrypted is versioned and a value changes without
-  regenerating ciphertext. `sops/age-key.txt` is a throwaway identity, committed on purpose,
-  reached through `SOPS_AGE_KEY_FILE` the way a consumer supplies one; `build_ignore` keeps
-  all of `extensions` out of the built collection.
-- **Secret assertions** go through `filter_plugins/`, loaded from the play's directory:
-  `secret_state` reads `podman secret inspect --showsecret` into
-  `{name: {owner, digest, value}}`, `declared_secret_state` builds the same from the
-  plaintext with the `podman_secrets` module's own `digest()`, and each check is one
-  equality. `tests/unit/test_molecule_filters.py` covers them.
+- **Secrets fixture.** Plaintext in `molecule.yml`, encrypted into the copied tree by
+  `prepare.yml`, so nothing encrypted is versioned. `sops/age-key.txt` is a throwaway identity
+  committed on purpose; `build_ignore` keeps `extensions` out of the built collection.
+- **Private-files fixture.** Same argument as the secrets: plaintext in `molecule.yml`
+  (`molecule_private_files`), each entry naming the tool its file name implies and what it
+  decrypts to, so `verify.yml` asserts against the intent and not the rule under test.
+  `prepare.yml` also plays the fleet, installing the age identity at `/etc/homelab/age.key`,
+  and shares the container's mount propagation, without which a unit's `LoadCredential=`
+  store never leaves the namespace systemd builds it in and the decrypt finds no identity.
+- **Secret assertions** go through `filter_plugins/`: `secret_state` reads
+  `podman secret inspect --showsecret` into `{name: {owner, digest, value}}`,
+  `declared_secret_state` builds the same from the plaintext with the module's own `digest()`,
+  and each check is one equality. `tests/unit/test_molecule_filters.py` covers them.

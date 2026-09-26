@@ -18,35 +18,25 @@ version_added: 1.1.0
 author:
   - binarycodes (@binarycodes)
 description:
-  - Checks the inputs that select what the role does and where - the app's name, its kind
-    and state, and the two inputs each kind requires of the other - plus the directories an
-    app asks to have created under its home.
-  - The name composes every install path, a C(ContainerName=) line, a route snippet's
-    filename and, on C(absent), a recursive delete of the app's home. So it must be one plain
-    path segment. Matched with C(re.fullmatch) rather than a C($)-anchored pattern, because
-    C($) also matches just before a trailing newline, and none of the files the name is
-    written into would fail on one.
-  - The conditional requirements live here because a role argument spec can only mark an
-    option required outright, and C(systemd_app_image) is required only for an C(inline) app
-    being deployed, C(systemd_app_apps_dir) only for a C(source) one being deployed. A
-    decommission of either kind works from the host alone and needs neither.
-  - A C(source) app being deployed must also have its directory under O(apps_dir), checked on
-    the controller where that directory is. Deploying without one would install nothing and
-    still report success, and on an app already on the host would prune every file the last
-    deploy installed. Not checked for C(absent), which works from the host alone and has to
-    keep working once the tree is gone.
-  - A data directory is created as root with a caller-supplied owner and removed with the
-    app's home on C(absent), so it may not be absolute or climb with C(..); relative and
-    C(..)-free is what makes reaching another app's tree impossible, rather than a prefix
-    check on a path the caller composed.
-  - A secret's name is passed to C(podman secret create) as root and written into a Quadlet's
-    C(Secret=) line, so it has the same shape as the app's name. For an C(inline) app the
-    role also derives the variable the container sees from it - upper-cased, dashes as
-    underscores - so the name is further limited to letters, digits and dashes; an
-    underscore or a dot would either not spell a variable or collide with a dashed name.
-    Checked by name only, so no value can reach a failure message.
-  - Never raises, and returns one string per problem rather than stopping at the first, so a
-    typo at a call site is reported in full and fixed in one pass.
+  - Checks the app's name, kind and state, the inputs each kind requires, and the data
+    directories it asks for. Never raises; one string per problem, so a typo is fixed in one
+    pass.
+  - The name composes every install path and, on C(absent), a recursive delete of the app's
+    home, so it must be one plain path segment. C(re.fullmatch), not a C($) anchor, which
+    would also match before a trailing newline.
+  - The conditional requirements are here because a role argument spec can only mark an option
+    required outright. C(systemd_app_image) is required only for C(inline) + C(present),
+    C(systemd_app_apps_dir) only for C(source) + C(present); a decommission needs neither.
+  - A C(source) deploy must also have its directory on the controller. Without one it would
+    install nothing, report success, and prune everything the last deploy installed. Not
+    checked on C(absent), which must keep working once the tree is gone.
+  - A data directory is created as root and removed with the app's home, so it must be
+    relative and C(..)-free. That, rather than a prefix check on a composed path, is what puts
+    another app's tree out of reach.
+  - A secret name reaches C(podman secret create) and a Quadlet C(Secret=) line, so it has the
+    app name's shape. For C(inline) the role derives the container's variable from it
+    (upper-cased, dashes to underscores), so it is further limited to letters, digits and
+    dashes. Names only - no value can reach a message.
 positional: kind, state, image, apps_dir, data_dirs, secret_names
 options:
   _input:

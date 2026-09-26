@@ -3,9 +3,8 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# What a converge must have left on the host. Asserted from the host's own state rather
-# than from the role's task results, so a task that reported 'ok' without writing
-# anything still fails here.
+# Asserted from the host's own state, not the role's task results, so a task that reported
+# 'ok' without writing anything still fails here.
 - name: Verify
   hosts: all
   become: true
@@ -20,19 +19,39 @@
       - /var/app/molsource/config/app.conf
       - /var/app/molsource/config/nested/deep.conf
       - /var/app/molsource/.install-manifest
+      # Still encrypted on the host, plus the shared unit and helper that decrypt them.
+      - /var/app/molsource/private/ca.crt
+      - /var/app/molsource/private/db.env.age
+      - /var/app/molsource/private/nested/conf.sops.yaml
+      - /var/app/molinline/private/tls.key.age
+      - /etc/systemd/system/homelab-private-decrypt@.service
+      - /usr/local/libexec/homelab-decrypt-private
+      # One per unit the app installs, written by the role rather than the author.
+      - /etc/systemd/system/molsource.service.d/10-private.conf
+      - /etc/systemd/system/molsource-extra.service.d/10-private.conf
+      - /etc/systemd/system/molinline.service.d/10-private.conf
       - /var/app/molinline/.install-manifest
       - /var/app/molproxy/config/conf.d/molsource.caddy
       - /var/app/molproxy/config/conf.d/molinline.caddy
       - /etc/containers/systemd/molsecret.container
       - /etc/containers/systemd/molorphan.container
-    # Every path the 'source' app installed, and nothing else: this set is what a later
-    # deploy reconciles against, so an entry missing here is a file that would survive
-    # forever and an extra one is a file that would be deleted from under another app.
+      # Installed in full although the call named no units to start.
+      - /etc/containers/systemd/molquiet.container
+      - /var/app/molquiet/private/token.age
+      - /etc/systemd/system/molquiet.service.d/10-private.conf
+      - /var/app/molquiet/.install-manifest
+    # What a later deploy reconciles against: an entry missing here is a file that would
+    # survive forever, an extra one a file deleted from under another app.
     molecule_expected_source_manifest:
       - /etc/containers/systemd/molsource.container
       - /etc/systemd/system/molsource-extra.service
+      - /etc/systemd/system/molsource-extra.service.d/10-private.conf
+      - /etc/systemd/system/molsource.service.d/10-private.conf
       - /var/app/molsource/config/app.conf
       - /var/app/molsource/config/nested/deep.conf
+      - /var/app/molsource/private/ca.crt
+      - /var/app/molsource/private/db.env.age
+      - /var/app/molsource/private/nested/conf.sops.yaml
     molecule_expected_units:
       - molsource.service
       - molsource-extra.service
@@ -69,8 +88,12 @@
       ansible.builtin.assert:
         that:
           - molecule_source_recorded | sort == molecule_expected_source_manifest | sort
-          # An 'inline' app installs its one rendered Quadlet and nothing else.
-          - molecule_inline_recorded == ['/etc/containers/systemd/molinline.container']
+          # An 'inline' app installs its one rendered Quadlet, and here also the private
+          # file it ships and the drop-in ordering its unit after the decrypt.
+          - molecule_inline_recorded == [
+              '/etc/containers/systemd/molinline.container',
+              '/etc/systemd/system/molinline.service.d/10-private.conf',
+              '/var/app/molinline/private/tls.key.age']
         fail_msg: >-
           Recorded source paths {{ molecule_source_recorded | sort }}, inline paths
           {{ molecule_inline_recorded }}.
@@ -129,8 +152,8 @@
         path: /var/app/molinline/data
       register: molecule_data_dir
 
-    # Podman would create a missing bind-mount source as root:root, which is exactly what
-    # this task exists to prevent, so the ownership is the assertion.
+    # Podman would create a missing bind-mount source as root:root, so ownership is the
+    # assertion.
     - name: Assert the data directory was created for the container's own user
       ansible.builtin.assert:
         that:
@@ -147,10 +170,9 @@
       changed_when: false
       register: molecule_secret_names
 
-    # --showsecret rather than the digest record alone: the record says what the last
-    # deploy meant to store, and the point of this assertion is that the store agrees.
-    # Ownership and digest live on the secrets themselves, as labels, so the store is the
-    # only record; the same JSON carries both, and secret_state (filter_plugins/) reads it.
+    # --showsecret, because the point is that the store agrees rather than that the last
+    # deploy meant well. Ownership and digest are labels on the secrets, carried in the same
+    # JSON; secret_state (filter_plugins/) reads it.
     - name: Inspect every declared secret, value included
       ansible.builtin.command:
         argv: "{{ ['podman', 'secret', 'inspect', '--showsecret'] + (molecule_secrets | list) }}"
@@ -166,11 +188,8 @@
       ansible.builtin.assert:
         that:
           - molecule_secret_names.stdout_lines | sort == molecule_secrets | list | sort
-          # The values sops decrypted, as podman now holds them, each carrying its owner
-          # and the digest of its value — what a later deploy compares against and what a
-          # decommission removes by. The whole path end to end, from the encrypted file to
-          # the store; the digest is the module's own, so an algorithm change cannot fail
-          # this for the wrong reason.
+          # End to end, from the encrypted file to the store. The digest is the module's own,
+          # so an algorithm change cannot fail this for the wrong reason.
           - molecule_secret_state == molecule_secrets | declared_secret_state('molsecret')
           # No record beside the store: a backup of the app carries no digest of anything.
           - not molecule_digest_stat.stat.exists
@@ -194,13 +213,10 @@
     - name: Assert the container references its secrets and receives them as variables
       ansible.builtin.assert:
         that:
-          # The name upper-cased with dashes as underscores, which is the contract the
-          # role's own key check enforces for an 'inline' app.
+          # Upper-cased with dashes as underscores, the contract the role's key check enforces.
           - "'Secret=molsecret-token,type=env,target=MOLSECRET_TOKEN' in molecule_secret_rendered"
           - "'Secret=molsecret-extra,type=env,target=MOLSECRET_EXTRA' in molecule_secret_rendered"
-          # No value is written into the unit file: the Quadlet names the secret and
-          # podman injects it, which is the reason to use a secret rather than an
-          # Environment= line at all.
+          # No value in the unit file: the Quadlet names the secret and podman injects it.
           - molecule_secrets['molsecret-token'] not in molecule_secret_rendered
           - molecule_container_env.stdout == molecule_secrets['molsecret-token']
         quiet: true
@@ -231,9 +247,8 @@
     - name: Assert the container policy is what the call site asked for
       ansible.builtin.assert:
         that:
-          # The file holds AutoUpdate=registry and then AutoUpdate=local; the label is what
-          # Quadlet made of that, so this is the last-instance rule observed on a host
-          # rather than read out of the parser's documentation.
+          # The file holds AutoUpdate=registry then AutoUpdate=local; the label is what Quadlet
+          # made of that, so the last-instance rule is observed rather than assumed.
           - molecule_autoupdate_labels.results[0].stdout == 'local'
           # auto_update 'never': no line, so no label for podman auto-update to act on.
           - molecule_autoupdate_labels.results[1].stdout == ''
@@ -245,6 +260,184 @@
         quiet: true
       vars:
         molecule_secret_rendered: "{{ molecule_secret_quadlet.content | b64decode }}"
+
+    # --- private files ------------------------------------------------------------------
+
+    # Byte for byte and still encrypted: the controller reads these but never decrypts them.
+    - name: Read the encrypted private files from the host
+      ansible.builtin.slurp:
+        src: "/var/app/{{ item.app }}/private/{{ item.path }}"
+      loop: "{{ molecule_private_files }}"
+      loop_control:
+        label: "{{ item.app }}/{{ item.path }}"
+      register: molecule_private_on_host
+
+    - name: Assert nothing readable was written below the app root
+      ansible.builtin.assert:
+        that:
+          # No fixture's plaintext appears in the ciphertext beside it.
+          - molecule_private_on_host.results
+            | map(attribute='content') | map('b64decode') | join('')
+            | regex_search(molecule_private_files | map(attribute='content')
+                           | map('trim') | join('|')) is none
+          # And each is the ciphertext its own tool produces, so neither was skipped.
+          - "'age-encryption.org' in molecule_private_raw[0]"
+          - "'sops' in molecule_private_raw[1]"
+        fail_msg: "On the host: {{ molecule_private_raw }}."
+        quiet: true
+      vars:
+        molecule_private_raw: "{{ molecule_private_on_host.results | map(attribute='content') | map('b64decode') | list }}"
+
+    - name: Stat the decrypted tree in tmpfs
+      ansible.builtin.stat:
+        path: "/run/app/{{ item.app }}/private/{{ item.out }}"
+      loop: "{{ molecule_private_files }}"
+      loop_control:
+        label: "{{ item.app }}/{{ item.out }}"
+      register: molecule_private_runtime
+
+    - name: Read the decrypted tree in tmpfs
+      ansible.builtin.slurp:
+        src: "/run/app/{{ item.app }}/private/{{ item.out }}"
+      loop: "{{ molecule_private_files }}"
+      loop_control:
+        label: "{{ item.app }}/{{ item.out }}"
+      register: molecule_private_plain
+
+    # Marker gone: db.env.age -> db.env, conf.sops.yaml -> conf.yaml.
+    - name: Assert each file decrypted, under the name its suffix promised
+      ansible.builtin.assert:
+        that:
+          - molecule_private_runtime.results | rejectattr('stat.exists') | list | length == 0
+          # Root only, in a directory systemd made and will take away again.
+          - molecule_private_runtime.results | map(attribute='stat.mode')
+            | reject('equalto', '0600') | list | length == 0
+        fail_msg: >-
+          Missing: {{ molecule_private_runtime.results | rejectattr('stat.exists')
+                      | map(attribute='item.out') | list }}; modes
+          {{ molecule_private_runtime.results | map(attribute='stat.mode') | list }}.
+        quiet: true
+
+    # Its own assert: a mismatch here is about the bytes, and the one above reports paths.
+    - name: Assert each decrypted file holds the bytes that were encrypted
+      ansible.builtin.assert:
+        that:
+          - molecule_private_decrypted == molecule_private_files | map(attribute='content') | list
+        # Lengths, not contents: the sizes say which file and by how much, and the plaintext
+        # of a private file has no business in a CI log.
+        fail_msg: >-
+          Decrypted {{ molecule_private_decrypted | map('length') | list }} bytes for
+          {{ molecule_private_files | map(attribute='out') | list }}, expected
+          {{ molecule_private_files | map(attribute='content') | map('length') | list }}.
+        quiet: true
+      vars:
+        molecule_private_decrypted: "{{ molecule_private_plain.results | map(attribute='content') | map('b64decode') | list }}"
+
+    - name: Stat the directories the decrypt unit made
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /run/app/molsource/private
+        # Mirrored rather than flattened.
+        - /run/app/molsource/private/nested
+      register: molecule_private_dirs
+
+    - name: Assert the runtime tree is the unit's own, and private
+      ansible.builtin.assert:
+        that:
+          - molecule_private_dirs.results | map(attribute='stat.isdir') | reject | list | length == 0
+          - molecule_private_dirs.results | map(attribute='stat.mode')
+            | reject('equalto', '0700') | list | length == 0
+        quiet: true
+
+    - name: Read the drop-ins the role wrote for the units of each app
+      ansible.builtin.slurp:
+        src: "/etc/systemd/system/{{ item }}.d/10-private.conf"
+      loop:
+        - molsource.service
+        - molsource-extra.service
+        - molinline.service
+      register: molecule_dropins
+
+    # PartOf= as well as Requires=: it is what carries a re-decrypt through to the app, so a
+    # drop-in that lost it would leave the app on a RuntimeDirectory systemd had destroyed.
+    - name: Assert every unit is tied to its own app's decrypt instance
+      ansible.builtin.assert:
+        that:
+          - molecule_dropin_text[0] is search('Requires=homelab-private-decrypt@molsource.service')
+          - molecule_dropin_text[1] is search('After=homelab-private-decrypt@molsource.service')
+          - molecule_dropin_text[1] is search('PartOf=homelab-private-decrypt@molsource.service')
+          - molecule_dropin_text[2] is search('Requires=homelab-private-decrypt@molinline.service')
+          - molecule_dropin_text[2] is search('PartOf=homelab-private-decrypt@molinline.service')
+        fail_msg: "{{ molecule_dropin_text }}"
+        quiet: true
+      vars:
+        molecule_dropin_text: "{{ molecule_dropins.results | map(attribute='content') | map('b64decode') | list }}"
+
+    - name: Ask systemd for the state of each decrypt instance
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "homelab-private-decrypt@{{ item }}.service"]
+      loop:
+        - molsource
+        - molinline
+      changed_when: false
+      register: molecule_decrypt_state
+
+    - name: Assert each app's decrypt ran and stayed active for its RuntimeDirectory
+      ansible.builtin.assert:
+        that:
+          - molecule_decrypt_state.results | rejectattr('stdout', 'equalto', 'active')
+            | list | length == 0
+        fail_msg: >-
+          {{ molecule_decrypt_state.results | map(attribute='item')
+             | zip(molecule_decrypt_state.results | map(attribute='stdout')) | list }}.
+        quiet: true
+
+    # From the container's side: the role mounted nothing, the call site named the path.
+    - name: Ask the inline container to read its private file
+      ansible.builtin.command:
+        argv: [podman, exec, molinline, cat, /etc/molinline/tls.key]
+      changed_when: false
+      register: molecule_container_private
+
+    - name: Assert the container reads the decrypted file through its own mount
+      ansible.builtin.assert:
+        that:
+          - molecule_container_private.stdout
+            == (molecule_private_files | selectattr('app', 'equalto', 'molinline')
+                | first).content | trim
+        fail_msg: "Container read {{ molecule_container_private.stdout | quote }}."
+        quiet: true
+
+    # The app the converge was never asked to start. An inactive decrypt instance is the whole
+    # of the try-restart: the role found it stopped and left it that way, so no plaintext was
+    # written for an app that is not running.
+    - name: Ask systemd for the state of the app whose units the call did not name
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "{{ item }}"]
+      loop:
+        - molquiet.service
+        - homelab-private-decrypt@molquiet.service
+      changed_when: false
+      failed_when: false
+      register: molecule_quiet_state
+
+    - name: Stat the runtime tree the quiet app's decrypt would have made
+      ansible.builtin.stat:
+        path: /run/app/molquiet
+      register: molecule_quiet_runtime
+
+    - name: Assert the quiet app was deployed, not started, and decrypted nothing
+      ansible.builtin.assert:
+        that:
+          - molecule_quiet_state.results | selectattr('stdout', 'equalto', 'active')
+            | list | length == 0
+          - not molecule_quiet_runtime.stat.exists
+        fail_msg: >-
+          {{ molecule_quiet_state.results | map(attribute='item')
+             | zip(molecule_quiet_state.results | map(attribute='stdout')) | list }};
+          /run/app/molquiet exists: {{ molecule_quiet_runtime.stat.exists }}.
+        quiet: true
 
     - name: Ask systemd for the state of the managed units
       ansible.builtin.command:
@@ -264,8 +457,7 @@
              | map(attribute='item') | list }}.
         quiet: true
 
-    # Only the plain unit: a Quadlet-generated service is 'transient or generated' and
-    # cannot be enabled at all, which is why the role tolerates that one failure.
+    # Only the plain unit: a Quadlet-generated service cannot be enabled at all.
     - name: Ask systemd whether the plain unit starts at boot
       ansible.builtin.command:
         argv: [systemctl, is-enabled, molsource-extra.service]

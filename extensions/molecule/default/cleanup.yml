@@ -1,0 +1,45 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Molecule runs this when a step fails, before it destroys the host. Not in test_sequence: on
+# a passing run there is nothing to report, and converge's own post_tasks already report the
+# managed units.
+#
+# A unit that will not start is all the controller is told: `ansible.builtin.systemd` reports
+# systemctl's stderr, which for a failed start job is empty, so the log carries the name of
+# the unit and nothing about why.
+- name: Cleanup
+  hosts: all
+  become: true
+  gather_facts: false
+  # The step that failed may be create or prepare, which can leave no host to ask.
+  ignore_unreachable: true
+
+  tasks:
+    - name: Ask systemd which units failed
+      ansible.builtin.command:
+        argv: [systemctl, list-units, --failed, --all, --plain, --no-legend, --no-pager]
+      changed_when: false
+      failed_when: false
+      register: molecule_failed_units
+
+    - name: Report which units failed
+      ansible.builtin.debug:
+        msg: "{{ molecule_failed_units.stdout_lines | default([]) }}"
+
+    - name: Collect the journal of every failed unit
+      ansible.builtin.command:
+        argv: [journalctl, --no-pager, --lines, "40", --unit, "{{ molecule_unit.split() | first }}"]
+      loop: "{{ molecule_failed_units.stdout_lines | default([]) }}"
+      loop_control:
+        loop_var: molecule_unit
+        label: "{{ molecule_unit.split() | first }}"
+      changed_when: false
+      failed_when: false
+      register: molecule_failed_journal
+
+    - name: Report the journal of every failed unit
+      ansible.builtin.debug:
+        msg: "{{ molecule_failed_journal.results | default([]) | map(attribute='stdout_lines') | list }}"

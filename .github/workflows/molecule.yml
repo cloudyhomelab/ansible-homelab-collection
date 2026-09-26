@@ -58,7 +58,8 @@ jobs:
         uses: ./ansible_collections/binarycodes/homelab/.github/actions/install-dev-tools
 
       # The role decrypts an app's secrets through community.sops, which shells out to the
-      # sops binary; the scenario ships an age identity and a fixture app that needs one.
+      # sops binary; the scenario ships an age identity and fixture apps that need one, and
+      # copies this binary into the target for the private files the host decrypts itself.
       # Not from a package repository, which carries sops on no runner image: a pinned
       # release binary, with its checksum, so a replaced asset fails here rather than
       # running.
@@ -70,6 +71,15 @@ jobs:
             | sha256sum --check --strict
           sudo install -m 0755 /tmp/sops /usr/local/bin/sops
           sops --version
+
+      # The other half of the scenario's private-file fixture: age encrypts what sops does
+      # not, and prepare.yml copies both binaries into the target, which is where the role's
+      # decrypt unit runs them. Unlike sops, age is packaged on the runner image's Ubuntu.
+      - name: Install age
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y age
+          age --version
 
       - name: Record the podman version
         run: sudo podman version

@@ -22,7 +22,7 @@ ansible-lint                      # profile: production, no rules skipped
 ansible-test sanity --local
 ansible-galaxy collection build   # catches metadata Galaxy would refuse
 antsibull-changelog lint
-molecule test                     # the role on a systemd container; needs sops on PATH
+molecule test                     # the role on a systemd container; needs sops and age on PATH
 ```
 
 `requirements-dev.txt` pins the tools; `ansible-core` is in neither requirements file, being

@@ -1,0 +1,87 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# An app's private/ tree, copied to the host encrypted, and the unit that turns it into
+# plaintext in tmpfs at start. Included rather than guarded per task, like install-source.yml:
+# Ansible evaluates `loop` before `when`.
+#
+# The helper and the unit template are shared by every app and written identically by each, so
+# they are in no manifest and no decommission removes them. The private files and the drop-ins
+# are this app's and are recorded.
+
+# The decrypt runs on the host, so the tools must be there. Without this the first sign of a
+# missing binary is the app's unit refusing to start, several tasks later.
+- name: "Look for the decrypt tools needed by app {{ systemd_app_name }}"
+  ansible.builtin.shell: command -v age && command -v sops
+  changed_when: false
+  failed_when: false
+  register: systemd_app_private_tools
+
+- name: "Refuse private files without age and sops for app {{ systemd_app_name }}"
+  ansible.builtin.assert:
+    that:
+      - systemd_app_private_tools.rc == 0
+    fail_msg: >-
+      App {{ systemd_app_name }} ships private files, but this host has no age and sops on
+      PATH to decrypt them with. Install both, or drop
+      {{ systemd_app_apps_dir }}/{{ systemd_app_name }}/private/.
+    quiet: true
+
+# One file, whatever the app. Its suffix rules are the ones main.yml already validated with.
+- name: Install the private-file decrypt helper
+  ansible.builtin.copy:
+    src: helpers/homelab_decrypt_private.py
+    dest: "{{ systemd_app_private_helper }}"
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "0755"
+  register: systemd_app_helper_install
+
+# Identical every time, since every value in it is fixed: written by whichever app deploys
+# first and rewritten to the same bytes by the rest.
+- name: Install the shared private-file decrypt unit
+  ansible.builtin.template:
+    src: private-decrypt@.service.j2
+    dest: "{{ systemd_app_unit_dir }}/{{ systemd_app_private_unit }}@.service"
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "{{ systemd_app_file_mode }}"
+  register: systemd_app_private_unit_install
+  notify: systemd_app reload systemd
+
+# Still encrypted, so a backup of {{ systemd_app_root }} carries nothing readable. 0600/0700
+# rather than the role's usual modes: nothing but the root decrypt unit needs to read them. A
+# file the app stopped shipping is pruned by the manifest, not here.
+- name: "Install the encrypted private files of app {{ systemd_app_name }}"
+  ansible.builtin.copy:
+    src: "{{ systemd_app_private_tree.dir }}/"
+    dest: "{{ systemd_app_private_dir }}/"
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "0600"
+    directory_mode: "0700"
+  register: systemd_app_private_deploy
+
+# One per unit the app installs, so its container starts after its files exist. The directory
+# is made here because `template` will not create it.
+- name: "Ensure drop-in directories exist for the units of app {{ systemd_app_name }}"
+  ansible.builtin.file:
+    path: "{{ item | dirname }}"
+    state: directory
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "{{ systemd_app_dir_mode }}"
+  loop: "{{ systemd_app_private_dropins }}"
+
+- name: "Order units after the private decrypt of app {{ systemd_app_name }}"
+  ansible.builtin.template:
+    src: private-dropin.conf.j2
+    dest: "{{ item }}"
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "{{ systemd_app_file_mode }}"
+  loop: "{{ systemd_app_private_dropins }}"
+  register: systemd_app_dropin_deploy
+  notify: systemd_app reload systemd

@@ -99,6 +99,9 @@ jobs:
   # writing that line is the decision, made where the change is. A PR that changes
   # changelog.yaml itself records itself there instead: the release PR, which folds every
   # fragment away, and a fix that folds a stray fragment into a version already released.
+  # Dependabot's PRs are exempt: they bump only the dev tools and pinned actions, which no
+  # consumer sees, so their fragment would be `trivial:` and render nowhere; and a commit
+  # pushed onto its branch stops Dependabot rebasing the PR.
   # Added files only: editing a fragment someone else added is not recording a new change.
   # Pull requests only, since a push to main has no base to diff against and the PR that
   # produced it already passed here.
@@ -116,7 +119,12 @@ jobs:
       - name: Require a fragment, or a change to the changelog itself
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
+          if [ "$AUTHOR" = 'dependabot[bot]' ]; then
+            echo "Opened by Dependabot: no fragment needed."
+            exit 0
+          fi
           added="$(git diff --name-only --diff-filter=A "$BASE" "$GITHUB_SHA" \
             -- 'changelogs/fragments/*.yml' 'changelogs/fragments/*.yaml')"
           if [ -n "$added" ]; then

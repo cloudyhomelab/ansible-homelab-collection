@@ -12,8 +12,8 @@ from `git log` at release time.
 Every pull request adds one, however small the change: `trivial:` exists for a change nobody
 needs to read about, and writing that line is the decision, made where the change is. CI
 (`Changelog fragment` in `.github/workflows/checks.yml`) fails a pull request that adds
-none. The one exception is the release PR, which folds every fragment away and bumps
-`galaxy.yml` instead.
+none. The exceptions are the release PR, which folds every fragment away and bumps
+`galaxy.yml` instead, and Dependabot's PRs, which change nothing a consumer sees.
 
 ## Adding one
 

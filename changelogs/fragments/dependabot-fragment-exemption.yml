@@ -1,0 +1,3 @@
+---
+trivial:
+  - The changelog fragment check no longer fails pull requests Dependabot opens.

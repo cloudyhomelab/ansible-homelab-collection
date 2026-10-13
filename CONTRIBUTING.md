@@ -47,8 +47,8 @@ Enforced by `.githooks/commit-msg`: a
 ## Changelog
 
 Every pull request adds a fragment under `changelogs/fragments/`; `trivial:` is the section
-for a change nobody needs to read about. The one exception is a pull request that changes
-`changelogs/changelog.yaml` itself. `CHANGELOG.md` is generated, never edited. See
+for a change nobody needs to read about. The exceptions are a pull request that changes
+`changelogs/changelog.yaml` itself, and Dependabot's. `CHANGELOG.md` is generated, never edited. See
 [changelogs/README.md](changelogs/README.md).
 
 ## Licence header

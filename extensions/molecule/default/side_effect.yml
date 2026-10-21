@@ -581,7 +581,8 @@
         that:
           - "'ActiveState=active' in molecule_slice_changed.stdout_lines"
           - "'MemoryMax=134217728' in molecule_slice_changed.stdout_lines"
-        fail_msg: "{{ molecule_slice_changed.stdout_lines }}"
+        fail_msg: >-
+          systemd reports: {{ molecule_slice_changed.stdout_lines | join(', ') }}.
         quiet: true
 
     - name: Stop the unit in the fixture slice

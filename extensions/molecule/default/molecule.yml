@@ -82,6 +82,17 @@ provisioner:
             out: tls.key
             content: "not-really-a-key\n"
 
+        # A parent and a child, so the nesting a dash implies is asserted too. side_effect.yml
+        # re-deploys with molslice's limit changed while the slice is active.
+        molecule_slices:
+          - name: molslice
+            description: Molecule fixture slice
+            settings:
+              MemoryMax: 256M
+          - name: molslice-nested
+            settings:
+              CPUWeight: 50
+
         # Deliberately not in the list above: verify.yml reads that one out of /run, and this
         # app's decrypt is asserted never to have run, because the call names no units for it.
         # side_effect.yml starts it by hand and re-encrypts `rotated` over `first`.

@@ -1,0 +1,39 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Shapes only. What a name or setting may contain is checked by slice_validation_errors, which
+# an argument spec cannot express.
+argument_specs:
+  main:
+    short_description: Install systemd slice units with resource-control settings.
+    options:
+      systemd_slices_units:
+        type: list
+        elements: dict
+        required: false
+        default: []
+        description: >-
+          The slices to install as /etc/systemd/system/<name>.slice. Settings take effect on
+          the next unit start in the slice, or at once for an active one; an entry removed
+          from the list leaves its file in place.
+        options:
+          name:
+            type: str
+            required: true
+            description: >-
+              Unit name without the .slice suffix. A dash nests it under the slice its
+              prefix names, so homelab-media sits under homelab.
+          description:
+            type: str
+            required: false
+            description: The unit's Description=.
+          settings:
+            type: dict
+            required: false
+            default: {}
+            description: >-
+              [Slice] properties from systemd.resource-control(5), such as MemoryMax or
+              CPUWeight, written one per line as given. Values are strings or integers;
+              quote a boolean ("yes").

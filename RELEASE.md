@@ -74,8 +74,7 @@ for a tag say so where they are described.
 
 [Semantic versioning](https://semver.org). The collection's public API is:
 
-- every `systemd_app_*` role variable, as documented in
-  `roles/systemd_app/meta/argument_specs.yml`;
+- every role variable, as documented in each role's `meta/argument_specs.yml`;
 - the filters' and modules' names, their arguments, and the shape of what they return.
 
 So:
@@ -326,7 +325,7 @@ does not make:
 
 1. `meta/runtime.yml` — `requires_ansible`, which is what Galaxy and `ansible-galaxy`
    enforce;
-2. `roles/systemd_app/meta/main.yml` — `min_ansible_version`;
+2. every `roles/*/meta/main.yml` — `min_ansible_version`;
 3. `.github/workflows/supported-versions.yml` — the matrix row labelled
    `(declared floor)`, which is what makes the claim tested rather than asserted.
 

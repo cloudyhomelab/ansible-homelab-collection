@@ -21,7 +21,10 @@
       - molorphan.service
 
   roles:
-    # First, so the network unit exists before anything that might reference it.
+    - role: binarycodes.homelab.systemd_slices
+      systemd_slices_units: "{{ molecule_slices }}"
+
+    # First app, so the network unit exists before anything that might reference it.
     - role: binarycodes.homelab.systemd_app
       systemd_app_kind: source
       systemd_app_name: molnet

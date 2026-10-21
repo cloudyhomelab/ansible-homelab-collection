@@ -1,6 +1,6 @@
-# `systemd_app` molecule scenario
+# Molecule scenario
 
-Runs the `systemd_app` role against a throwaway container with systemd as PID 1 and podman
+Runs the collection's roles against a throwaway container with systemd as PID 1 and podman
 inside it, then asserts the host state. `tests/unit/` covers the arithmetic; this covers what
 only a real host shows.
 
@@ -59,7 +59,7 @@ MOLECULE_DISTRO=debian MOLECULE_IMAGE=docker.io/library/debian:13 molecule test
   `converge.yml` calls the role by FQCN and nothing installs the collection for it.
 - **Platform.** `MOLECULE_DISTRO` picks `Dockerfile.<distro>.j2`, `MOLECULE_IMAGE` the base
   it builds from; unset, both mean Fedora. CI runs one row per family
-  `roles/systemd_app/meta/main.yml` claims (`.github/workflows/molecule.yml`, where the
+  the roles' `meta/main.yml` claim (`.github/workflows/molecule.yml`, where the
   Debian tag is pinned). The state file is per scenario: `destroy` before switching
   families, or a bare `converge` skips `create` and targets a container that does not exist.
 - **sops and age** must be on PATH. `prepare.yml` encrypts the fixture secrets and private

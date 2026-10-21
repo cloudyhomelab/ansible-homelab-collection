@@ -1,0 +1,8 @@
+---
+release_summary: >-
+  Adds a second role, ``systemd_slices``, which installs systemd slice units with
+  resource-control settings such as ``MemoryMax`` and ``CPUWeight``, so a group of apps can
+  share one budget by naming the slice in ``Slice=``. Every entry is checked by the new
+  ``slice_validation_errors`` filter before anything is written, and systemd is reloaded when
+  a slice changes, so an active slice takes its new settings at once. The role installs only:
+  a slice dropped from its list stays on the host until a task of the caller's removes it.

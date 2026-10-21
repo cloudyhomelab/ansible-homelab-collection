@@ -469,3 +469,24 @@
         that:
           - molecule_unit_enabled.stdout == 'enabled'
         quiet: true
+
+    # --- slices -------------------------------------------------------------------------
+    # From systemd rather than the files, so a slice written but never reloaded fails here.
+    - name: Ask systemd for the fixture slices' properties
+      ansible.builtin.command:
+        argv: [systemctl, show, --property, "Description,MemoryMax,CPUWeight,Slice", "{{ item }}"]
+      loop: [molslice.slice, molslice-nested.slice]
+      changed_when: false
+      register: molecule_slice_show
+
+    - name: Assert the slices carry their settings and nest as named
+      ansible.builtin.assert:
+        that:
+          - "'Description=Molecule fixture slice' in molecule_slice_show.results[0].stdout_lines"
+          - "'MemoryMax=268435456' in molecule_slice_show.results[0].stdout_lines"
+          - "'CPUWeight=50' in molecule_slice_show.results[1].stdout_lines"
+          - "'Slice=molslice.slice' in molecule_slice_show.results[1].stdout_lines"
+        fail_msg: >-
+          systemd reports:
+          {{ molecule_slice_show.results | map(attribute='stdout_lines') | map('join', ', ') | join(' | ') }}.
+        quiet: true

@@ -1,0 +1,7 @@
+---
+minor_changes:
+  - The new ``systemd_slices`` role installs systemd slice units with resource-control
+    settings, such as ``MemoryMax`` or ``CPUWeight``, so a group of apps can share one budget
+    by naming the slice in ``Slice=``. Each entry of ``systemd_slices_units`` is checked by the
+    new ``slice_validation_errors`` filter before anything is written, and systemd is reloaded
+    when a slice changes, so an active slice picks up its new settings.

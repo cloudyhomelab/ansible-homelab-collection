@@ -30,9 +30,9 @@ the thing under test.
 
 Kept in step by hand:
 
-- Raising the ansible-core floor means `meta/runtime.yml`,
-  `roles/systemd_app/meta/main.yml` and `.github/workflows/supported-versions.yml` together.
-- Claiming a platform means an entry in `roles/systemd_app/meta/main.yml`, a
+- Raising the ansible-core floor means `meta/runtime.yml`, every
+  `roles/*/meta/main.yml` and `.github/workflows/supported-versions.yml` together.
+- Claiming a platform means an entry in every `roles/*/meta/main.yml`, a
   `Dockerfile.<distro>.j2` in the molecule scenario and a row in
   `.github/workflows/molecule.yml` together. Bumping the Fedora image tag means the first
   and the last.
@@ -82,8 +82,8 @@ deleted at release. `changelogs/config.yaml` carries one.
   checks.
 - Filters and modules are public API, named for what they compute.
 - Comments explain why, not what.
-- Every role variable is prefixed `systemd_app_` (ansible-lint `var-naming[no-role-prefix]`);
-  see `roles/systemd_app/meta/argument_specs.yml`.
+- Every role variable is prefixed with the role's name (ansible-lint
+  `var-naming[no-role-prefix]`); see each role's `meta/argument_specs.yml`.
 
 ## Further
 

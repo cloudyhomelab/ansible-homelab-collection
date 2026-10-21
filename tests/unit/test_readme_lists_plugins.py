@@ -7,23 +7,25 @@
 The plugins are public API and the READMEs are where a consumer first meets them, but no
 gate reads a README: a filter added with full docs shipped once with no row in either table.
 The root README lists every module and filter, deprecated ones included, since a consumer may
-still be calling those. The role README lists only what the role calls, which is every
-plugin that is not deprecated.
+still be calling those. Each role's README lists exactly what that role calls, and between
+them the roles call every plugin that is not deprecated.
 """
 
 import ast
 import re
 
+import pytest
 import yaml
 
 from conftest import FILTER_FILES, MODULE_DIR, ROOT
 
 ROOT_README = ROOT / "README.md"
-ROLE_README = ROOT / "roles" / "systemd_app" / "README.md"
+ROLE_DIRS = sorted(p for p in (ROOT / "roles").iterdir() if p.is_dir())
 MODULE_FILES = sorted(p for p in MODULE_DIR.glob("*.py") if not p.name.startswith("_"))
 
 # A table row whose first cell is a backquoted plugin name.
 _ROW_RE = re.compile(r"^\| `([a-z_]+)`\s*\|", re.MULTILINE)
+_FQCN_RE = re.compile(r"\bbinarycodes\.homelab\.([a-z_]+)")
 
 
 def documentation(path):
@@ -68,10 +70,25 @@ def test_the_root_readme_lists_every_module():
     assert rows_under(ROOT_README, "| Module | Purpose |") == MODULES
 
 
-def test_the_role_readme_lists_every_plugin_the_role_calls():
-    # Deprecated plugins are named in the prose below the table, not the table: the role
-    # no longer calls them.
-    assert rows_under(ROLE_README, "| Plugin ") == CURRENT
+def called_by(role_dir):
+    """The plugins a role's own files name by FQCN."""
+    names = set()
+    for path in role_dir.rglob("*"):
+        if path.is_file() and path.suffix in {".yml", ".j2"}:
+            names.update(_FQCN_RE.findall(path.read_text()))
+    return names & (FILTERS | MODULES)
+
+
+@pytest.mark.parametrize("role_dir", ROLE_DIRS, ids=lambda p: p.name)
+def test_each_role_readme_lists_every_plugin_the_role_calls(role_dir):
+    # Deprecated plugins are named in the prose below the table, not the table: no role
+    # calls them.
+    assert rows_under(role_dir / "README.md", "| Plugin ") == called_by(role_dir)
+
+
+def test_the_roles_between_them_call_every_current_plugin():
+    called = set().union(*(called_by(d) for d in ROLE_DIRS))
+    assert called == CURRENT
 
 
 def test_a_deprecated_filter_is_marked_as_such_in_the_root_readme():

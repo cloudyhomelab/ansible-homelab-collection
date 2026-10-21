@@ -179,11 +179,6 @@
       changed_when: false
       register: molecule_secret_inspect
 
-    - name: Stat the record file releases before 1.1.0 wrote
-      ansible.builtin.stat:
-        path: /var/app/molsecret/.secret-digests
-      register: molecule_digest_stat
-
     - name: Assert every declared secret was decrypted and stored under its own name
       ansible.builtin.assert:
         that:
@@ -191,8 +186,6 @@
           # End to end, from the encrypted file to the store. The digest is the module's own,
           # so an algorithm change cannot fail this for the wrong reason.
           - molecule_secret_state == molecule_secrets | declared_secret_state('molsecret')
-          # No record beside the store: a backup of the app carries no digest of anything.
-          - not molecule_digest_stat.stat.exists
         fail_msg: >-
           Stored {{ molecule_secret_names.stdout_lines | sort }}: {{ molecule_secret_state }}.
         quiet: true

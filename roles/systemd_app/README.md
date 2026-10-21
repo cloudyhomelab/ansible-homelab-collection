@@ -453,8 +453,8 @@ hand simply comes back.
 
 The owner label is what `absent` removes by, so a decommission needs nothing from the
 controller, and what keeps two apps apart: declaring a name another app owns is refused,
-naming that app, and the other secret is untouched. One with no owner label — stored by hand,
-or before 1.1.0 — is adopted and re-created with labels, which costs one restart.
+naming that app, and the other secret is untouched. One with no owner label, such as one
+stored by hand, is adopted and re-created with labels, which costs one restart.
 
 A failed `podman secret create` is reported with the name, exit code and stderr; the value is
 `no_log`.

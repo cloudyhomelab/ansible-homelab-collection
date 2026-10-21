@@ -13,14 +13,6 @@
     secrets: "{{ systemd_app_secret_values }}"
   register: systemd_app_secrets
 
-# Pre-1.1.0 recorded digests in a file rather than on the secrets. The module adopts those, so
-# the file is not read; it goes so a backup carries no digest of every secret the app ever
-# had. Remove at 2.0.0.
-- name: "Remove the pre-1.1.0 secret digest record of app {{ systemd_app_name }}"
-  ansible.builtin.file:
-    path: "{{ systemd_app_home }}/.secret-digests"
-    state: absent
-
 # 'inline' only; a 'source' app installs its container from a file (install-source.yml).
 - name: "Render Quadlet for container {{ systemd_app_name }}"
   ansible.builtin.template:

@@ -677,6 +677,4 @@ manifest should hold, belongs there rather than in a YAML scalar.
 
 They are collection-global public API, named for what they compute rather than for the role
 that calls them. `secret_digests` and `reconcile_secrets` are deprecated and go in 2.0.0, the
-secrets module doing their work from labels. `manifest_units` was renamed `unit_names` in
-1.2.0, when the role began asking it what a deploy is *about* to install; the old name resolves
-with a warning until 2.0.0.
+secrets module doing their work from labels.

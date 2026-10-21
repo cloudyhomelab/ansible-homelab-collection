@@ -1,0 +1,5 @@
+---
+removed_features:
+  - The ``route_problems``, ``container_problems`` and ``manifest_units`` filter names, deprecated
+    since their renames, are removed. Call ``route_validation_errors``,
+    ``container_validation_errors`` and ``unit_names`` instead.

@@ -25,7 +25,6 @@ description:
     time; a newline ends the line and turns the rest into a further directive, which quoting
     cannot rescue and systemd accepts silently.
   - Never raises; one string per problem, so a typo is fixed in one pass.
-  - Called C(container_problems) from 1.0.0; that name redirects here and is removed in 2.0.0.
   - C(re.fullmatch), not a C($) anchor, which would let a trailing newline through.
   - Spaces, quotes and percent signs are legal - M(binarycodes.homelab.systemd_env_lines)
     escapes those. Only what cannot survive a unit file at all is refused.

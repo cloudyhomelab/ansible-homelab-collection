@@ -651,6 +651,37 @@ def test_the_install_dirs_are_taken_from_the_caller():
     ) == ["app-extra.service", "app.service"]
 
 
+def test_types_keeps_only_those_units():
+    paths = [
+        f"{SYSTEM_DIR}/app.container",
+        f"{SYSTEM_DIR}/app.pod",
+        f"{UNIT_DIR}/app-extra.socket",
+        f"{UNIT_DIR}/app-extra.service",
+        f"{UNIT_DIR}/app-backup.timer",
+    ]
+    assert unit_names(paths, SYSTEM_DIR, UNIT_DIR, types=["service"]) == [
+        "app-extra.service",
+        "app-pod.service",
+        "app.service",
+    ]
+    assert unit_names(paths, SYSTEM_DIR, UNIT_DIR, types=["socket", "timer"]) == [
+        "app-backup.timer",
+        "app-extra.socket",
+    ]
+
+
+def test_no_types_and_an_empty_list_differ():
+    paths = [f"{UNIT_DIR}/app.service"]
+    assert unit_names(paths, SYSTEM_DIR, UNIT_DIR, types=None) == ["app.service"]
+    assert unit_names(paths, SYSTEM_DIR, UNIT_DIR, types=[]) == []
+
+
+def test_types_as_a_bare_string_is_refused():
+    """'service' would otherwise be the types 's', 'e', 'r', ... and match nothing."""
+    with pytest.raises(AnsibleFilterError, match="must be a list"):
+        unit_names([f"{UNIT_DIR}/app.service"], SYSTEM_DIR, UNIT_DIR, types="service")
+
+
 # --- private_tree ------------------------------------------------------------------------
 
 PRIVATE_DIR = "/var/app/myapp/private"

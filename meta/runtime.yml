@@ -13,4 +13,3 @@
 # this version as well as the current release. Raise this and the role's
 # min_ansible_version together with that matrix, never one without the others.
 requires_ansible: ">=2.19.0"
-

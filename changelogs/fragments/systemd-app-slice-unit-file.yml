@@ -1,0 +1,7 @@
+---
+breaking_changes:
+  - A ``systemd_app`` deploy fails, before installing anything, when the slice
+    ``systemd_app_slice`` names has no unit file on the host, since systemd would otherwise
+    create it with no limits. Install the slice with the ``systemd_slices`` role earlier in the
+    play, set ``systemd_app_slice`` to a slice the host has, or set it to ``system``, which
+    needs no file.

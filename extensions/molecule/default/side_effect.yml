@@ -560,6 +560,75 @@
              | map(attribute='item') | list }}.
         quiet: true
 
+    # --- a slice the host has no unit file for -------------------------------------------
+    # systemd would create either slice implicitly and run the app unlimited, so both have to
+    # be refused before anything is installed. The second is the name check: the role has no
+    # other, and a line break in a Slice= line would add a directive of its own.
+    - name: Deploy an app into a slice the host does not have
+      block:
+        - name: Deploy the unsliced app into a slice the host does not have
+          ansible.builtin.include_role:
+            name: binarycodes.homelab.systemd_app
+          vars:
+            systemd_app_kind: inline
+            systemd_app_name: molnoslice
+            systemd_app_image: "{{ molecule_image }}"
+            systemd_app_slice: molmissing
+            systemd_app_container_options:
+              - Exec=sleep 86400
+
+        - name: Record that the unsliced app was deployed into a slice the host does not have
+          ansible.builtin.set_fact:
+            molecule_noslice_deployed: "{{ (molecule_noslice_deployed | default([])) + ['molmissing'] }}"
+      rescue:
+        - name: Record why the unsliced app was refused a slice the host does not have
+          ansible.builtin.set_fact:
+            molecule_noslice_refusals: "{{ (molecule_noslice_refusals | default([])) + [ansible_failed_result.msg | default('')] }}"
+
+    - name: Deploy an app into a slice whose name has a line break
+      block:
+        - name: Deploy the unsliced app into a slice whose name has a line break
+          ansible.builtin.include_role:
+            name: binarycodes.homelab.systemd_app
+          vars:
+            systemd_app_kind: inline
+            systemd_app_name: molnoslice
+            systemd_app_image: "{{ molecule_image }}"
+            systemd_app_slice: "mol\nslice"
+            systemd_app_container_options:
+              - Exec=sleep 86400
+
+        - name: Record that the unsliced app was deployed into a slice whose name has a line break
+          ansible.builtin.set_fact:
+            molecule_noslice_deployed: "{{ (molecule_noslice_deployed | default([])) + ['line break'] }}"
+      rescue:
+        - name: Record why the unsliced app was refused a slice whose name has a line break
+          ansible.builtin.set_fact:
+            molecule_noslice_refusals: "{{ (molecule_noslice_refusals | default([])) + [ansible_failed_result.msg | default('')] }}"
+
+    - name: Stat what the unsliced app would have installed
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/containers/systemd/molnoslice.container
+        - /etc/systemd/system/molnoslice.service.d
+        - /var/app/molnoslice
+      register: molecule_noslice_paths
+
+    - name: Assert both slices were refused before anything reached the host
+      ansible.builtin.assert:
+        that:
+          - molecule_noslice_deployed is not defined
+          - molecule_noslice_refusals | default([]) | select('search', 'systemd_slices')
+            | list | length == 2
+          - molecule_noslice_paths.results | selectattr('stat.exists') | list | length == 0
+        fail_msg: >-
+          Deployed into: {{ molecule_noslice_deployed | default([]) }}; refusals:
+          {{ molecule_noslice_refusals | default([]) }}; on the host:
+          {{ molecule_noslice_paths.results | selectattr('stat.exists')
+             | map(attribute='item') | list }}.
+        quiet: true
+
     # --- a slice changed while active --------------------------------------------------
     # An active slice keeps the properties it was loaded with until systemd re-reads its
     # file, so this fails if the role writes the change without reloading.

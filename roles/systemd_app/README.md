@@ -38,6 +38,9 @@ Both install directories must exist already — they are podman's and systemd's,
 creates neither. It creates what it owns: `systemd_app_root`, each app's home, and
 `systemd_app_caddy_confd` for a routed app.
 
+The [slice](#slice) an app runs in must have a unit file on the target, normally from the
+`systemd_slices` role earlier in the same play. The role checks before installing anything.
+
 An app with [private files](#private-files) also needs `age` and `sops` on the target, which is
 where they are decrypted; both are packaged by Fedora 43 and Debian 13. The role checks before
 copying anything, so a host without them fails clearly rather than with a unit that will not
@@ -336,6 +339,12 @@ Slice=homelab.slice
   refused rather than read as `system`: either is more likely a value left empty by mistake.
 - **The parameter wins.** The drop-in overrides a `Slice=` the app's own unit sets, so the
   call site is the one place an app's slice is chosen.
+- **The slice must exist.** A unit naming a slice with no unit file still starts: systemd
+  creates the slice implicitly, with no limits. So a deploy fails, before anything is installed,
+  when `systemctl show <slice>.slice` reports no `FragmentPath`; the message names the
+  `systemd_slices` role, which installs slice files. The role never writes one itself, since two
+  roles writing one file leave whichever ran last. `system` is exempt: systemd provides
+  `system.slice` without a file.
 
 Services only: a socket's or a timer's service is what runs, and that service carries the
 drop-in. The per-app `homelab-private-decrypt@<app>.service` stays in `system.slice`: a short
@@ -351,9 +360,11 @@ reports the secrets it would create, rotate or drop without running `podman secr
 So `--check` previews the installed files, the manifest, the secret store, and the restart
 or reload that follows from them.
 
-Two limits:
+Three limits:
 
 - Whether `podman secret create` would succeed is only knowable by running it.
+- A host the `systemd_slices` role has not yet written the app's slice to fails the
+  [slice](#slice) check: `--check` writes no slice file for the check to find.
 - A first deploy cannot be previewed to the end. `--check` writes no Quadlet file, so the
   generator never makes the service from it, so the task that starts that service fails:
   the systemd module refuses a unit the host does not have, in check mode as in a real

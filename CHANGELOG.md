@@ -2,42 +2,68 @@
 
 **Topics**
 
-- <a href="#v1-2-0">v1\.2\.0</a>
+- <a href="#v1-3-0">v1\.3\.0</a>
     - <a href="#release-summary">Release Summary</a>
     - <a href="#minor-changes">Minor Changes</a>
-    - <a href="#deprecated-features">Deprecated Features</a>
     - <a href="#new-plugins">New Plugins</a>
         - <a href="#filter">Filter</a>
-- <a href="#v1-1-2">v1\.1\.2</a>
+- <a href="#v1-2-0">v1\.2\.0</a>
     - <a href="#release-summary-1">Release Summary</a>
+    - <a href="#minor-changes-1">Minor Changes</a>
+    - <a href="#deprecated-features">Deprecated Features</a>
+    - <a href="#new-plugins-1">New Plugins</a>
+        - <a href="#filter-1">Filter</a>
+- <a href="#v1-1-2">v1\.1\.2</a>
+    - <a href="#release-summary-2">Release Summary</a>
     - <a href="#bugfixes">Bugfixes</a>
 - <a href="#v1-1-1">v1\.1\.1</a>
-    - <a href="#release-summary-2">Release Summary</a>
-- <a href="#v1-1-0">v1\.1\.0</a>
     - <a href="#release-summary-3">Release Summary</a>
+- <a href="#v1-1-0">v1\.1\.0</a>
+    - <a href="#release-summary-4">Release Summary</a>
     - <a href="#major-changes">Major Changes</a>
-    - <a href="#minor-changes-1">Minor Changes</a>
+    - <a href="#minor-changes-2">Minor Changes</a>
     - <a href="#breaking-changes--porting-guide">Breaking Changes / Porting Guide</a>
     - <a href="#deprecated-features-1">Deprecated Features</a>
     - <a href="#security-fixes">Security Fixes</a>
     - <a href="#bugfixes-1">Bugfixes</a>
     - <a href="#known-issues">Known Issues</a>
-    - <a href="#new-plugins-1">New Plugins</a>
-        - <a href="#filter-1">Filter</a>
+    - <a href="#new-plugins-2">New Plugins</a>
+        - <a href="#filter-2">Filter</a>
     - <a href="#new-modules">New Modules</a>
 - <a href="#v1-0-0">v1\.0\.0</a>
-    - <a href="#release-summary-4">Release Summary</a>
-    - <a href="#minor-changes-2">Minor Changes</a>
+    - <a href="#release-summary-5">Release Summary</a>
+    - <a href="#minor-changes-3">Minor Changes</a>
 
-<a id="v1-2-0"></a>
-## v1\.2\.0
+<a id="v1-3-0"></a>
+## v1\.3\.0
 
 <a id="release-summary"></a>
 ### Release Summary
 
-Apps can now ship encrypted configuration and data\. The <code>systemd\_app</code> role installs an app\'s <code>private/</code> directory to the host still encrypted\, and a companion unit decrypts the <code>\*\.age</code> and <code>\*\.sops\.\<ext\></code> files into a tmpfs directory at unit start\, so no plaintext is written below <code>systemd\_app\_root</code>\. Deploying such an app needs <code>age</code> and <code>sops</code> on the target host\. The new <code>private\_tree</code> filter describes that tree\, the <code>install\_manifest</code> module records and prunes it and now removes directories a prune leaves empty\, and the <code>manifest\_units</code> filter is renamed <code>unit\_names</code>\, with the old name deprecated until 2\.0\.0\.
+Adds a second role\, <code>systemd\_slices</code>\, which installs systemd slice units with resource\-control settings such as <code>MemoryMax</code> and <code>CPUWeight</code>\, so a group of apps can share one budget by naming the slice in <code>Slice\=</code>\. Every entry is checked by the new <code>slice\_validation\_errors</code> filter before anything is written\, and systemd is reloaded when a slice changes\, so an active slice takes its new settings at once\. The role installs only\: a slice dropped from its list stays on the host until a task of the caller\'s removes it\.
 
 <a id="minor-changes"></a>
+### Minor Changes
+
+* The new <code>systemd\_slices</code> role installs systemd slice units with resource\-control settings\, such as <code>MemoryMax</code> or <code>CPUWeight</code>\, so a group of apps can share one budget by naming the slice in <code>Slice\=</code>\. Each entry of <code>systemd\_slices\_units</code> is checked by the new <code>slice\_validation\_errors</code> filter before anything is written\, and systemd is reloaded when a slice changes\, so an active slice picks up its new settings\.
+
+<a id="new-plugins"></a>
+### New Plugins
+
+<a id="filter"></a>
+#### Filter
+
+* binarycodes\.homelab\.slice\_validation\_errors \- Why a list of slice units cannot be installed\, one string per problem\.
+
+<a id="v1-2-0"></a>
+## v1\.2\.0
+
+<a id="release-summary-1"></a>
+### Release Summary
+
+Apps can now ship encrypted configuration and data\. The <code>systemd\_app</code> role installs an app\'s <code>private/</code> directory to the host still encrypted\, and a companion unit decrypts the <code>\*\.age</code> and <code>\*\.sops\.\<ext\></code> files into a tmpfs directory at unit start\, so no plaintext is written below <code>systemd\_app\_root</code>\. Deploying such an app needs <code>age</code> and <code>sops</code> on the target host\. The new <code>private\_tree</code> filter describes that tree\, the <code>install\_manifest</code> module records and prunes it and now removes directories a prune leaves empty\, and the <code>manifest\_units</code> filter is renamed <code>unit\_names</code>\, with the old name deprecated until 2\.0\.0\.
+
+<a id="minor-changes-1"></a>
 ### Minor Changes
 
 * New filter <code>private\_tree</code>\: what an app keeps encrypted in <code>private/</code>\, the host path each file is copied to\, and what each decrypts to at unit start\. Two files that would decrypt to the same name are reported rather than raised\, so one run names every clash\.
@@ -51,10 +77,10 @@ Apps can now ship encrypted configuration and data\. The <code>systemd\_app</cod
 
 * The filter <code>binarycodes\.homelab\.manifest\_units</code> is deprecated in favour of <code>binarycodes\.homelab\.unit\_names</code>\, the same filter under a name that says what it computes\. The old name keeps working\, with a warning\, until it is removed in 2\.0\.0\.
 
-<a id="new-plugins"></a>
+<a id="new-plugins-1"></a>
 ### New Plugins
 
-<a id="filter"></a>
+<a id="filter-1"></a>
 #### Filter
 
 * binarycodes\.homelab\.private\_tree \- What an app ships in <code>private/</code>\, where it is copied\, and what it decrypts to\.
@@ -63,7 +89,7 @@ Apps can now ship encrypted configuration and data\. The <code>systemd\_app</cod
 <a id="v1-1-2"></a>
 ## v1\.1\.2
 
-<a id="release-summary-1"></a>
+<a id="release-summary-2"></a>
 ### Release Summary
 
 A durability fix for the install manifest\: the record is flushed to disk before it is renamed into place\, so a host that loses power part\-way through a deploy cannot come back with an empty record\. The <code>systemd\_app</code> role\'s README now describes check mode as the modules actually behave\, and contributor documentation is consolidated into <code>CONTRIBUTING\.md</code>\.
@@ -77,7 +103,7 @@ A durability fix for the install manifest\: the record is flushed to disk before
 <a id="v1-1-1"></a>
 ## v1\.1\.1
 
-<a id="release-summary-2"></a>
+<a id="release-summary-3"></a>
 ### Release Summary
 
 Nothing in the collection changes\: the role\, filters and modules are those of 1\.1\.0\. This release exercises the release procedure itself\, which is now driven from a pull\-request label and two approvals rather than scripts run by hand\.
@@ -85,7 +111,7 @@ Nothing in the collection changes\: the role\, filters and modules are those of 
 <a id="v1-1-0"></a>
 ## v1\.1\.0
 
-<a id="release-summary-3"></a>
+<a id="release-summary-4"></a>
 ### Release Summary
 
 The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code> reconciles an app\'s secrets from ownership and digest labels on the secrets themselves\, and <code>install\_manifest</code> reconciles the install record on the host\; both support check and diff mode\. Read the major change before upgrading\: the first deploy re\-creates every app\'s secrets to label them and restarts each app with secrets once\. The controller floor rises to ansible\-core 2\.19 and the host floor to podman 4\.5\. New <code>inline</code> parameters set the <code>AutoUpdate\=</code> and <code>Restart\=</code> policy\, the role refuses a domain another app\'s route already claims\, and the filters the modules replace are deprecated ahead of 2\.0\.0\.
@@ -95,7 +121,7 @@ The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code
 
 * On the first deploy after upgrading\, the <code>systemd\_app</code> role removes and re\-creates every podman secret an app declares\, so that each carries its ownership and digest labels\, and restarts the app once\. Secrets stored by earlier releases carry no labels\, so the role cannot tell whether their values still match and treats them as changed\. Plan for one restart per app with secrets\.
 
-<a id="minor-changes-1"></a>
+<a id="minor-changes-2"></a>
 ### Minor Changes
 
 * Decommissioning a <code>source</code> app no longer requires <code>systemd\_app\_apps\_dir</code>\. A decommission works from the host alone and never read the controller\'s tree\; the requirement was a leftover of the deploy path\'s\.
@@ -142,10 +168,10 @@ The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code
 
 * The <code>systemd\_app</code> role\'s platform list now names only what its molecule scenario converges\: Fedora 43 and Debian 13 \(trixie\)\. EL and Ubuntu are no longer listed\; they were never tested\, and Debian 12 is out because its podman \(4\.3\) predates Quadlet\. The role is not distribution\-specific and other platforms will likely work\, but they are not claimed until something tests them\.
 
-<a id="new-plugins-1"></a>
+<a id="new-plugins-2"></a>
 ### New Plugins
 
-<a id="filter-1"></a>
+<a id="filter-2"></a>
 #### Filter
 
 * binarycodes\.homelab\.app\_validation\_errors \- Why an app cannot be deployed or decommissioned as named\, one string per problem\.
@@ -162,12 +188,12 @@ The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code
 <a id="v1-0-0"></a>
 ## v1\.0\.0
 
-<a id="release-summary-4"></a>
+<a id="release-summary-5"></a>
 ### Release Summary
 
 First release\. Extracted from the playbook repository it grew up in\, with the repository\-specific parts removed\.
 
-<a id="minor-changes-2"></a>
+<a id="minor-changes-3"></a>
 ### Minor Changes
 
 * Filters <code>secret\_digests</code>\, <code>reconcile\_secrets</code>\, <code>route\_problems</code>\, <code>container\_problems</code>\, <code>systemd\_env\_lines</code> and <code>manifest\_units</code>\, callable independently of the role\.

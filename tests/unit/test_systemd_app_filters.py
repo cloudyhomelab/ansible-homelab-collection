@@ -175,6 +175,33 @@ def test_names_podman_would_refuse_are_refused_for_either_kind(secret, apps_dir)
         assert len(got) == 1 and "podman secret name" in got[0]
 
 
+@pytest.mark.parametrize("slice_name", ["homelab", "homelab-builds", "system"])
+def test_a_slice_name_is_accepted(slice_name):
+    assert errors(slice_name=slice_name) == []
+
+
+@pytest.mark.parametrize("slice_name", [None, ""])
+def test_an_empty_slice_is_refused_naming_the_opt_out(slice_name):
+    got = errors(slice_name=slice_name)
+    assert len(got) == 1 and "'system'" in got[0]
+
+
+def test_a_slice_that_is_not_a_string_is_refused():
+    got = errors(slice_name=["homelab"])
+    assert len(got) == 1 and "not a string" in got[0]
+
+
+def test_a_slice_with_its_suffix_is_refused():
+    got = errors(slice_name="homelab.slice")
+    assert len(got) == 1 and "'.slice' suffix" in got[0]
+
+
+def test_the_slice_is_not_checked_on_absent_or_when_not_passed():
+    """A decommission reads no slice, and the filter's other callers name none."""
+    assert errors(state="absent", slice_name=None) == []
+    assert errors() == []
+
+
 def test_no_secret_value_appears_in_an_app_problem():
     # Values never reach the filter, by construction: the call site passes the keys alone.
     assert "value" not in inspect.signature(app_validation_errors).parameters
@@ -795,6 +822,9 @@ def test_the_molecule_fixture_records_what_the_scenario_expects():
     dropins = [
         "%s/%s.d/10-private.conf" % (UNIT_DIR, unit)
         for unit in unit_names(base, SYSTEM_DIR, UNIT_DIR)
+    ] + [
+        "%s/%s.d/20-slice.conf" % (UNIT_DIR, unit)
+        for unit in unit_names(base, SYSTEM_DIR, UNIT_DIR, types=["service"])
     ]
 
     assert sorted(base + dropins) == sorted(expected)

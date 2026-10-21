@@ -37,6 +37,28 @@
   ansible.builtin.include_tasks: install-private.yml
   when: systemd_app_has_private | bool
 
+# The drop-in, not the app's own unit, is where the slice is chosen: a 'source' Quadlet is
+# installed verbatim and an 'inline' one has no [Service] line for it.
+- name: "Ensure slice drop-in directories exist for the units of app {{ systemd_app_name }}"
+  ansible.builtin.file:
+    path: "{{ item | dirname }}"
+    state: directory
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "{{ systemd_app_dir_mode }}"
+  loop: "{{ systemd_app_slice_dropins }}"
+
+- name: "Place the units in the slice for app {{ systemd_app_name }}"
+  ansible.builtin.template:
+    src: slice-dropin.conf.j2
+    dest: "{{ item }}"
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "{{ systemd_app_file_mode }}"
+  loop: "{{ systemd_app_slice_dropins }}"
+  register: systemd_app_slice_dropin_deploy
+  notify: systemd_app reload systemd
+
 # install-source.yml creates this only for an app that ships a config tree; every app owns the
 # manifest below it regardless.
 - name: "Ensure the home directory exists for app {{ systemd_app_name }}"
@@ -150,6 +172,9 @@
 # unit destroys and re-creates, so reloading would leave the container on a directory that is
 # gone. Its own fact rather than a `vars:` entry on the task below, which ansible-lint
 # evaluates as raw text and coerces through `bool` (an error from ansible-core 2.23).
+#
+# A changed slice drop-in is a restart too: systemd moves a unit to another cgroup only when it
+# starts.
 - name: "Decide whether the private files moved for app {{ systemd_app_name }}"
   ansible.builtin.set_fact:
     systemd_app_private_changed: >-
@@ -166,6 +191,7 @@
          or (systemd_app_quadlet_render.changed | default(false))
          or (systemd_app_quadlet_install.changed | default(false))
          or (systemd_app_unit_install.changed | default(false))
+         or (systemd_app_slice_dropin_deploy.changed | default(false))
          or (systemd_app_private_changed | bool) }}
     systemd_app_config_changed: >-
       {{ (systemd_app_config_deploy.changed | default(false))

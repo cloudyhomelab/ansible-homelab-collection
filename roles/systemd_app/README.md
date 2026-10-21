@@ -676,5 +676,4 @@ against a temporary directory. A change to what the role accepts, or to what the
 manifest should hold, belongs there rather than in a YAML scalar.
 
 They are collection-global public API, named for what they compute rather than for the role
-that calls them. `secret_digests` and `reconcile_secrets` are deprecated and go in 2.0.0, the
-secrets module doing their work from labels.
+that calls them.

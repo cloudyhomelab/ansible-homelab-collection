@@ -27,8 +27,6 @@ and encrypted per-app files decrypted into tmpfs at unit start.
 | `source_tree` | Read what a `source` app ships from its directory on the controller, and the host paths it installs to. |
 | `private_tree` | Read what an app keeps encrypted in `private/`, the host paths it is copied to, and what each file decrypts to at unit start. |
 | `unit_names` | The systemd units a set of installed host paths implies, whether a deploy is about to install them or a manifest recorded them. |
-| `secret_digests` | *Deprecated, removed in 2.0.0.* SHA-256 per podman secret value. |
-| `reconcile_secrets` | *Deprecated, removed in 2.0.0.* Which podman secrets to store and which to drop, from a recorded digest file. |
 
 The modules and the filters are public API, not role internals: they are named for what
 they compute, and callable by anyone who installs the collection.

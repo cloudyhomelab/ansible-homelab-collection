@@ -1,0 +1,13 @@
+{# Copyright (c) 2026 binarycodes
+   GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+   SPDX-License-Identifier: GPL-3.0-or-later #}
+# Written by the binarycodes.homelab.systemd_slices role.
+{% if item.description | default(none) is not none %}
+[Unit]
+Description={{ item.description }}
+
+{% endif %}
+[Slice]
+{% for key, value in (item.settings | default({})).items() %}
+{{ key }}={{ value }}
+{% endfor %}

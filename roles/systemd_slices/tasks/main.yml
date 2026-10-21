@@ -1,0 +1,34 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The name becomes a path written as root, so it is checked before anything is.
+- name: Validate role input
+  ansible.builtin.assert:
+    that:
+      - systemd_slices_validation_errors | length == 0
+    fail_msg: >-
+      The 'systemd_slices' role cannot install these slices as given:
+      {{ systemd_slices_validation_errors | join('; ') }}.
+    quiet: true
+  vars:
+    systemd_slices_validation_errors: "{{ systemd_slices_units | binarycodes.homelab.slice_validation_errors }}"
+
+- name: Install the slice units
+  ansible.builtin.template:
+    src: slice.j2
+    dest: "/etc/systemd/system/{{ item.name }}.slice"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ systemd_slices_units }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: systemd_slices reload systemd
+
+# Not started: a slice starts with the first unit placed in it. The reload is what matters,
+# both for a later role in the play starting a unit in a new slice and for an active slice,
+# which keeps its old properties until systemd re-reads its file.
+- name: Apply slice changes (systemd daemon-reload)
+  ansible.builtin.meta: flush_handlers

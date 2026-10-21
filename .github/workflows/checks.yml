@@ -61,7 +61,7 @@ jobs:
           if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             files="$(git diff --name-only "$BASE" "$GITHUB_SHA")"
             if grep -qE \
-                 -e '^roles/systemd_app/' \
+                 -e '^roles/' \
                  -e '^plugins/' \
                  -e '^extensions/molecule/' \
                  -e '^\.github/actions/' \

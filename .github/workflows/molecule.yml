@@ -5,7 +5,7 @@
 
 name: Molecule
 
-# The systemd_app role's behaviour on a host: what the filters' unit tests cannot cover and
+# The roles' behaviour on a host: what the filters' unit tests cannot cover and
 # a syntax check never runs. Called, not triggered: checks.yml decides from the changed
 # paths whether a pull request needs the converge, and release.yml runs it against the
 # tagged commit. One run per PR, summed up by one required check.
@@ -18,11 +18,11 @@ permissions:
 
 jobs:
   molecule:
-    name: Converge the systemd_app role on ${{ matrix.distro }}
+    name: Converge the roles on ${{ matrix.distro }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
-    # One row per platform family roles/systemd_app/meta/main.yml claims, so the claim is a
+    # One row per platform family the roles' meta/main.yml claim, so the claim is a
     # tested one. The scenario reads both values from the environment (see its
     # molecule.yml); the distro picks the Dockerfile, the image is what it builds from.
     # Both images are pinned to a released tag. Which rows fail is the result this matrix

@@ -551,6 +551,44 @@
              | map(attribute='item') | list }}.
         quiet: true
 
+    # --- a slice changed while active --------------------------------------------------
+    # An active slice keeps the properties it was loaded with until systemd re-reads its
+    # file, so this fails if the role writes the change without reloading.
+    - name: Start a unit in the fixture slice
+      ansible.builtin.command:
+        argv: [systemd-run, --unit, molslice-probe, --slice, molslice, sleep, "600"]
+      changed_when: true
+
+    - name: Re-deploy the slices with a lower limit
+      ansible.builtin.include_role:
+        name: binarycodes.homelab.systemd_slices
+      vars:
+        systemd_slices_units:
+          - name: molslice
+            description: Molecule fixture slice
+            settings:
+              MemoryMax: 128M
+          - "{{ molecule_slices[1] }}"
+
+    - name: Ask systemd for the active slice's state and limit
+      ansible.builtin.command:
+        argv: [systemctl, show, --property, "ActiveState,MemoryMax", molslice.slice]
+      changed_when: false
+      register: molecule_slice_changed
+
+    - name: Assert the active slice took the new limit
+      ansible.builtin.assert:
+        that:
+          - "'ActiveState=active' in molecule_slice_changed.stdout_lines"
+          - "'MemoryMax=134217728' in molecule_slice_changed.stdout_lines"
+        fail_msg: "{{ molecule_slice_changed.stdout_lines }}"
+        quiet: true
+
+    - name: Stop the unit in the fixture slice
+      ansible.builtin.command:
+        argv: [systemctl, stop, molslice-probe.service]
+      changed_when: true
+
     # --- decommission ------------------------------------------------------------------
     - name: Decommission every fixture app
       ansible.builtin.include_role:

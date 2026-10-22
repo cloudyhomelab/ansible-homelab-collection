@@ -335,3 +335,64 @@ releases:
           name: slice_validation_errors
           namespace: null
     release_date: '2026-10-21'
+  2.0.0:
+    changes:
+      breaking_changes:
+        - A ``source`` app without ``systemd_app_enable_units`` is not restarted by
+          the role, so it moves into its slice only when restarted by hand or when
+          the host reboots.
+        - A ``systemd_app_slice`` of ``null`` or an empty string is refused, naming
+          ``system`` as the opt-out.
+        - A ``systemd_app`` deploy fails, before installing anything, when the slice
+          ``systemd_app_slice`` names has no unit file on the host, since systemd
+          would otherwise create it with no limits. Install the slice with the ``systemd_slices``
+          role earlier in the play, set ``systemd_app_slice`` to a slice the host
+          has, or set it to ``system``, which needs no file.
+        - An app last deployed with a release before 1.1.0 and decommissioned with
+          ``state=absent`` without a deploy in between leaves its podman secrets in
+          the store, since they carry no owner label. Deploy it once first, which
+          labels every secret it declares, or remove them with ``podman secret rm``.
+        - Every app moves into ``homelab.slice`` on the first deploy after upgrading,
+          and its managed units restart to get there. Set ``systemd_app_slice`` to
+          place an app elsewhere, or to ``system`` to keep it where it was; an app
+          on ``system`` still gets its drop-in, so its managed units restart once
+          without moving.
+      major_changes:
+        - The ``systemd_app`` role places every service an app installs or Quadlet
+          generates in a systemd slice, through a ``Slice=`` drop-in, so the apps
+          share the slice's resource budget and the host's own services stay outside
+          it. The new ``systemd_app_slice`` parameter names the slice, without ``.slice``,
+          and defaults to ``homelab``; ``system`` opts out. The drop-in overrides
+          a ``Slice=`` the app's own unit sets.
+      minor_changes:
+        - The ``unit_names`` filter takes an optional ``types`` list, such as ``['service']``,
+          and returns only the units of those types.
+      release_summary: 'Every app now runs in a systemd slice. The ``systemd_app``
+        role places each service an app installs or Quadlet generates in the slice
+        ``systemd_app_slice`` names, ``homelab`` by default, so the apps share one
+        resource budget and the host''s own services stay outside it. Read the breaking
+        changes before upgrading: a deploy fails until the host has a unit file for
+        that slice, normally from the ``systemd_slices`` role, and the first deploy
+        restarts each app''s managed units to move them; ``system`` opts an app out.
+        The filters deprecated in 1.x are removed, as is the ``podman_secrets`` module''s
+        ``adopt_file`` option for records kept before 1.1.0, and ``unit_names`` gains
+        a ``types`` option.'
+      removed_features:
+        - The ``podman_secrets`` module's ``adopt_file`` option is removed, and the
+          ``systemd_app`` role no longer reads or removes the ``.secret-digests``
+          file releases before 1.1.0 kept in an app's home.
+        - The ``route_problems``, ``container_problems`` and ``manifest_units`` filter
+          names, deprecated since their renames, are removed. Call ``route_validation_errors``,
+          ``container_validation_errors`` and ``unit_names`` instead.
+        - The deprecated ``secret_digests`` and ``reconcile_secrets`` filters are
+          removed. The ``podman_secrets`` module reconciles an app's secrets from
+          labels on the secrets themselves.
+    fragments:
+      - release-summary.yml
+      - remove-filter-redirects.yml
+      - remove-secret-digest-record.yml
+      - remove-secret-filters.yml
+      - systemd-app-slice-unit-file.yml
+      - systemd-app-slice.yml
+      - unit-names-types.yml
+    release_date: '2026-10-22'

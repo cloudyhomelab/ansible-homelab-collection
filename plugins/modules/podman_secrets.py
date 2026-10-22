@@ -59,15 +59,6 @@ options:
     type: list
     elements: str
     default: []
-  adopt_file:
-    description:
-      - A file on the host whose JSON object's keys are added to O(adopt), for a record of
-        names kept where the secrets are rather than on the controller. Releases of this
-        collection before 1.1.0 wrote one per app. A missing file adds nothing. A file that
-        is not a JSON object is refused, naming the file, so a decommission stops before
-        touching the store rather than leaving secrets whose names it cannot read; remove the
-        file to have the decommission leave those secrets for a hand C(podman secret rm).
-    type: path
   state:
     description:
       - C(present) makes the store hold the declared secrets and nothing else of this app's.
@@ -100,12 +91,6 @@ EXAMPLES = r"""
   binarycodes.homelab.podman_secrets:
     app: myapp
     state: absent
-
-- name: Remove them along with the secrets a pre-1.1.0 release recorded for the app in a file
-  binarycodes.homelab.podman_secrets:
-    app: myapp
-    state: absent
-    adopt_file: /var/app/myapp/.secret-digests
 """
 
 RETURN = r"""
@@ -126,7 +111,6 @@ unchanged:
   returned: always
 """
 
-import errno
 import hashlib
 import json
 import re
@@ -271,32 +255,6 @@ def _normalise(secrets: Mapping[Any, object]) -> dict[str, str]:
     return {str(n): str(v) for n, v in secrets.items()}
 
 
-def recorded_names(path: str | None) -> list[str]:
-    """The keys of the JSON object at `path`; [] when there is no file.
-
-    The record a pre-1.1.0 release kept. Read before the store is listed, so a record that
-    cannot be read fails the call before podman is asked anything.
-    """
-    if not path:
-        return []
-    try:
-        with open(path, "rb") as handle:
-            record = json.loads(handle.read().decode("utf-8"))
-    except OSError as exc:
-        if exc.errno == errno.ENOENT:
-            return []
-        raise PodmanSecretsError("cannot read the secret record %s: %s" % (path, exc), adopt_file=path)
-    except ValueError:
-        record = None
-    if not isinstance(record, dict):
-        raise PodmanSecretsError(
-            "the secret record %s is not a JSON object, so the names it held cannot be adopted. "
-            "Remove it to have the decommission leave those secrets for a hand `podman secret rm`."
-            % path, adopt_file=path,
-        )
-    return sorted(str(name) for name in record)
-
-
 def plan(app: str, secrets: Mapping[str, str], adopt: list[str], state: str,
          stored: Mapping[str, Labels]) -> tuple[list[str], list[str], list[str]]:
     """What to remove and what to create, from the declared set and the store's labels.
@@ -344,10 +302,10 @@ def plan(app: str, secrets: Mapping[str, str], adopt: list[str], state: str,
 
 
 def reconcile(store: Store, app: str, secrets: Mapping[Any, object], adopt: Iterable[str],
-              state: str, check_mode: bool, adopt_file: str | None = None) -> Result:
+              state: str, check_mode: bool) -> Result:
     """Apply the plan to the store and describe what was done, in the module's return shape."""
     values = _normalise(secrets) if state == "present" else {}
-    adopt = sorted(set(adopt) | set(recorded_names(adopt_file)))
+    adopt = sorted(set(adopt))
     stored = store.labels()
     remove, create, unchanged = plan(app, values, adopt, state, stored)
 
@@ -386,7 +344,6 @@ def main() -> None:
             app=dict(type="str", required=True),
             secrets=dict(type="dict", default={}, no_log=True),
             adopt=dict(type="list", elements="str", default=[]),
-            adopt_file=dict(type="path"),
             state=dict(type="str", choices=["present", "absent"], default="present"),
             executable=dict(type="str", default="podman"),
         ),
@@ -398,7 +355,7 @@ def main() -> None:
     try:
         result = reconcile(
             store, params["app"], params["secrets"], params["adopt"], params["state"],
-            module.check_mode, adopt_file=params["adopt_file"],
+            module.check_mode,
         )
     except PodmanSecretsError as exc:
         module.fail_json(msg=exc.msg, **exc.fields)

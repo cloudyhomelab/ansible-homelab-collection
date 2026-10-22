@@ -27,7 +27,8 @@
            image=systemd_app_image | default(''),
            apps_dir=systemd_app_apps_dir | default(''),
            data_dirs=systemd_app_data_dirs,
-           secret_names=(systemd_app_secret_values | list) if systemd_app_state == 'present' else []) }}
+           secret_names=(systemd_app_secret_values | list) if systemd_app_state == 'present' else [],
+           slice_name=systemd_app_slice) }}
 
 # Two files decrypting to one name would leave whichever the host's decrypt unit reached last.
 # Caught here, by the filter applying the same rules the helper does, so it is a failed play
@@ -95,6 +96,42 @@
     - systemd_app_domain is defined
     - systemd_app_domain | string | length > 0
 
+# A slice with no unit file still takes units: systemd creates it implicitly, with no limits, so
+# a missing or misspelled slice would run the app unlimited and say nothing. FragmentPath, not
+# LoadState or list-units: an implicit slice is loaded too once something runs in it. Asked of
+# systemd rather than of a list of directories, so every unit search path counts.
+#
+# Also the name check: the name reaches a Slice= line, and only a name systemd parses and holds a
+# file for gets past here. Hence argv, and a non-zero exit failing as an empty answer does.
+# 'system' is exempt, systemd providing system.slice with no file. Read-only, so it runs under
+# --check too.
+- name: "Look for the unit file of the slice of app {{ systemd_app_name }}"
+  ansible.builtin.command:
+    argv: [systemctl, show, --property, FragmentPath, --value, "{{ systemd_app_slice }}.slice"]
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  register: systemd_app_slice_unit
+  when:
+    - systemd_app_state == 'present'
+    - systemd_app_slice != 'system'
+
+- name: "Refuse a slice with no unit file for app {{ systemd_app_name }}"
+  ansible.builtin.assert:
+    that:
+      - systemd_app_slice_unit.rc == 0
+      - systemd_app_slice_unit.stdout | length > 0
+    fail_msg: >-
+      App {{ systemd_app_name }} is to run in {{ systemd_app_slice }}.slice, but systemd has no
+      unit file for it{{ (': ' ~ systemd_app_slice_unit.stderr) if systemd_app_slice_unit.stderr else '' }}.
+      Without one systemd would create the slice with no limits. Install it with the
+      binarycodes.homelab.systemd_slices role earlier in the play, set systemd_app_slice to a
+      slice this host has, or set it to 'system' to leave the app in systemd's default slice.
+    quiet: true
+  when:
+    - systemd_app_state == 'present'
+    - systemd_app_slice != 'system'
+
 - name: "Verify the rendered container inputs of app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
@@ -150,6 +187,7 @@
     systemd_app_private_unit_install: {}
     systemd_app_private_deploy: {}
     systemd_app_dropin_deploy: {}
+    systemd_app_slice_dropin_deploy: {}
     systemd_app_private_state: {}
     systemd_app_start_result: {}
     systemd_app_restart_needed: false

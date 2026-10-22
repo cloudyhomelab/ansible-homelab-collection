@@ -1,0 +1,4 @@
+---
+minor_changes:
+  - The ``unit_names`` filter takes an optional ``types`` list, such as ``['service']``, and
+    returns only the units of those types.

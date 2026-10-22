@@ -159,13 +159,14 @@
         - /var/app/molsource/private/nested
         - /var/app/molsource/private
         - /etc/systemd/system/molsource.service.d/10-private.conf
-        - /etc/systemd/system/molsource.service.d
-        - /etc/systemd/system/molsource-extra.service.d
+        - /etc/systemd/system/molsource-extra.service.d/10-private.conf
         - /run/app/molsource/private
         - /run/app/molsource
         # Another app's files are none of this app's business.
         - /run/app/molinline/private/tls.key
         - /etc/systemd/system/homelab-private-decrypt@.service
+        # Nor is the slice: the drop-in directory stays for it.
+        - /etc/systemd/system/molsource.service.d/20-slice.conf
       register: molecule_after_drop
 
     - name: Ask systemd for the state of the app and of its decrypt instance
@@ -182,8 +183,9 @@
     - name: Assert the app kept nothing private, and no other app was touched
       ansible.builtin.assert:
         that:
-          - molecule_after_drop.results[:8] | rejectattr('stat.exists') | list | length == 8
+          - molecule_after_drop.results[:7] | rejectattr('stat.exists') | list | length == 7
           # One app losing its private files must not disturb any other.
+          - molecule_after_drop.results[7].stat.exists
           - molecule_after_drop.results[8].stat.exists
           - molecule_after_drop.results[9].stat.exists
           - molecule_after_drop_units.results[0].stdout == 'active'
@@ -309,6 +311,8 @@
         - /etc/systemd/system/molsource-extra.service
         - /var/app/molsource/config/app.conf
         - /etc/containers/systemd/molsource.container
+        # The slice drop-in of the unit the flip stopped shipping, and the directory it emptied.
+        - /etc/systemd/system/molsource-extra.service.d
       register: molecule_after_flip
 
     - name: Read the manifest and Quadlet the flip left behind
@@ -340,7 +344,10 @@
           - not molecule_after_flip.results[0].stat.exists
           - not molecule_after_flip.results[1].stat.exists
           - molecule_after_flip.results[2].stat.exists
-          - molecule_flip_recorded == ['/etc/containers/systemd/molsource.container']
+          - not molecule_after_flip.results[3].stat.exists
+          - molecule_flip_recorded == [
+              '/etc/containers/systemd/molsource.container',
+              '/etc/systemd/system/molsource.service.d/20-slice.conf']
           # Now the rendered file, not the fixture's copy.
           - "'Molecule fixture source container' not in molecule_flip_rendered"
           - "'ContainerName=molsource' in molecule_flip_rendered"
@@ -381,6 +388,7 @@
         systemd_app_container_options:
           - Exec=sleep 86400
         systemd_app_auto_update: never
+        systemd_app_slice: system
 
     - name: Read back the store and the record after the rotation
       ansible.builtin.include_tasks: tasks/read-secret-state.yml
@@ -414,6 +422,7 @@
         systemd_app_container_options:
           - Exec=sleep 86400
         systemd_app_auto_update: never
+        systemd_app_slice: system
 
     - name: Read back the store and the record after the drift
       ansible.builtin.include_tasks: tasks/read-secret-state.yml
@@ -551,6 +560,75 @@
              | map(attribute='item') | list }}.
         quiet: true
 
+    # --- a slice the host has no unit file for -------------------------------------------
+    # systemd would create either slice implicitly and run the app unlimited, so both have to
+    # be refused before anything is installed. The second is the name check: the role has no
+    # other, and a line break in a Slice= line would add a directive of its own.
+    - name: Deploy an app into a slice the host does not have
+      block:
+        - name: Deploy the unsliced app into a slice the host does not have
+          ansible.builtin.include_role:
+            name: binarycodes.homelab.systemd_app
+          vars:
+            systemd_app_kind: inline
+            systemd_app_name: molnoslice
+            systemd_app_image: "{{ molecule_image }}"
+            systemd_app_slice: molmissing
+            systemd_app_container_options:
+              - Exec=sleep 86400
+
+        - name: Record that the unsliced app was deployed into a slice the host does not have
+          ansible.builtin.set_fact:
+            molecule_noslice_deployed: "{{ (molecule_noslice_deployed | default([])) + ['molmissing'] }}"
+      rescue:
+        - name: Record why the unsliced app was refused a slice the host does not have
+          ansible.builtin.set_fact:
+            molecule_noslice_refusals: "{{ (molecule_noslice_refusals | default([])) + [ansible_failed_result.msg | default('')] }}"
+
+    - name: Deploy an app into a slice whose name has a line break
+      block:
+        - name: Deploy the unsliced app into a slice whose name has a line break
+          ansible.builtin.include_role:
+            name: binarycodes.homelab.systemd_app
+          vars:
+            systemd_app_kind: inline
+            systemd_app_name: molnoslice
+            systemd_app_image: "{{ molecule_image }}"
+            systemd_app_slice: "mol\nslice"
+            systemd_app_container_options:
+              - Exec=sleep 86400
+
+        - name: Record that the unsliced app was deployed into a slice whose name has a line break
+          ansible.builtin.set_fact:
+            molecule_noslice_deployed: "{{ (molecule_noslice_deployed | default([])) + ['line break'] }}"
+      rescue:
+        - name: Record why the unsliced app was refused a slice whose name has a line break
+          ansible.builtin.set_fact:
+            molecule_noslice_refusals: "{{ (molecule_noslice_refusals | default([])) + [ansible_failed_result.msg | default('')] }}"
+
+    - name: Stat what the unsliced app would have installed
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/containers/systemd/molnoslice.container
+        - /etc/systemd/system/molnoslice.service.d
+        - /var/app/molnoslice
+      register: molecule_noslice_paths
+
+    - name: Assert both slices were refused before anything reached the host
+      ansible.builtin.assert:
+        that:
+          - molecule_noslice_deployed is not defined
+          - molecule_noslice_refusals | default([]) | select('search', 'systemd_slices')
+            | list | length == 2
+          - molecule_noslice_paths.results | selectattr('stat.exists') | list | length == 0
+        fail_msg: >-
+          Deployed into: {{ molecule_noslice_deployed | default([]) }}; refusals:
+          {{ molecule_noslice_refusals | default([]) }}; on the host:
+          {{ molecule_noslice_paths.results | selectattr('stat.exists')
+             | map(attribute='item') | list }}.
+        quiet: true
+
     # --- a slice changed while active --------------------------------------------------
     # An active slice keeps the properties it was loaded with until systemd re-reads its
     # file, so this fails if the role writes the change without reloading.
@@ -621,7 +699,11 @@
         - /var/app/molproxy/config/conf.d/molsource.caddy
         - /var/app/molproxy/config/conf.d/molinline.caddy
         # The apps still holding private files by teardown: drop-ins and tmpfs trees go too.
+        # Every app's slice drop-in goes with its directory.
         - /etc/systemd/system/molinline.service.d
+        - /etc/systemd/system/molsource.service.d
+        - /etc/systemd/system/molsecret.service.d
+        - /etc/systemd/system/molorphan.service.d
         - /run/app/molinline
         - /etc/systemd/system/molquiet.service.d
         - /run/app/molquiet

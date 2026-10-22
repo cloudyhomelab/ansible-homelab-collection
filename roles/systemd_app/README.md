@@ -38,6 +38,9 @@ Both install directories must exist already — they are podman's and systemd's,
 creates neither. It creates what it owns: `systemd_app_root`, each app's home, and
 `systemd_app_caddy_confd` for a routed app.
 
+The [slice](#slice) an app runs in must have a unit file on the target, normally from the
+`systemd_slices` role earlier in the same play. The role checks before installing anything.
+
 An app with [private files](#private-files) also needs `age` and `sops` on the target, which is
 where they are decrypted; both are packaged by Fedora 43 and Debian 13. The role checks before
 copying anything, so a host without them fails clearly rather than with a unit that will not
@@ -92,10 +95,12 @@ it an image (and usually a domain). The container is named
    this one no longer installs (a renamed or deleted file, in `config/` as much as in
    `quadlet/`, or a file belonging to the kind the app has just stopped being) is
    removed from the host.
-2. When `systemd_app_domain` is set, writes a Caddy route snippet to the imported
+2. Writes a `Slice=` drop-in for every service the app installs or Quadlet generates
+   (see [Slice](#slice)).
+3. When `systemd_app_domain` is set, writes a Caddy route snippet to the imported
    `conf.d/` directory (see [Caddy routing](#caddy-routing)).
-3. Runs `systemctl daemon-reload` (once, only if anything changed).
-4. Starts and enables the [managed units](#unit-names-and-boot-persistence), then makes
+4. Runs `systemctl daemon-reload` (once, only if anything changed).
+5. Starts and enables the [managed units](#unit-names-and-boot-persistence), then makes
    whatever this deploy changed take effect: a **restart** for a changed unit definition
    or secret, a **reload** for a changed config tree (see
    [Making changes take effect](#making-changes-take-effect)).
@@ -137,6 +142,7 @@ rate-limit.
 | `systemd_app_name`         | yes             | `source`: app dir name. `inline`: container name / DNS name.  |
 | `systemd_app_state`        | no              | `present` (default) deploys; `absent` decommissions.          |
 | `systemd_app_enable_units` | no              | systemd unit names to enable and start (see below).           |
+| `systemd_app_slice`        | no              | Slice every service runs in (default `homelab`); see [Slice](#slice). |
 | `systemd_app_domain`       | no              | Public hostname; when set, a Caddy route is added.            |
 | `systemd_app_upstream`     | no              | Upstream container name to proxy to (default `systemd_app_name`). |
 | `systemd_app_port`         | no              | Upstream port for the Caddy route (default `8080`).           |
@@ -200,8 +206,8 @@ decommission of either kind never reads it: it works from the host alone.
 
 A deploy records the host paths it installed to `/var/app/<app>/.install-manifest`, one per
 line: a `source` app's Quadlet files, units and config tree, an `inline` app's one rendered
-`<name>.container`, and for either kind its encrypted [private files](#private-files) and the
-drop-ins written for them. It lives in the app's home so the two share fate — a hand-removed
+`<name>.container`, and for either kind its encrypted [private files](#private-files), the
+drop-ins written for them and its [slice](#slice) drop-ins. It lives in the app's home so the two share fate — a hand-removed
 or restored `/var/app/<app>` cannot leave a stale record behind. A later deploy and a
 decommission both work from it rather than re-deriving from `apps/<app>/`, which by then may
 name different files or be gone.
@@ -297,6 +303,10 @@ Three consequences worth knowing:
 - **Removed files are treated by kind.** A pruned config file is a config change, since the app
   is still reading what is gone. A pruned unit file is not — it leaves nothing to act on, and
   the unit keeps running until stopped by hand.
+- **A changed slice is a restart.** systemd moves a unit to another cgroup only when it
+  starts. Like every restart here, it reaches the managed units only: a `source` app that names
+  no `systemd_app_enable_units` gets its drop-ins but stays where it runs until it is restarted
+  by hand or the host reboots.
 - **A changed private file is a restart, not a reload.** Its plaintext lives in a
   `RuntimeDirectory` the decrypt unit destroys and re-creates, so a reload would leave the
   container on a directory that is gone. The role restarts the decrypt instance and `PartOf=`
@@ -305,6 +315,40 @@ Three consequences worth knowing:
 
 Generated route snippets are outside this entirely; the play applies those centrally once every
 app has converged (see [Caddy routing](#caddy-routing)).
+
+## Slice
+
+Every service the app runs goes in one slice, so the apps share the slice's resource budget
+and the host's own services — sshd, journald — stay outside it. The role writes a drop-in for
+each service the app installs or Quadlet generates; a Quadlet container's conmon and container
+process inherit the slice from the service that starts them.
+
+```ini
+# /etc/systemd/system/myapp.service.d/20-slice.conf, written by the role
+[Service]
+Slice=homelab.slice
+```
+
+- **Default** `homelab`, the name the `systemd_slices` README uses: install a `homelab` slice
+  with that role and every app joins it with no further variables. A fleet with another name
+  sets `systemd_app_slice` once as a play variable.
+- **Override** per app with another name, such as a child slice `homelab-builds` with
+  tighter limits.
+- **Opt out** with `systemd_app_slice: system`, systemd's default slice, which is where a unit
+  with no `Slice=` runs anyway. The drop-in is still written. `null` and an empty string are
+  refused rather than read as `system`: either is more likely a value left empty by mistake.
+- **The parameter wins.** The drop-in overrides a `Slice=` the app's own unit sets, so the
+  call site is the one place an app's slice is chosen.
+- **The slice must exist.** A unit naming a slice with no unit file still starts: systemd
+  creates the slice implicitly, with no limits. So a deploy fails, before anything is installed,
+  when `systemctl show <slice>.slice` reports no `FragmentPath`; the message names the
+  `systemd_slices` role, which installs slice files. The role never writes one itself, since two
+  roles writing one file leave whichever ran last. `system` is exempt: systemd provides
+  `system.slice` without a file.
+
+Services only: a socket's or a timer's service is what runs, and that service carries the
+drop-in. The per-app `homelab-private-decrypt@<app>.service` stays in `system.slice`: a short
+oneshot holding no long-running process.
 
 ## Dry runs (`--check`)
 
@@ -316,9 +360,11 @@ reports the secrets it would create, rotate or drop without running `podman secr
 So `--check` previews the installed files, the manifest, the secret store, and the restart
 or reload that follows from them.
 
-Two limits:
+Three limits:
 
 - Whether `podman secret create` would succeed is only knowable by running it.
+- A host the `systemd_slices` role has not yet written the app's slice to fails the
+  [slice](#slice) check: `--check` writes no slice file for the check to find.
 - A first deploy cannot be previewed to the end. `--check` writes no Quadlet file, so the
   generator never makes the service from it, so the task that starts that service fails:
   the systemd module refuses a unit the host does not have, in check mode as in a real
@@ -453,8 +499,8 @@ hand simply comes back.
 
 The owner label is what `absent` removes by, so a decommission needs nothing from the
 controller, and what keeps two apps apart: declaring a name another app owns is refused,
-naming that app, and the other secret is untouched. One with no owner label — stored by hand,
-or before 1.1.0 — is adopted and re-created with labels, which costs one restart.
+naming that app, and the other secret is untouched. One with no owner label, such as one
+stored by hand, is adopted and re-created with labels, which costs one restart.
 
 A failed `podman secret create` is reported with the name, exit code and stderr; the value is
 `no_log`.
@@ -662,8 +708,8 @@ All ship with this collection and are called by FQCN.
 | `install_manifest`   | module | Reading, pruning and recording the install manifest, on the host; on `absent`, the units it implies. |
 | `source_tree`        | filter | Reading what a `source` app ships from its directory, and the host paths it installs to. |
 | `private_tree`       | filter | Reading what an app keeps encrypted in `private/`, where it is copied, and what it decrypts to. |
-| `unit_names`         | filter | The units a set of installed paths implies, for the drop-ins that order them after the decrypt. |
-| `app_validation_errors`       | filter | Checking `systemd_app_name`, `_kind`, `_state`, what each kind requires (a `source` app's directory included), `_data_dirs`, and the secret names. |
+| `unit_names`         | filter | The units a set of installed paths implies, for the drop-ins that order them after the decrypt and place them in the slice. |
+| `app_validation_errors`       | filter | Checking `systemd_app_name`, `_kind`, `_state`, what each kind requires (a `source` app's directory included), `_data_dirs`, `_slice`, and the secret names. |
 | `route_validation_errors`     | filter | Checking `systemd_app_domain` / `_upstream` / `_port`.             |
 | `container_validation_errors` | filter | Checking what would be interpolated into a rendered Quadlet.      |
 | `systemd_env_lines`  | filter | Quoting and escaping `systemd_app_env` into `Environment=` lines.  |
@@ -676,7 +722,4 @@ against a temporary directory. A change to what the role accepts, or to what the
 manifest should hold, belongs there rather than in a YAML scalar.
 
 They are collection-global public API, named for what they compute rather than for the role
-that calls them. `secret_digests` and `reconcile_secrets` are deprecated and go in 2.0.0, the
-secrets module doing their work from labels. `manifest_units` was renamed `unit_names` in
-1.2.0, when the role began asking it what a deploy is *about* to install; the old name resolves
-with a warning until 2.0.0.
+that calls them.

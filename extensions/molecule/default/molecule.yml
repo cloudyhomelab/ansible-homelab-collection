@@ -48,6 +48,8 @@ provisioner:
         systemd_app_network: none
         # Somewhere to write route snippets that is not a real reverse proxy's config tree.
         systemd_app_caddy_confd: /var/app/molproxy/config/conf.d
+        # The fixture slice converge.yml installs, rather than the role's default.
+        systemd_app_slice: molslice
 
         # The recipient of sops/age-key.txt. Only prepare.yml and side_effect.yml use it.
         molecule_sops_recipient: age17svute832444rnpteey2lapzwac3k80efzwcxlm0ypu29c0tvcuq43g9uw

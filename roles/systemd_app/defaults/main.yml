@@ -66,7 +66,22 @@ systemd_app_private_dropins: >-
      | map('regex_replace', '^(.+)$', systemd_app_unit_dir ~ '/\1.d/10-private.conf')
      | list }}
 
-systemd_app_installed_paths: "{{ systemd_app_base_paths + systemd_app_private_dropins }}"
+# Every service the app runs goes in systemd_app_slice, the Quadlet-generated ones included, so
+# a socket's or timer's activation lands there too. Derived from base_paths for the same reason
+# as the private drop-ins.
+systemd_app_slice_dropins: >-
+  {{ systemd_app_base_paths
+     | binarycodes.homelab.unit_names(systemd_app_system_dir, systemd_app_unit_dir, types=['service'])
+     | map('regex_replace', '^(.+)$', systemd_app_unit_dir ~ '/\1.d/20-slice.conf')
+     | list }}
+
+systemd_app_installed_paths: >-
+  {{ systemd_app_base_paths + systemd_app_private_dropins + systemd_app_slice_dropins }}
+
+# The slice, without '.slice', that every service of the app runs in, so the apps share one
+# resource budget and the host's own services stay outside it. 'system' is systemd's default
+# slice and the way to opt out. See README.
+systemd_app_slice: homelab
 
 # Ownership / permissions applied to everything this role installs.
 systemd_app_owner: root
@@ -180,6 +195,7 @@ systemd_app_managed_units: >-
 # systemd_app_name:         REQUIRED — app dir name (source) / container name + Quadlet basename (inline).
 # systemd_app_state:        optional — present (default) deploys; absent decommissions.
 # systemd_app_enable_units: optional — systemd unit names to enable at boot and start now.
+# systemd_app_slice:        optional — slice every service runs in (default homelab; system opts out).
 # systemd_app_domain:       optional — public hostname; when set, a Caddy route is added.
 # systemd_app_upstream:     optional — upstream container name (default systemd_app_name).
 # systemd_app_port:         optional — upstream port (default 8080).

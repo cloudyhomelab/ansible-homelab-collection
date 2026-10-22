@@ -1,0 +1,16 @@
+---
+major_changes:
+  - The ``systemd_app`` role places every service an app installs or Quadlet generates in a
+    systemd slice, through a ``Slice=`` drop-in, so the apps share the slice's resource budget
+    and the host's own services stay outside it. The new ``systemd_app_slice`` parameter names
+    the slice, without ``.slice``, and defaults to ``homelab``; ``system`` opts out. The
+    drop-in overrides a ``Slice=`` the app's own unit sets.
+breaking_changes:
+  - Every app moves into ``homelab.slice`` on the first deploy after upgrading, and its managed
+    units restart to get there. Set ``systemd_app_slice`` to place an app elsewhere, or to
+    ``system`` to keep it where it was; an app on ``system`` still gets its drop-in, so its
+    managed units restart once without moving.
+  - A ``source`` app without ``systemd_app_enable_units`` is not restarted by the role, so it
+    moves into its slice only when restarted by hand or when the host reboots.
+  - A ``systemd_app_slice`` of ``null`` or an empty string is refused, naming ``system`` as the
+    opt-out.

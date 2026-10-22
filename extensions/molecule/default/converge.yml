@@ -89,6 +89,8 @@
         - Exec=sleep 86400
       # The digest-pinned case: no AutoUpdate= line and no label.
       systemd_app_auto_update: never
+      # The opt-out, deployed for real.
+      systemd_app_slice: system
 
   post_tasks:
     # An idempotence failure names only the task that reported 'changed', which for the unit

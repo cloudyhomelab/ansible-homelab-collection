@@ -37,7 +37,12 @@ description:
     app name's shape. For C(inline) the role derives the container's variable from it
     (upper-cased, dashes to underscores), so it is further limited to letters, digits and
     dashes. Names only - no value can reach a message.
-positional: kind, state, image, apps_dir, data_dirs, secret_names
+  - The slice goes into a C(Slice=) line, not a path, and the role only writes it once the host
+    has a unit file of that name, which the role installing it checked. So this refuses only
+    what that check would report without saying why - nothing, and a C(.slice) suffix the role
+    adds itself. C(null) and an empty string are refused rather than read as C(system), since
+    either is more likely an inventory value left empty than a decision.
+positional: kind, state, image, apps_dir, data_dirs, secret_names, slice_name
 options:
   _input:
     description: The app's name, C(systemd_app_name).
@@ -69,6 +74,11 @@ options:
     type: list
     elements: str
     default: []
+  slice_name:
+    description:
+      - C(systemd_app_slice), checked when O(state=present). Omitted, it is not checked.
+    type: str
+    version_added: 2.0.0
 """
 
 RETURN = r"""
@@ -100,11 +110,15 @@ _FORBIDDEN_SEGMENTS = frozenset(["", ".", ".."])
 # variable and cannot collide with another name doing the same.
 _INLINE_SECRET_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]*")
 
+# Tells "not passed" from a None the inventory left behind, which is refused.
+_UNSET = object()
+
 
 def app_validation_errors(name: object, kind: object = "", state: object = "present",
                           image: object = "", apps_dir: object = "",
                           data_dirs: Iterable[object] | None = None,
-                          secret_names: Iterable[object] | None = None) -> list[str]:
+                          secret_names: Iterable[object] | None = None,
+                          slice_name: object = _UNSET) -> list[str]:
     """Why this app cannot be deployed or decommissioned as named, one string per problem."""
     problems: list[str] = []
 
@@ -174,6 +188,19 @@ def app_validation_errors(name: object, kind: object = "", state: object = "pres
                 f"secrets.sops.yaml key {secret!r} cannot name the variable an 'inline' app's "
                 "container sees: upper-cased with dashes as underscores, so letters, digits "
                 "and dashes only, starting with a letter"
+            )
+
+    if state == "present" and slice_name is not _UNSET:
+        if slice_name is None or slice_name == "":
+            problems.append(
+                "systemd_app_slice is empty; name a slice, or 'system' to leave the app in "
+                "systemd's default slice"
+            )
+        elif not isinstance(slice_name, str):
+            problems.append(f"systemd_app_slice {slice_name!r} is not a string")
+        elif slice_name.endswith(".slice"):
+            problems.append(
+                f"systemd_app_slice {slice_name!r} carries the '.slice' suffix the role adds"
             )
 
     return problems

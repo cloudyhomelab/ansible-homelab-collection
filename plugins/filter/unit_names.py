@@ -9,6 +9,8 @@ from __future__ import annotations
 import posixpath
 from collections.abc import Callable, Iterable, Mapping
 
+from ansible.errors import AnsibleFilterError
+
 
 DOCUMENTATION = r"""
 name: unit_names
@@ -27,7 +29,7 @@ description:
     teardown that does not happen.
   - Matched one segment deep in either install directory; anything else is ignored rather than
     refused, so a whole install list can be passed in. Sorted and deduplicated.
-positional: system_dir, unit_dir
+positional: system_dir, unit_dir, types
 options:
   _input:
     description:
@@ -44,6 +46,14 @@ options:
     description: The plain-unit install directory, normally C(/etc/systemd/system).
     type: str
     required: true
+  types:
+    description:
+      - Unit types to keep, without the dot, such as V(service). Omitted, every unit is kept.
+      - A list even for one type; a bare string is refused, since its letters would each count
+        as a type.
+    type: list
+    elements: str
+    version_added: 2.0.0
 """
 
 RETURN = r"""
@@ -63,6 +73,13 @@ EXAMPLES = r"""
        | binarycodes.homelab.unit_names('/etc/containers/systemd', '/etc/systemd/system') }}
   # Installing /etc/containers/systemd/app.container and
   # /etc/systemd/system/app-extra.service yields ['app-extra.service', 'app.service'].
+
+- name: Only the services, where a socket or timer would carry no setting of its own
+  ansible.builtin.debug:
+    msg: >-
+      {{ installed_paths
+         | binarycodes.homelab.unit_names('/etc/containers/systemd', '/etc/systemd/system',
+                                          types=['service']) }}
 
 - name: Stop what the app is running, whether or not the caller named it
   ansible.builtin.systemd:
@@ -102,8 +119,15 @@ def _unit_for(name: str, suffixes: Mapping[str, str]) -> str | None:
     return None
 
 
-def unit_names(paths: Iterable[object] | None, system_dir: str, unit_dir: str) -> list[str]:
+def unit_names(
+    paths: Iterable[object] | None,
+    system_dir: str,
+    unit_dir: str,
+    types: Iterable[str] | None = None,
+) -> list[str]:
     """The systemd units a set of installed host paths implies."""
+    if isinstance(types, str):
+        raise AnsibleFilterError(f"unit_names types must be a list, not the string {types!r}")
     units: set[str] = set()
 
     for path in paths or []:
@@ -120,6 +144,9 @@ def unit_names(paths: Iterable[object] | None, system_dir: str, unit_dir: str) -
             if unit:
                 units.add(unit)
 
+    if types is not None:
+        wanted = {"." + t for t in types}
+        units = {u for u in units if u[u.rindex("."):] in wanted}
     return sorted(units)
 
 

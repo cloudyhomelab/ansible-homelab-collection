@@ -8,10 +8,7 @@ These cases are the reason the logic moved out of Jinja: each one used to need a
 playbook and an ansible-playbook run to check.
 """
 
-import base64
-import hashlib
 import inspect
-import json
 import pathlib
 import re
 
@@ -26,127 +23,10 @@ from conftest import ACTION_CASES
 from plugins.filter.app_validation_errors import app_validation_errors
 from plugins.filter.container_validation_errors import container_validation_errors
 from plugins.filter.private_tree import action_for, private_tree
-from plugins.filter.reconcile_secrets import reconcile_secrets
 from plugins.filter.route_validation_errors import route_validation_errors
-from plugins.filter.secret_digests import secret_digests
 from plugins.filter.source_tree import source_tree
 from plugins.filter.systemd_env_lines import systemd_env_lines
 from plugins.filter.unit_names import unit_names
-
-
-def digest(value):
-    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
-
-
-def recorded(mapping):
-    """A digest record as slurp hands it over."""
-    return base64.b64encode(json.dumps(mapping).encode("utf-8")).decode("ascii")
-
-
-# --- secret_digests --------------------------------------------------------------------
-
-def test_digests_are_sha256_of_the_string_value():
-    assert secret_digests({"a": "one"}) == {"a": digest("one")}
-
-
-def test_digests_are_stable_across_calls():
-    values = {"a": "one", "b": "two"}
-    assert secret_digests(values) == secret_digests(values)
-
-
-@pytest.mark.parametrize("value", ["plain", "with spaces", "100%", 8080, True, ""])
-def test_digests_accept_any_scalar(value):
-    assert secret_digests({"k": value}) == {"k": digest(value)}
-
-
-def test_digests_of_nothing_is_empty():
-    assert secret_digests(None) == {}
-    assert secret_digests({}) == {}
-
-
-# --- reconcile_secrets -----------------------------------------------------------------
-
-VALUES = {"app-a": "one", "app-b": "two"}
-DIGESTS = secret_digests(VALUES)
-RECORD = recorded(DIGESTS)
-
-
-@pytest.mark.parametrize(
-    "label, digests, record, stored, expect_store, expect_drop",
-    [
-        ("steady state", DIGESTS, RECORD, ["app-a", "app-b"], [], []),
-        # The bug this filter's third input exists for: the record still matches, so
-        # nothing would be re-stored, and the app references a name podman has lost.
-        ("store cleared", DIGESTS, RECORD, [], ["app-a", "app-b"], []),
-        ("one removed by hand", DIGESTS, RECORD, ["app-a"], ["app-b"], []),
-        ("rotated value", secret_digests({"app-a": "NEW", "app-b": "two"}), RECORD,
-         ["app-a", "app-b"], ["app-a"], []),
-        ("name new to the file", secret_digests({**VALUES, "app-c": "three"}), RECORD,
-         ["app-a", "app-b"], ["app-c"], []),
-        ("name dropped from the file", secret_digests({"app-a": "one"}), RECORD,
-         ["app-a", "app-b"], [], ["app-b"]),
-        ("first deploy, no record", DIGESTS, "", [], ["app-a", "app-b"], []),
-        ("app with no secrets", {}, "", [], [], []),
-        ("another app's secret in the store", DIGESTS, RECORD,
-         ["app-a", "app-b", "other-x"], [], []),
-        ("rotation and drift together", secret_digests({"app-a": "NEW", "app-b": "two"}),
-         RECORD, ["app-a"], ["app-a", "app-b"], []),
-        ("renamed: old dropped, new stored", secret_digests({"app-a": "one", "app-c": "two"}),
-         RECORD, ["app-a", "app-b"], ["app-c"], ["app-b"]),
-    ],
-)
-def test_reconcile(label, digests, record, stored, expect_store, expect_drop):
-    got = reconcile_secrets(digests, record, stored)
-    assert got["store"] == expect_store, label
-    assert got["drop"] == expect_drop, label
-
-
-def test_remove_is_the_union_of_store_and_drop():
-    # A rotation is rm-then-create, and the same pass clears the drops.
-    got = reconcile_secrets(
-        secret_digests({"app-a": "NEW", "app-c": "three"}), RECORD, ["app-a", "app-b"]
-    )
-    assert got["store"] == ["app-a", "app-c"]
-    assert got["drop"] == ["app-b"]
-    assert got["remove"] == ["app-a", "app-b", "app-c"]
-
-
-def test_reconcile_output_is_sorted():
-    digests = secret_digests({"z": "1", "a": "1", "m": "1"})
-    assert reconcile_secrets(digests, "", [])["store"] == ["a", "m", "z"]
-
-
-@pytest.mark.parametrize("record", ["", None])
-def test_missing_record_stores_everything(record):
-    assert reconcile_secrets(DIGESTS, record, [])["store"] == ["app-a", "app-b"]
-
-
-def test_empty_record_file_parses_and_stores_everything():
-    # An empty record is a readable record of nothing, not a corrupt one: it means this app
-    # has stored no secret yet, so every name needs storing even though the store has them.
-    got = reconcile_secrets(DIGESTS, recorded({}), ["app-a", "app-b"])
-    assert got["store"] == ["app-a", "app-b"]
-    assert got["drop"] == []
-
-
-def test_blank_record_file_parses_as_no_record():
-    # A zero-byte file, as a half-written deploy could leave behind.
-    assert reconcile_secrets(DIGESTS, base64.b64encode(b"  \n").decode("ascii"))["store"] \
-        == ["app-a", "app-b"]
-
-
-@pytest.mark.parametrize(
-    "content",
-    [
-        base64.b64encode(b"not json at all").decode("ascii"),
-        base64.b64encode(b'["a", "list"]').decode("ascii"),
-    ],
-)
-def test_corrupt_record_is_refused_rather_than_ignored(content):
-    # Silently reading a corrupt record as empty would re-store every secret and restart
-    # the app; a refusal says what to do instead.
-    with pytest.raises(AnsibleFilterError):
-        reconcile_secrets(DIGESTS, content, [])
 
 
 # --- app_validation_errors ----------------------------------------------------------------------
@@ -293,6 +173,33 @@ def test_names_podman_would_refuse_are_refused_for_either_kind(secret, apps_dir)
     for kwargs in ({}, {"kind": "source", "apps_dir": apps_dir}):
         got = errors(secret_names=[secret], **kwargs)
         assert len(got) == 1 and "podman secret name" in got[0]
+
+
+@pytest.mark.parametrize("slice_name", ["homelab", "homelab-builds", "system"])
+def test_a_slice_name_is_accepted(slice_name):
+    assert errors(slice_name=slice_name) == []
+
+
+@pytest.mark.parametrize("slice_name", [None, ""])
+def test_an_empty_slice_is_refused_naming_the_opt_out(slice_name):
+    got = errors(slice_name=slice_name)
+    assert len(got) == 1 and "'system'" in got[0]
+
+
+def test_a_slice_that_is_not_a_string_is_refused():
+    got = errors(slice_name=["homelab"])
+    assert len(got) == 1 and "not a string" in got[0]
+
+
+def test_a_slice_with_its_suffix_is_refused():
+    got = errors(slice_name="homelab.slice")
+    assert len(got) == 1 and "'.slice' suffix" in got[0]
+
+
+def test_the_slice_is_not_checked_on_absent_or_when_not_passed():
+    """A decommission reads no slice, and the filter's other callers name none."""
+    assert errors(state="absent", slice_name=None) == []
+    assert errors() == []
 
 
 def test_no_secret_value_appears_in_an_app_problem():
@@ -651,6 +558,37 @@ def test_the_install_dirs_are_taken_from_the_caller():
     ) == ["app-extra.service", "app.service"]
 
 
+def test_types_keeps_only_those_units():
+    paths = [
+        f"{SYSTEM_DIR}/app.container",
+        f"{SYSTEM_DIR}/app.pod",
+        f"{UNIT_DIR}/app-extra.socket",
+        f"{UNIT_DIR}/app-extra.service",
+        f"{UNIT_DIR}/app-backup.timer",
+    ]
+    assert unit_names(paths, SYSTEM_DIR, UNIT_DIR, types=["service"]) == [
+        "app-extra.service",
+        "app-pod.service",
+        "app.service",
+    ]
+    assert unit_names(paths, SYSTEM_DIR, UNIT_DIR, types=["socket", "timer"]) == [
+        "app-backup.timer",
+        "app-extra.socket",
+    ]
+
+
+def test_no_types_and_an_empty_list_differ():
+    paths = [f"{UNIT_DIR}/app.service"]
+    assert unit_names(paths, SYSTEM_DIR, UNIT_DIR, types=None) == ["app.service"]
+    assert unit_names(paths, SYSTEM_DIR, UNIT_DIR, types=[]) == []
+
+
+def test_types_as_a_bare_string_is_refused():
+    """'service' would otherwise be the types 's', 'e', 'r', ... and match nothing."""
+    with pytest.raises(AnsibleFilterError, match="must be a list"):
+        unit_names([f"{UNIT_DIR}/app.service"], SYSTEM_DIR, UNIT_DIR, types="service")
+
+
 # --- private_tree ------------------------------------------------------------------------
 
 PRIVATE_DIR = "/var/app/myapp/private"
@@ -884,6 +822,9 @@ def test_the_molecule_fixture_records_what_the_scenario_expects():
     dropins = [
         "%s/%s.d/10-private.conf" % (UNIT_DIR, unit)
         for unit in unit_names(base, SYSTEM_DIR, UNIT_DIR)
+    ] + [
+        "%s/%s.d/20-slice.conf" % (UNIT_DIR, unit)
+        for unit in unit_names(base, SYSTEM_DIR, UNIT_DIR, types=["service"])
     ]
 
     assert sorted(base + dropins) == sorted(expected)

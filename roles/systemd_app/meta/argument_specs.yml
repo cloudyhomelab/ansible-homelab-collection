@@ -40,6 +40,17 @@ argument_specs:
         description: >-
           systemd unit names to enable at boot and start now. An inline app defaults
           to its single <name>.service when none are given.
+      systemd_app_slice:
+        type: str
+        required: false
+        default: homelab
+        description: >-
+          The slice, without .slice, every service of the app runs in. Written as a Slice=
+          drop-in for each service the app installs or Quadlet generates, overriding a
+          Slice= the app's own unit sets. The slice must have a unit file, normally installed
+          by the systemd_slices role earlier in the play; a deploy fails before installing
+          anything otherwise. system is systemd's default slice, needs no file, and leaves
+          the app outside any other. null and an empty string are refused.
       systemd_app_image:
         type: str
         required: false

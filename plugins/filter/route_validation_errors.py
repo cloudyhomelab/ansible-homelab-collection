@@ -22,7 +22,6 @@ description:
     fails nothing at write time; and the Caddyfile imports every app's snippet, so one brace,
     comment character or newline stops Caddy loading all of them.
   - Never raises; one string per problem, so a typo is fixed in one pass.
-  - Called C(route_problems) from 1.0.0; that name redirects here and is removed in 2.0.0.
   - C(re.fullmatch), not a C($) anchor, which would let V(example.com\n) through.
   - At least two labels, optionally wildcarded - the site asks a CA for its own certificate
     and none issues one for a single label. Lengths checked too, 253 overall and 63 per label.

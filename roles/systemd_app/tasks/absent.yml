@@ -98,15 +98,10 @@
 
 # Host-global, so not part of the tree removed below. The module removes every secret labelled
 # as this app's, needing nothing from the controller, and refuses another app's.
-#
-# Pre-1.1.0 recorded ownership in a file rather than as labels, so the module has to be told
-# which names to adopt. Read before the home holding that record goes. Remove `adopt_file` at
-# 2.0.0.
 - name: "Remove podman secrets of app {{ systemd_app_name }}"
   binarycodes.homelab.podman_secrets:
     app: "{{ systemd_app_name }}"
     state: absent
-    adopt_file: "{{ systemd_app_home }}/.secret-digests"
 
 # The one task that removes a tree, so the composed path is re-checked rather than trusted
 # from main.yml. A name with a slash or a leading dot would reach systemd_app_root itself.

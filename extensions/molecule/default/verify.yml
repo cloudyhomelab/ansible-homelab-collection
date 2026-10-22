@@ -30,6 +30,12 @@
       - /etc/systemd/system/molsource.service.d/10-private.conf
       - /etc/systemd/system/molsource-extra.service.d/10-private.conf
       - /etc/systemd/system/molinline.service.d/10-private.conf
+      # One per service, private files or not, and for the opted-out app too.
+      - /etc/systemd/system/molsource.service.d/20-slice.conf
+      - /etc/systemd/system/molsource-extra.service.d/20-slice.conf
+      - /etc/systemd/system/molinline.service.d/20-slice.conf
+      - /etc/systemd/system/molsecret.service.d/20-slice.conf
+      - /etc/systemd/system/molorphan.service.d/20-slice.conf
       - /var/app/molinline/.install-manifest
       - /var/app/molproxy/config/conf.d/molsource.caddy
       - /var/app/molproxy/config/conf.d/molinline.caddy
@@ -39,6 +45,7 @@
       - /etc/containers/systemd/molquiet.container
       - /var/app/molquiet/private/token.age
       - /etc/systemd/system/molquiet.service.d/10-private.conf
+      - /etc/systemd/system/molquiet.service.d/20-slice.conf
       - /var/app/molquiet/.install-manifest
     # What a later deploy reconciles against: an entry missing here is a file that would
     # survive forever, an extra one a file deleted from under another app.
@@ -46,7 +53,9 @@
       - /etc/containers/systemd/molsource.container
       - /etc/systemd/system/molsource-extra.service
       - /etc/systemd/system/molsource-extra.service.d/10-private.conf
+      - /etc/systemd/system/molsource-extra.service.d/20-slice.conf
       - /etc/systemd/system/molsource.service.d/10-private.conf
+      - /etc/systemd/system/molsource.service.d/20-slice.conf
       - /var/app/molsource/config/app.conf
       - /var/app/molsource/config/nested/deep.conf
       - /var/app/molsource/private/ca.crt
@@ -89,10 +98,11 @@
         that:
           - molecule_source_recorded | sort == molecule_expected_source_manifest | sort
           # An 'inline' app installs its one rendered Quadlet, and here also the private
-          # file it ships and the drop-in ordering its unit after the decrypt.
+          # file it ships, the drop-in ordering its unit after the decrypt and its slice.
           - molecule_inline_recorded == [
               '/etc/containers/systemd/molinline.container',
               '/etc/systemd/system/molinline.service.d/10-private.conf',
+              '/etc/systemd/system/molinline.service.d/20-slice.conf',
               '/var/app/molinline/private/tls.key.age']
         fail_msg: >-
           Recorded source paths {{ molecule_source_recorded | sort }}, inline paths
@@ -179,11 +189,6 @@
       changed_when: false
       register: molecule_secret_inspect
 
-    - name: Stat the record file releases before 1.1.0 wrote
-      ansible.builtin.stat:
-        path: /var/app/molsecret/.secret-digests
-      register: molecule_digest_stat
-
     - name: Assert every declared secret was decrypted and stored under its own name
       ansible.builtin.assert:
         that:
@@ -191,8 +196,6 @@
           # End to end, from the encrypted file to the store. The digest is the module's own,
           # so an algorithm change cannot fail this for the wrong reason.
           - molecule_secret_state == molecule_secrets | declared_secret_state('molsecret')
-          # No record beside the store: a backup of the app carries no digest of anything.
-          - not molecule_digest_stat.stat.exists
         fail_msg: >-
           Stored {{ molecule_secret_names.stdout_lines | sort }}: {{ molecule_secret_state }}.
         quiet: true
@@ -489,4 +492,49 @@
         fail_msg: >-
           systemd reports:
           {{ molecule_slice_show.results | map(attribute='stdout_lines') | map('join', ', ') | join(' | ') }}.
+        quiet: true
+
+    # Loaded, not running, is enough for the property: molquiet was never started.
+    - name: Ask systemd which slice each app's services are in
+      ansible.builtin.command:
+        argv: [systemctl, show, --property, Slice, --value, "{{ item }}"]
+      loop:
+        - molsource.service
+        - molsource-extra.service
+        - molinline.service
+        - molorphan.service
+        - molquiet.service
+        - molsecret.service
+      changed_when: false
+      register: molecule_unit_slices
+
+    # The cgroup, not the property, is what the limits apply to, and conmon and the container
+    # are separate processes podman places; the service's slice has to reach both.
+    - name: Ask podman for the conmon and container process of the inline app
+      ansible.builtin.command:
+        argv: [podman, inspect, --format, "{{ '{{' }}.State.ConmonPid{{ '}}' }} {{ '{{' }}.State.Pid{{ '}}' }}", molinline]
+      changed_when: false
+      register: molecule_inline_pids
+
+    - name: Read the cgroup of each of those processes
+      ansible.builtin.slurp:
+        src: "/proc/{{ item }}/cgroup"
+      loop: "{{ molecule_inline_pids.stdout.split() }}"
+      register: molecule_inline_cgroups
+
+    - name: Assert every service runs in the slice its call named
+      ansible.builtin.assert:
+        that:
+          - molecule_unit_slices.results[:5] | map(attribute='stdout')
+            | reject('equalto', 'molslice.slice') | list | length == 0
+          - molecule_unit_slices.results[5].stdout == 'system.slice'
+          - molecule_inline_cgroups.results | map(attribute='content') | map('b64decode')
+            | reject('search', '/molslice.slice/molinline.service(/|$)', multiline=true)
+            | list | length == 0
+        fail_msg: >-
+          Slices:
+          {{ molecule_unit_slices.results | map(attribute='item')
+             | zip(molecule_unit_slices.results | map(attribute='stdout')) | list }};
+          inline cgroups:
+          {{ molecule_inline_cgroups.results | map(attribute='content') | map('b64decode') | list }}.
         quiet: true

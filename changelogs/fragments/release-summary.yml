@@ -1,0 +1,10 @@
+---
+release_summary: >-
+  Every app now runs in a systemd slice. The ``systemd_app`` role places each service an app
+  installs or Quadlet generates in the slice ``systemd_app_slice`` names, ``homelab`` by
+  default, so the apps share one resource budget and the host's own services stay outside it.
+  Read the breaking changes before upgrading: a deploy fails until the host has a unit file
+  for that slice, normally from the ``systemd_slices`` role, and the first deploy restarts
+  each app's managed units to move them; ``system`` opts an app out. The filters deprecated in
+  1.x are removed, as is the ``podman_secrets`` module's ``adopt_file`` option for records kept
+  before 1.1.0, and ``unit_names`` gains a ``types`` option.

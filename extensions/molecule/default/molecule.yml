@@ -95,6 +95,21 @@ provisioner:
             settings:
               CPUWeight: 50
 
+        # A real release in each family's format, so the version the role compares is the one
+        # the package manager itself reports. Nothing else in the scenario uses it; x86_64 only,
+        # like the runners.
+        molecule_external_packages:
+          Debian:
+            - name: grype
+              version: 0.121.0
+              url: https://github.com/anchore/grype/releases/download/v0.121.0/grype_0.121.0_linux_amd64.deb
+              checksum: sha256:3a23dcb0dfe903131eabb4af9e8977ea2a47e2bbbec5aa15b60026ca5467d46d
+          RedHat:
+            - name: grype
+              version: 0.121.0-1
+              url: https://github.com/anchore/grype/releases/download/v0.121.0/grype_0.121.0_linux_amd64.rpm
+              checksum: sha256:4f964e1a778a1ee43b0a75458b444ffc19aaec7958a061a1ac7c02581f9a7aab
+
         # Deliberately not in the list above: verify.yml reads that one out of /run, and this
         # app's decrypt is asserted never to have run, because the call names no units for it.
         # side_effect.yml starts it by hand and re-encrypts `rotated` over `first`.

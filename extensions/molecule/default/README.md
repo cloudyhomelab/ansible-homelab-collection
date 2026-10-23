@@ -19,6 +19,7 @@ destroy`. `verify` before `side_effect`, because it asserts what the converge le
 | Declared data directories exist with the container user's ownership before podman could create them as root | `verify` | `molinline` |
 | Secrets are decrypted by sops and stored under their own names, labelled with owner and digest, with no record file beside them; the Quadlet references them by name and the container receives them as variables | `verify` | `molsecret` |
 | Every managed unit is active, and a plain unit is enabled at boot | `verify` | all |
+| A release's deb or rpm, whichever the host's package manager installs, lands in the package database at the version its entry names, and its download directory is gone | `verify` | `grype` |
 | A second converge changes nothing | `idempotence` | all |
 | A file dropped from the source tree is removed from the host and the manifest; the app stays up | `side_effect` | `molsource` |
 | `private/` lands on the host still encrypted, decrypts into `/run/app/<app>/private` under the name its suffix promises, mirrors subdirectories, keeps a plaintext member as it is, and is 0600 in a 0700 tree | `verify` | `molsource`, `molinline` |
@@ -32,6 +33,9 @@ destroy`. `verify` before `side_effect`, because it asserts what the converge le
 | A changed secret is removed and re-created; a dropped one leaves the store; one removed behind the role's back comes back | `side_effect` | `molsecret` |
 | A secret another app owns is refused by name and owner, and left untouched | `side_effect` | `molclaim` |
 | `absent` removes everything the apps owned, secrets included, stops a `source` app's container without being told its unit name, leaves no dangling `.wants` symlink, spares another app's secret, and stays green when repeated | `side_effect` | all |
+
+`grype` is `molecule_external_packages`, downloaded from its GitHub release during converge,
+so the run needs network access to github.com as well as to the registry.
 
 Fixtures under `apps/` are `molnet` (a network unit, installed but never joined:
 `Network=none` throughout keeps netavark out of every run), `molsource`, `molorphan`

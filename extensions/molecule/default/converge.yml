@@ -24,6 +24,9 @@
     - role: binarycodes.homelab.systemd_slices
       systemd_slices_units: "{{ molecule_slices }}"
 
+    - role: binarycodes.homelab.external_packages
+      external_packages_list: "{{ molecule_external_packages[ansible_facts.os_family] }}"
+
     # First app, so the network unit exists before anything that might reference it.
     - role: binarycodes.homelab.systemd_app
       systemd_app_kind: source

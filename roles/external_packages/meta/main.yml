@@ -1,0 +1,28 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+galaxy_info:
+  role_name: external_packages
+  namespace: binarycodes
+  author: binarycodes
+  description: >-
+    Install deb or rpm package files downloaded from a URL and verified against a checksum.
+  license: GPL-3.0-or-later
+  # Kept in step with meta/runtime.yml at the collection root.
+  min_ansible_version: "2.19"
+
+  # The platforms the molecule scenario converges, as for the systemd_app role.
+  platforms:
+    - name: Fedora
+      versions: ["43"]
+    - name: Debian
+      versions: [trixie]
+
+  galaxy_tags:
+    - packaging
+    - deb
+    - rpm
+
+dependencies: []

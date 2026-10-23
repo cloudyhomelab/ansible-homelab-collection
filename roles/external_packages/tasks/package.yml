@@ -1,0 +1,94 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Asked of the package database rather than left to the installer, so a package already at
+# its version is never downloaded.
+- name: Read the installed version of {{ external_packages_item.name }}
+  ansible.builtin.command:
+    argv: "{{ external_packages_query[external_packages_format] + [external_packages_item.name] }}"
+  changed_when: false
+  check_mode: false
+  # 1 is "not installed" to both dpkg-query and rpm.
+  failed_when: external_packages_installed.rc not in [0, 1]
+  register: external_packages_installed
+
+# The block below cannot run in check mode, where tempfile creates nothing to download into.
+- name: Report that check mode would install {{ external_packages_item.name }}
+  ansible.builtin.debug:
+    msg: "{{ external_packages_item.name }} {{ external_packages_item.version }} would be installed."
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - ('installed ' ~ external_packages_item.version) not in external_packages_installed.stdout_lines
+
+# Every task below, the cleanup included, re-evaluates this condition, so the re-read after
+# the install registers under a name of its own.
+- name: Download and install {{ external_packages_item.name }}
+  when:
+    - not ansible_check_mode
+    - ('installed ' ~ external_packages_item.version) not in external_packages_installed.stdout_lines
+  vars:
+    # dnf reads name-version-release from the file name to refuse a downgrade.
+    external_packages_file: >-
+      {{ external_packages_download_dir.path }}/{{ external_packages_item.name }}-{{
+      external_packages_item.version }}.{{ external_packages_format }}
+  block:
+    # Not a fixed path in /tmp, which another local user could plant a symlink at first.
+    - name: Create a download directory for {{ external_packages_item.name }}
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: .external_packages
+      register: external_packages_download_dir
+
+    - name: Download {{ external_packages_item.name }}
+      ansible.builtin.get_url:
+        url: "{{ external_packages_item.url }}"
+        checksum: "{{ external_packages_item.checksum }}"
+        dest: "{{ external_packages_file }}"
+        mode: "0644"
+
+    # The cache update is for the package's dependencies, which apt resolves from the lists.
+    - name: Install the deb of {{ external_packages_item.name }}
+      ansible.builtin.apt:
+        deb: "{{ external_packages_file }}"
+        update_cache: true
+      when: external_packages_format == 'deb'
+
+    # dnf checks signatures on a local file too, and an upstream release's rpm is unsigned or
+    # signed with a key the host has not imported. The checksum is what the download is
+    # trusted by.
+    - name: Install the rpm of {{ external_packages_item.name }}
+      ansible.builtin.dnf:
+        name: "{{ external_packages_file }}"
+        state: present
+        disable_gpg_check: true
+      when: external_packages_format == 'rpm'
+
+    # A version that does not match what the package reports would otherwise download and
+    # reinstall on every run without failing.
+    - name: Read the version now installed of {{ external_packages_item.name }}
+      ansible.builtin.command:
+        argv: "{{ external_packages_query[external_packages_format] + [external_packages_item.name] }}"
+      changed_when: false
+      check_mode: false
+      failed_when: external_packages_reinstalled.rc not in [0, 1]
+      register: external_packages_reinstalled
+
+    - name: Assert the version its entry names was installed of {{ external_packages_item.name }}
+      ansible.builtin.assert:
+        that:
+          - ('installed ' ~ external_packages_item.version) in external_packages_reinstalled.stdout_lines
+        fail_msg: >-
+          {{ external_packages_item.name }} reports {{ external_packages_reinstalled.stdout_lines }}
+          after installing, not 'installed {{ external_packages_item.version }}'. Set its
+          version to the one the package file carries; the role's README says how to read it.
+        quiet: true
+
+  always:
+    - name: Remove the download directory for {{ external_packages_item.name }}
+      ansible.builtin.file:
+        path: "{{ external_packages_download_dir.path }}"
+        state: absent
+      when: external_packages_download_dir.path is defined

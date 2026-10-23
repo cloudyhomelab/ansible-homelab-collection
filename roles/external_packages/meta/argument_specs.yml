@@ -1,0 +1,41 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Shapes only. What a name, version or checksum may contain depends on the host's package
+# format, so package_validation_errors checks it once the format is known.
+argument_specs:
+  main:
+    short_description: Install deb or rpm package files downloaded from a URL.
+    options:
+      external_packages_list:
+        type: list
+        elements: dict
+        required: false
+        default: []
+        description: >-
+          The packages to install. Each is downloaded and installed only when it is not
+          installed at its version; an entry removed from the list leaves its package
+          installed.
+        options:
+          name:
+            type: str
+            required: true
+            description: The package's name, as the package manager reports it.
+          version:
+            type: str
+            required: true
+            description: >-
+              The version the package file carries: [epoch:]upstream[-revision] for a deb,
+              [epoch:]version-release for an rpm.
+          url:
+            type: str
+            required: true
+            description: >-
+              Where to download the package file from; an http, https, ftp or file URL whose
+              file is in the host's package format.
+          checksum:
+            type: str
+            required: true
+            description: <algorithm>:<hex digest> of the package file, such as sha256:<digest>.

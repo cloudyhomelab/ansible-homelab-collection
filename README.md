@@ -11,6 +11,7 @@ and encrypted per-app files decrypted into tmpfs at unit start.
 | ---- | ------- |
 | [`systemd_app`](roles/systemd_app/README.md) | Deploy or decommission one app — Quadlet files, systemd units and a config tree from a directory (`source`), or a single-container Quadlet rendered from call-site parameters (`inline`) — plus its route. |
 | [`systemd_slices`](roles/systemd_slices/README.md) | Install systemd slice units with resource-control settings, for apps to share a memory, CPU or I/O budget. |
+| [`external_packages`](roles/external_packages/README.md) | Install deb or rpm package files from a URL, verified against a pinned checksum, for software no repository the host uses carries. |
 
 | Module | Purpose |
 | ------ | ------- |
@@ -23,6 +24,7 @@ and encrypted per-app files decrypted into tmpfs at unit start.
 | `route_validation_errors` | Check a domain, upstream and port before they are written into a Caddy site block. |
 | `container_validation_errors` | Check what would be interpolated into a rendered Quadlet. |
 | `slice_validation_errors` | Check slice names, descriptions and settings before they become a unit path and a unit file. |
+| `package_validation_errors` | Check package names, versions, URLs and checksums against the host's package format before anything is downloaded. |
 | `systemd_env_lines` | Quote and escape a dict into `Environment=` lines. |
 | `source_tree` | Read what a `source` app ships from its directory on the controller, and the host paths it installs to. |
 | `private_tree` | Read what an app keeps encrypted in `private/`, the host paths it is copied to, and what each file decrypts to at unit start. |

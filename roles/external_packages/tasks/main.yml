@@ -1,0 +1,48 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# An empty list is a no-op on any host, so the role can sit in a play shared by hosts that
+# install nothing this way.
+- name: Install the external packages
+  when: external_packages_list | length > 0
+  block:
+    - name: Gather the package manager fact
+      ansible.builtin.setup:
+        gather_subset: [pkg_mgr]
+      when: ansible_facts.pkg_mgr is not defined
+
+    - name: Assert the host's package manager is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.pkg_mgr in external_packages_formats
+        fail_msg: >-
+          The 'external_packages' role installs package files with
+          {{ external_packages_formats.keys() | join(', ') }}; this host's package manager
+          is {{ ansible_facts.pkg_mgr }}.
+        quiet: true
+
+    # Names become command arguments and file names, written as root, so they are checked
+    # before anything is downloaded.
+    - name: Validate role input
+      ansible.builtin.assert:
+        that:
+          - external_packages_validation_errors | length == 0
+        fail_msg: >-
+          The 'external_packages' role cannot install these packages as given:
+          {{ external_packages_validation_errors | join('; ') }}.
+        quiet: true
+      vars:
+        external_packages_validation_errors: >-
+          {{ external_packages_list
+             | binarycodes.homelab.package_validation_errors(external_packages_formats[ansible_facts.pkg_mgr]) }}
+
+    - name: Install each package that is not installed at its version
+      ansible.builtin.include_tasks: package.yml
+      loop: "{{ external_packages_list }}"
+      loop_control:
+        loop_var: external_packages_item
+        label: "{{ external_packages_item.name }}"
+      vars:
+        external_packages_format: "{{ external_packages_formats[ansible_facts.pkg_mgr] }}"

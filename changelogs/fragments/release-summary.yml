@@ -1,9 +1,0 @@
----
-release_summary: >-
-  Adds a third role, ``external_packages``, which installs deb or rpm package files that no
-  repository carries, such as a project's release downloads, through the host's own package
-  manager. Each download is verified against a pinned checksum and deleted after the install,
-  and a package already at its version is not downloaded at all. Every entry is checked by
-  the new ``package_validation_errors`` filter before anything is downloaded. The role
-  installs only: a package dropped from its list stays on the host until a task of the
-  caller's removes it.

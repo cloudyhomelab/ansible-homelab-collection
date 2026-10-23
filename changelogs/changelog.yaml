@@ -396,3 +396,31 @@ releases:
       - systemd-app-slice.yml
       - unit-names-types.yml
     release_date: '2026-10-22'
+  2.1.0:
+    changes:
+      minor_changes:
+        - The new ``external_packages`` role installs deb or rpm package files that
+          no repository carries, such as a project's release downloads. Each entry
+          of ``external_packages_list`` names the package, its version, a URL and
+          a checksum; the role downloads and installs it only when it is not installed
+          at that version, verifies the download against the checksum and deletes
+          it afterwards. The new ``package_validation_errors`` filter checks the entries
+          before anything is downloaded.
+      release_summary: 'Adds a third role, ``external_packages``, which installs deb
+        or rpm package files that no repository carries, such as a project''s release
+        downloads, through the host''s own package manager. Each download is verified
+        against a pinned checksum and deleted after the install, and a package already
+        at its version is not downloaded at all. Every entry is checked by the new
+        ``package_validation_errors`` filter before anything is downloaded. The role
+        installs only: a package dropped from its list stays on the host until a task
+        of the caller''s removes it.'
+    fragments:
+      - external-packages-role.yml
+      - release-summary.yml
+    plugins:
+      filter:
+        - description: Why a list of package files cannot be installed, one string
+            per problem.
+          name: package_validation_errors
+          namespace: null
+    release_date: '2026-10-23'

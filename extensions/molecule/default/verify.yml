@@ -538,3 +538,26 @@
           inline cgroups:
           {{ molecule_inline_cgroups.results | map(attribute='content') | map('b64decode') | list }}.
         quiet: true
+
+    # --- external packages ----------------------------------------------------------------
+    # From the package database, so a binary that merely landed on disk fails here. The deb's
+    # version and the rpm's version field are both the upstream release.
+    - name: Read the installed packages
+      ansible.builtin.package_facts:
+
+    - name: Find download directories the role left behind
+      ansible.builtin.find:
+        paths: /tmp
+        patterns: "*.external_packages"
+        file_type: directory
+      register: molecule_package_downloads
+
+    - name: Assert the package installed at its version and its download is gone
+      ansible.builtin.assert:
+        that:
+          - "'0.121.0' in ansible_facts.packages.grype | default([]) | map(attribute='version')"
+          - molecule_package_downloads.matched == 0
+        fail_msg: >-
+          Installed grype: {{ ansible_facts.packages.grype | default('none') }};
+          left in /tmp: {{ molecule_package_downloads.files | map(attribute='path') | list }}.
+        quiet: true

@@ -11,7 +11,8 @@ authors:
   - binarycodes
 description: >-
   Deploy Podman Quadlet apps and systemd units on a host, with an optional Caddy route,
-  install-manifest reconciliation and SOPS-encrypted podman secrets.
+  install-manifest reconciliation and SOPS-encrypted podman secrets, and install deb or rpm
+  package files verified against a checksum.
 license:
   - GPL-3.0-or-later
 # 'infrastructure' and 'linux' are there because Galaxy requires at least one tag from its
@@ -24,6 +25,7 @@ tags:
   - systemd
   - containers
   - caddy
+  - packaging
 
 dependencies:
   community.sops: ">=2.3.0"

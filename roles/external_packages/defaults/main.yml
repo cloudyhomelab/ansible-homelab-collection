@@ -1,0 +1,12 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Each entry, all keys required:
+#   name      the package's name, as the package manager reports it
+#   version   the version the package file carries: [epoch:]upstream[-revision] for a deb,
+#             [epoch:]version-release for an rpm
+#   url       where to download the package file from
+#   checksum  <algorithm>:<hex digest> of that file
+external_packages_list: []

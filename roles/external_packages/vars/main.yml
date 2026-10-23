@@ -1,0 +1,17 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The package format each supported ansible_facts.pkg_mgr installs.
+external_packages_formats:
+  apt: deb
+  dnf: rpm
+  dnf5: rpm
+
+# Prints "installed <version>" for an installed package, in the shape an entry's version takes.
+# dpkg-query also lists a removed package whose configuration is left, hence the status.
+# !unsafe because rpm's query format contains '{%'.
+external_packages_query:
+  deb: [dpkg-query, --show, "--showformat=${db:Status-Status} ${Version}\n"]
+  rpm: [rpm, --query, !unsafe "--queryformat=installed %|EPOCH?{%{EPOCH}:}:{}|%{VERSION}-%{RELEASE}\n"]

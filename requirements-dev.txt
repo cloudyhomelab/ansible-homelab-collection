@@ -6,8 +6,8 @@
 # package, and is pinned in .github/workflows/molecule.yml. Dependabot's pip entry bumps
 # both files monthly.
 -r requirements-test.txt
-ansible-lint==26.9.0
-antsibull-changelog==0.35.1
-molecule==26.9.0
-mypy==2.4.0
-molecule-plugins[podman]==26.9.28
+ansible-lint==26.10.1
+antsibull-changelog==0.36.0
+molecule==26.10.0
+mypy==2.4.1
+molecule-plugins[podman]==26.10.12

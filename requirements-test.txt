@@ -4,5 +4,5 @@
 # it tests without the lint and molecule tools, whose own ansible-core floors would drag the
 # declared-floor row forward. ansible-core itself is deliberately not listed; it is the thing
 # under test. The tests also need `ansible-doc` on PATH, which ansible-core provides.
-pytest==9.1.1
+pytest==9.2.0
 PyYAML==6.0.3

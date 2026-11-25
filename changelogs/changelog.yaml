@@ -424,3 +424,35 @@ releases:
           name: package_validation_errors
           namespace: null
     release_date: '2026-10-23'
+  2.2.0:
+    changes:
+      minor_changes:
+        - source_tree filter - returns ``dropin_files``, lists them in ``installed``,
+          and takes ``reserved_dropins``, drop-in names it refuses.
+        - systemd_app - a ``source`` app's ``unit/<unit>.d/*.conf`` drop-ins are installed
+          to ``systemd_app_unit_dir``, including for a unit the app does not ship,
+          such as one a distribution package installs. They are recorded in the install
+          manifest, so a deploy prunes one the app stops shipping and a decommission
+          removes them, never the unit file. A unit with a drop-in also gets the role's
+          slice drop-in and, for an app with private files, the one ordering it after
+          their decrypt. An app drop-in named ``10-private.conf`` or ``20-slice.conf``
+          fails the deploy.
+        - systemd_app - the role's internal variables (derived paths and lists, the
+          secrets lookup, and the fixed decrypt unit name, helper path and key path)
+          move from ``defaults/`` to ``vars/``. None is in the argument spec. Role
+          vars outrank inventory and play variables, so an override of one of them
+          that used to take effect is now ignored.
+        - unit_names filter - a ``<unit>.d/<name>.conf`` path in the plain-unit directory
+          implies ``<unit>``.
+      release_summary: The ``systemd_app`` role installs a ``source`` app's ``unit/<unit>.d/*.conf``
+        drop-ins, so an app can configure a unit it does not ship, such as one a distribution
+        package installs. The drop-ins are recorded in the app's install manifest,
+        and the unit gets the role's slice and private-file drop-ins like the app's
+        own units. The role's internal variables move from ``defaults/`` to ``vars/``,
+        so an inventory or play value for one of them, such as the decrypt key path,
+        is now ignored.
+    fragments:
+      - release-summary.yml
+      - systemd-app-internal-vars.yml
+      - systemd-app-unit-dropins.yml
+    release_date: '2026-11-25'

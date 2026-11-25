@@ -456,3 +456,33 @@ releases:
       - systemd-app-internal-vars.yml
       - systemd-app-unit-dropins.yml
     release_date: '2026-11-25'
+  3.0.0:
+    changes:
+      breaking_changes:
+        - external_packages - the role is removed. Install each package with the new
+          ``binarycodes.homelab.external_package`` module instead, one task per package,
+          with ``loop`` over what was ``external_packages_list``; an entry's ``name``,
+          ``version``, ``url`` and ``checksum`` become the module's options of the
+          same names. A package the role installed is recognised by its version and
+          not downloaded again.
+        - package_validation_errors - the filter is removed. The ``external_package``
+          module checks its own options with the same rules before anything is downloaded.
+      release_summary: 'Installing a downloaded package file is now a task of its
+        own: the new ``binarycodes.homelab.external_package`` module installs one
+        deb or rpm per call, the way ``ansible.builtin.package`` installs from a repository,
+        and composes with ``loop``, ``when`` and ``register``. It keeps what the ``external_packages``
+        role did: the input checks before any download, the pinned checksum, the skip
+        for a package already at its version, check mode and the cleanup of the download.
+        Read the breaking changes before upgrading: the ``external_packages`` role
+        and the ``package_validation_errors`` filter are removed, and a play moves
+        each ``external_packages_list`` entry to an ``external_package`` task with
+        the same four keys. Packages the role installed stay installed and are recognised
+        by version.'
+    fragments:
+      - external-package-module.yml
+      - release-summary.yml
+    modules:
+      - description: Install a deb or rpm package file downloaded from a URL.
+        name: external_package
+        namespace: ''
+    release_date: '2026-11-25'

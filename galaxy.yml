@@ -5,7 +5,7 @@
 
 namespace: binarycodes
 name: homelab
-version: 2.2.0
+version: 3.0.0
 readme: README.md
 authors:
   - binarycodes

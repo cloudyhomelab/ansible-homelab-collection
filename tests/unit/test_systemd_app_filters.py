@@ -589,6 +589,44 @@ def test_types_as_a_bare_string_is_refused():
         unit_names([f"{UNIT_DIR}/app.service"], SYSTEM_DIR, UNIT_DIR, types="service")
 
 
+def test_a_dropin_implies_its_unit_without_the_unit_file():
+    """A unit a package installs: the app ships only the drop-in, and that unit must still get
+    the role's own private and slice drop-ins."""
+    assert units([f"{UNIT_DIR}/nginx.service.d/50-myapp.conf"]) == ["nginx.service"]
+
+
+def test_a_dropin_and_its_unit_compose_one_unit():
+    assert units([
+        f"{UNIT_DIR}/app.service",
+        f"{UNIT_DIR}/app.service.d/50-env.conf",
+        f"{UNIT_DIR}/app.service.d/60-more.conf",
+    ]) == ["app.service"]
+
+
+@pytest.mark.parametrize(
+    "relpath",
+    [
+        "app.target.d/50-x.conf",
+        "app.d/50-x.conf",
+        ".service.d/50-x.conf",
+        "app.service.d/50-x.txt",
+        "app.service.d/.conf",
+        "app.service.d/nested/50-x.conf",
+    ],
+)
+def test_a_path_shaped_unlike_a_unit_dropin_names_no_unit(relpath):
+    assert units([f"{UNIT_DIR}/{relpath}"]) == []
+
+
+def test_a_dropin_under_the_quadlet_dir_names_no_unit():
+    assert units([f"{SYSTEM_DIR}/app.service.d/50-x.conf"]) == []
+
+
+def test_types_applies_to_a_unit_implied_by_a_dropin():
+    paths = [f"{UNIT_DIR}/app.timer.d/50-x.conf", f"{UNIT_DIR}/app.service.d/50-x.conf"]
+    assert unit_names(paths, SYSTEM_DIR, UNIT_DIR, types=["service"]) == ["app.service"]
+
+
 # --- private_tree ------------------------------------------------------------------------
 
 PRIVATE_DIR = "/var/app/myapp/private"
@@ -800,9 +838,81 @@ def test_the_install_dirs_are_composed_from_the_caller(tmp_path):
     assert got["installed"] == ["/srv/quadlet/a.container", "/srv/state/myapp/config/c.conf", "/srv/units/b.timer"]
 
 
+def test_a_dropin_directory_installs_beside_the_unit(tmp_path):
+    app = tmp_path / "myapp"
+    touch(app / "unit" / "myapp-extra.service")
+    touch(app / "unit" / "myapp-extra.service.d" / "50-env.conf")
+    touch(app / "unit" / "nginx.service.d" / "50-myapp.conf")
+    touch(app / "unit" / "nginx.service.d" / "40-first.conf")
+    got = tree(app)
+    assert got["unit_files"] == [str(app / "unit" / "myapp-extra.service")]
+    assert got["dropin_files"] == [
+        {"src": str(app / "unit" / "myapp-extra.service.d" / "50-env.conf"),
+         "path": "myapp-extra.service.d/50-env.conf"},
+        {"src": str(app / "unit" / "nginx.service.d" / "40-first.conf"),
+         "path": "nginx.service.d/40-first.conf"},
+        {"src": str(app / "unit" / "nginx.service.d" / "50-myapp.conf"),
+         "path": "nginx.service.d/50-myapp.conf"},
+    ]
+    assert got["installed"] == [
+        f"{UNIT_DIR}/myapp-extra.service",
+        f"{UNIT_DIR}/myapp-extra.service.d/50-env.conf",
+        f"{UNIT_DIR}/nginx.service.d/40-first.conf",
+        f"{UNIT_DIR}/nginx.service.d/50-myapp.conf",
+    ]
+
+
+def test_an_app_with_no_dropins_has_none(tmp_path):
+    app = tmp_path / "myapp"
+    touch(app / "unit" / "myapp.service")
+    assert tree(app)["dropin_files"] == []
+
+
+def test_hidden_entries_are_not_dropins(tmp_path):
+    app = tmp_path / "myapp"
+    touch(app / "unit" / "app.service.d" / ".50-env.conf.swp")
+    touch(app / "unit" / ".app.service.d" / "50-env.conf")
+    (app / "unit" / "app.service.d" / "empty.d").mkdir(parents=True, exist_ok=True)
+    with pytest.raises(AnsibleFilterError, match="only \\*.conf"):
+        tree(app)
+    (app / "unit" / "app.service.d" / "empty.d").rmdir()
+    assert tree(app)["dropin_files"] == []
+
+
+def test_a_directory_not_ending_in_d_is_still_ignored(tmp_path):
+    app = tmp_path / "myapp"
+    touch(app / "unit" / "notes" / "readme.txt")
+    assert tree(app)["dropin_files"] == []
+
+
+@pytest.mark.parametrize("directory", ["app.target.d", "app.d"])
+def test_a_dropin_directory_for_no_installable_unit_is_refused(tmp_path, directory):
+    """The manifest would refuse the path after the copy; refusing here installs nothing."""
+    app = tmp_path / "myapp"
+    touch(app / "unit" / directory / "50-x.conf")
+    with pytest.raises(AnsibleFilterError, match="not a drop-in directory"):
+        tree(app)
+
+
+def test_a_file_systemd_would_not_read_is_refused(tmp_path):
+    app = tmp_path / "myapp"
+    touch(app / "unit" / "app.service.d" / "override")
+    with pytest.raises(AnsibleFilterError, match="only \\*.conf"):
+        tree(app)
+
+
+def test_a_reserved_dropin_name_is_refused(tmp_path):
+    app = tmp_path / "myapp"
+    touch(app / "unit" / "app.service.d" / "20-slice.conf")
+    assert tree(app)["dropin_files"][0]["path"] == "app.service.d/20-slice.conf"
+    with pytest.raises(AnsibleFilterError, match="20-slice.conf the role writes"):
+        source_tree(str(app), SYSTEM_DIR, UNIT_DIR, HOME_CONFIG,
+                    reserved_dropins=["10-private.conf", "20-slice.conf"])
+
+
 def test_the_molecule_fixture_records_what_the_scenario_expects():
     """The scenario's oracle for the source app's manifest, against the fixture tree it is
-    written for. Composed the way defaults/main.yml composes it, so it stays an independent
+    written for. Composed the way vars/main.yml composes it, so it stays an independent
     check; the encrypted private files come from molecule.yml, since prepare.yml writes those
     rather than the tree carrying them."""
     scenario = pathlib.Path(__file__).resolve().parents[2] / "extensions" / "molecule" / "default"

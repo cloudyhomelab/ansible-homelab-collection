@@ -27,8 +27,12 @@ description:
   - C(.volume), C(.network), C(.image) and C(.build) are left out. They create a resource the
     role deliberately leaves behind on teardown, so naming a unit for them would imply a
     teardown that does not happen.
-  - Matched one segment deep in either install directory; anything else is ignored rather than
-    refused, so a whole install list can be passed in. Sorted and deduplicated.
+  - A C(<unit>.d/<name>.conf) drop-in in the plain-unit directory implies C(<unit>), whether or
+    not the unit file itself is in the list, so a unit a distribution package installs counts
+    once an app ships a drop-in for it.
+  - Matched one segment deep in either install directory, or as such a drop-in; anything else is
+    ignored rather than refused, so a whole install list can be passed in. Sorted and
+    deduplicated.
 positional: system_dir, unit_dir, types
 options:
   _input:
@@ -99,6 +103,9 @@ _QUADLET_UNIT_SUFFIXES = {
     ".pod": "-pod.service",
 }
 
+_DROPIN_DIR_SUFFIX = ".d"
+_DROPIN_FILE_SUFFIX = ".conf"
+
 # Unit types stopping means something for. A .target, .slice or .scope is neither shipped by
 # an app nor stopped by teardown.
 _PLAIN_UNIT_SUFFIXES = (
@@ -134,6 +141,12 @@ def unit_names(
         parent, name = posixpath.split(str(path))
         if not name:
             continue
+
+        grandparent, dropin_dir = posixpath.split(parent)
+        if (grandparent == unit_dir and dropin_dir.endswith(_DROPIN_DIR_SUFFIX)
+                and name.endswith(_DROPIN_FILE_SUFFIX) and len(name) > len(_DROPIN_FILE_SUFFIX)):
+            name = dropin_dir[: -len(_DROPIN_DIR_SUFFIX)]
+            parent = unit_dir
 
         if parent == unit_dir:
             # The allowlist excludes '.' and '..' but not a bare '.service'.

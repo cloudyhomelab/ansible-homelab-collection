@@ -247,6 +247,26 @@
         group: root
         mode: "0755"
 
+    # Stands in for a unit a distribution package installs, which moldropin ships only a
+    # drop-in for. Oneshot with RemainAfterExit so it stays 'active' for the verifier.
+    - name: Install the packaged unit the drop-in fixture configures
+      ansible.builtin.copy:
+        dest: /usr/lib/systemd/system/molpackaged.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Molecule fixture packaged unit
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=true
+          ExecStart=/bin/true
+
+          [Install]
+          WantedBy=multi-user.target
+
     # So a registry problem fails before the role is under test, and no unit start waits on a
     # download.
     - name: Pull the fixture container image

@@ -1,0 +1,6 @@
+---
+minor_changes:
+  - systemd_app - the role's internal variables (derived paths and lists, the secrets lookup,
+    and the fixed decrypt unit name, helper path and key path) move from ``defaults/`` to
+    ``vars/``. None is in the argument spec. Role vars outrank inventory and play variables,
+    so an override of one of them that used to take effect is now ignored.

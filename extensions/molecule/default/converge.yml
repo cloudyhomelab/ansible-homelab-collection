@@ -19,6 +19,7 @@
       - molinline.service
       - molsecret.service
       - molorphan.service
+      - molpackaged.service
 
   roles:
     - role: binarycodes.homelab.systemd_slices
@@ -48,6 +49,13 @@
       systemd_app_name: molorphan
       systemd_app_enable_units:
         - molorphan.service
+
+    # Ships only a drop-in, for a unit prepare.yml installs as a package would.
+    - role: binarycodes.homelab.systemd_app
+      systemd_app_kind: source
+      systemd_app_name: moldropin
+      systemd_app_enable_units:
+        - molpackaged.service
 
     # No systemd_app_enable_units, so the role installs its files and starts nothing. The only
     # fixture whose decrypt instance a converge leaves inactive, which is what the decrypt's

@@ -23,6 +23,8 @@
       - {name: molorphan, kind: source}
       # Never started by the role at all, only by hand in the stage below.
       - {name: molquiet, kind: source}
+      # Decommissioned without naming the packaged unit its drop-in configured.
+      - {name: moldropin, kind: source}
       # Refused before anything reached the host, so decommissioning it must stay green.
       - {name: molclaim, kind: inline}
 
@@ -709,6 +711,8 @@
         - /run/app/molquiet
         - /var/app/molquiet
         - /etc/containers/systemd/molquiet.container
+        - /etc/systemd/system/molpackaged.service.d
+        - /var/app/moldropin
       register: molecule_after_absent
 
     # In no app's manifest, so no app's decommission removes them.
@@ -718,6 +722,8 @@
       loop:
         - /etc/systemd/system/homelab-private-decrypt@.service
         - /usr/local/libexec/homelab-decrypt-private
+        # The package's, not the app's: only the drop-ins were recorded.
+        - /usr/lib/systemd/system/molpackaged.service
       register: molecule_absent_shared
 
     - name: Ask systemd for the state of the decommissioned units

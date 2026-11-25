@@ -3,8 +3,8 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Deploys (present) or decommissions (absent) one app, of either kind. See README and
-# defaults/main.yml.
+# Deploys (present) or decommissions (absent) one app, of either kind. See README,
+# defaults/main.yml for the inputs and vars/main.yml for what is derived from them.
 
 # The conditional requirements cannot go in meta/argument_specs.yml, which can only mark an
 # option required outright. A 'source' app's directory is checked here, before anything is
@@ -181,6 +181,7 @@
     systemd_app_quadlet_render: {}
     systemd_app_quadlet_install: {}
     systemd_app_unit_install: {}
+    systemd_app_unit_dropin_install: {}
     systemd_app_config_deploy: {}
     systemd_app_private_tools: {}
     systemd_app_helper_install: {}

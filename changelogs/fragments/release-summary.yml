@@ -1,0 +1,8 @@
+---
+release_summary: >-
+  The ``systemd_app`` role installs a ``source`` app's ``unit/<unit>.d/*.conf`` drop-ins, so an
+  app can configure a unit it does not ship, such as one a distribution package installs. The
+  drop-ins are recorded in the app's install manifest, and the unit gets the role's slice and
+  private-file drop-ins like the app's own units. The role's internal variables move from
+  ``defaults/`` to ``vars/``, so an inventory or play value for one of them, such as the
+  decrypt key path, is now ignored.

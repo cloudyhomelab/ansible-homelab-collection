@@ -604,7 +604,7 @@
           - molecule_package_probe.results[1].changed
           - molecule_package_probe.results[1].previous_versions == [molecule_package_probe.results[0].version]
           - ansible_facts.pkg_mgr is defined
-        fail_msg: "{{ molecule_package_probe.results }}"
+        fail_msg: "Check-mode probes: {{ molecule_package_probe.results }}"
         quiet: true
 
     - name: Find download directories the module left behind

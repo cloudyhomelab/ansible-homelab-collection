@@ -3,8 +3,8 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Asserted from the host's own state, not the role's task results, so a task that reported
-# 'ok' without writing anything still fails here.
+# Asserted from the host's own state, so a task that reported 'ok' without writing anything
+# still fails here.
 - name: Verify
   hosts: all
   become: true
@@ -26,7 +26,7 @@
       - /var/app/molinline/private/tls.key.age
       - /etc/systemd/system/homelab-private-decrypt@.service
       - /usr/local/libexec/homelab-decrypt-private
-      # One per unit the app installs, written by the role rather than the author.
+      # One per unit the app installs, each written by the role.
       - /etc/systemd/system/molsource.service.d/10-private.conf
       - /etc/systemd/system/molsource-extra.service.d/10-private.conf
       - /etc/systemd/system/molinline.service.d/10-private.conf
@@ -213,9 +213,8 @@
       changed_when: false
       register: molecule_secret_names
 
-    # --showsecret, because the point is that the store agrees rather than that the last
-    # deploy meant well. Ownership and digest are labels on the secrets, carried in the same
-    # JSON; secret_state (filter_plugins/) reads it.
+    # --showsecret, because the point is that the store itself agrees. Ownership and digest are
+    # labels on the secrets, carried in the same JSON; secret_state (filter_plugins/) reads it.
     - name: Inspect every declared secret, value included
       ansible.builtin.command:
         argv: "{{ ['podman', 'secret', 'inspect', '--showsecret'] + (molecule_secrets | list) }}"
@@ -284,7 +283,7 @@
       ansible.builtin.assert:
         that:
           # The file holds AutoUpdate=registry then AutoUpdate=local; the label is what Quadlet
-          # made of that, so the last-instance rule is observed rather than assumed.
+          # made of that, so the last-instance rule is observed on the host.
           - molecule_autoupdate_labels.results[0].stdout == 'local'
           # auto_update 'never': no line, so no label for podman auto-update to act on.
           - molecule_autoupdate_labels.results[1].stdout == ''
@@ -359,7 +358,7 @@
       ansible.builtin.assert:
         that:
           - molecule_private_decrypted == molecule_private_files | map(attribute='content') | list
-        # Lengths, not contents: the sizes say which file and by how much, and the plaintext
+        # Lengths only: the sizes say which file and by how much, and the plaintext
         # of a private file has no business in a CI log.
         fail_msg: >-
           Decrypted {{ molecule_private_decrypted | map('length') | list }} bytes for
@@ -374,7 +373,7 @@
         path: "{{ item }}"
       loop:
         - /run/app/molsource/private
-        # Mirrored rather than flattened.
+        # Mirrored, directory structure included.
         - /run/app/molsource/private/nested
       register: molecule_private_dirs
 
@@ -507,7 +506,7 @@
         quiet: true
 
     # --- slices -------------------------------------------------------------------------
-    # From systemd rather than the files, so a slice written but never reloaded fails here.
+    # From systemd, so a slice written but never reloaded fails here.
     - name: Ask systemd for the fixture slices' properties
       ansible.builtin.command:
         argv: [systemctl, show, --property, "Description,MemoryMax,CPUWeight,Slice", "{{ item }}"]
@@ -527,7 +526,7 @@
           {{ molecule_slice_show.results | map(attribute='stdout_lines') | map('join', ', ') | join(' | ') }}.
         quiet: true
 
-    # Loaded, not running, is enough for the property: molquiet was never started.
+    # Loaded is enough for the property: molquiet was never started.
     - name: Ask systemd which slice each app's services are in
       ansible.builtin.command:
         argv: [systemctl, show, --property, Slice, --value, "{{ item }}"]

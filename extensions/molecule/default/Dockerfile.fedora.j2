@@ -12,8 +12,8 @@ RUN dnf -y install systemd podman python3 sudo procps-ng \
 # A consuming play sets become: true, so the scenario does too — and the connection
 # already lands as root, which makes the sudo it goes through pure ceremony. The base
 # image's PAM stack cannot complete account management for it ("Authentication service
-# cannot retrieve authentication info"), so the ceremony is replaced outright rather than
-# repaired with nsswitch and authselect surgery inside a throwaway container.
+# cannot retrieve authentication info"), so the ceremony in this throwaway container is
+# replaced outright.
 RUN printf 'auth sufficient pam_permit.so\naccount sufficient pam_permit.so\nsession sufficient pam_permit.so\n' \
       > /etc/pam.d/sudo
 
@@ -21,11 +21,11 @@ RUN printf 'auth sufficient pam_permit.so\naccount sufficient pam_permit.so\nses
 RUN systemctl mask systemd-udevd.service systemd-udev-trigger.service \
       getty.target console-getty.service systemd-remount-fs.service
 
-# Overlay on top of the outer container's overlay would need fuse-overlayfs and
-# /dev/fuse; vfs needs neither and the images this pulls are a few megabytes. The roots are
-# spelled out because this file replaces the distribution's: once /etc/containers/storage.conf
-# exists it is the only one read, and Debian's podman has no built-in fallback for a
-# missing runroot ("Failed to obtain podman configuration: runroot must be set").
+# vfs stacks on the outer container's overlay with no fuse-overlayfs or /dev/fuse, and the
+# images this pulls are a few megabytes. The roots are spelled out because this file replaces
+# the distribution's: once /etc/containers/storage.conf exists it is the only one read, and
+# Debian's podman has no built-in fallback for a missing runroot ("Failed to obtain podman
+# configuration: runroot must be set").
 RUN printf '[storage]\ndriver = "vfs"\nrunroot = "/run/containers/storage"\ngraphroot = "/var/lib/containers/storage"\n' \
       > /etc/containers/storage.conf
 

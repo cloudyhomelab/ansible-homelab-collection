@@ -4,8 +4,8 @@
 
 """Tests for the 'systemd_app' role's filters.
 
-These cases are the reason the logic moved out of Jinja: each one used to need a generated
-playbook and an ansible-playbook run to check.
+The logic lives in Python filters so that each of these cases is a plain function call to
+check.
 """
 
 import inspect
@@ -46,8 +46,7 @@ def apps_dir(tmp_path_factory):
 
 
 def test_a_trailing_newline_in_the_name_is_refused():
-    # The case the YAML `is match('^...$')` assert this filter replaced let through: `$`
-    # matches before a trailing newline, and nothing the name is written into fails on one.
+    # A trailing newline is refused here, since nothing the name is written into would catch it.
     assert errors("myapp\n") != []
     assert errors("myapp") == []
 
@@ -301,7 +300,7 @@ def test_bad_ports_are_rejected(port):
     ],
 )
 def test_ports_int_would_wrongly_accept_are_rejected(port, why):
-    # Each of these passes a bare int(), which is why the filter does not use one.
+    # Each of these passes a bare int(); the filter refuses every one.
     problems = route_validation_errors("x.example.com", "myapp", port)
     assert any("systemd_app_port" in p for p in problems), why
 
@@ -313,7 +312,7 @@ def test_a_port_given_as_a_string_of_digits_is_accepted(port):
 
 
 def test_every_problem_is_reported_at_once():
-    # One run should tell the caller everything wrong, not just the first thing.
+    # One run should tell the caller everything wrong at once.
     assert len(route_validation_errors("bad {", "-bad", 0)) == 3
 
 
@@ -525,7 +524,7 @@ def test_a_suffix_with_no_name_before_it_is_not_a_unit():
 
 
 def test_the_result_is_sorted_and_deduplicated():
-    # A '.container' and a plain '.service' of the same name compose one unit, not two.
+    # A '.container' and a plain '.service' of the same name compose a single unit.
     assert units([
         f"{UNIT_DIR}/zz-extra.service",
         f"{SYSTEM_DIR}/app.container",
@@ -584,7 +583,7 @@ def test_no_types_and_an_empty_list_differ():
 
 
 def test_types_as_a_bare_string_is_refused():
-    """'service' would otherwise be the types 's', 'e', 'r', ... and match nothing."""
+    """A bare 'service' reads as the types 's', 'e', 'r', ... and matches nothing."""
     with pytest.raises(AnsibleFilterError, match="must be a list"):
         unit_names([f"{UNIT_DIR}/app.service"], SYSTEM_DIR, UNIT_DIR, types="service")
 
@@ -703,7 +702,7 @@ def test_two_files_decrypting_to_one_name_are_reported_rather_than_raised(tmp_pa
     assert tree["errors"] == [
         "private/db.env and private/db.env.age both decrypt to private/db.env"
     ]
-    # Still described: the role asserts on errors rather than guessing.
+    # Still described: the role asserts on errors.
     assert len(tree["files"]) == 2
 
 
@@ -784,8 +783,8 @@ def test_an_empty_config_directory_is_still_a_config_dir(tmp_path):
 
 
 def test_hidden_files_are_shipped_in_config_but_not_in_the_flat_directories(tmp_path):
-    # config/ is copied whole, dotfiles included; quadlet/ and unit/ were globbed with `*`,
-    # which skips them, and an editor's swap file in there is not a unit.
+    # config/ is copied whole, dotfiles included; quadlet/ and unit/ skip hidden files, and
+    # an editor's swap file in there is not a unit.
     app = tmp_path / "myapp"
     touch(app / "quadlet" / ".myapp.container.swp")
     touch(app / "quadlet" / "myapp.container")
@@ -914,7 +913,7 @@ def test_the_molecule_fixture_records_what_the_scenario_expects():
     """The scenario's oracle for the source app's manifest, against the fixture tree it is
     written for. Composed the way vars/main.yml composes it, so it stays an independent
     check; the encrypted private files come from molecule.yml, since prepare.yml writes those
-    rather than the tree carrying them."""
+    into the tree."""
     scenario = pathlib.Path(__file__).resolve().parents[2] / "extensions" / "molecule" / "default"
     verify = yaml.safe_load((scenario / "verify.yml").read_text())
     molecule = yaml.safe_load((scenario / "molecule.yml").read_text())

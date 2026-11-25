@@ -4,8 +4,8 @@
 
 """Both READMEs name every plugin the collection ships, and nothing it does not.
 
-The plugins are public API and the READMEs are where a consumer first meets them, but no
-gate reads a README: a filter added with full docs shipped once with no row in either table.
+The plugins are public API and the READMEs are where a consumer first meets them, so this is
+the gate that reads a README.
 The root README lists every module and filter, deprecated ones included, since a consumer may
 still be calling those. Each role's README lists exactly what that role calls, and between
 them the roles call every plugin that is neither deprecated nor a task of its own: a module
@@ -31,8 +31,8 @@ _FQCN_RE = re.compile(r"\bbinarycodes\.homelab\.([a-z_]+)")
 
 
 def documentation(path):
-    """A plugin's DOCUMENTATION, read from the source rather than imported: the question is
-    what the file declares, whether or not the plugin imports."""
+    """A plugin's DOCUMENTATION, read from the source: the question is what the file declares,
+    whether or not the plugin imports."""
     tree = ast.parse(path.read_text())
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(
@@ -84,8 +84,7 @@ def called_by(role_dir):
 
 @pytest.mark.parametrize("role_dir", ROLE_DIRS, ids=lambda p: p.name)
 def test_each_role_readme_lists_every_plugin_the_role_calls(role_dir):
-    # Deprecated plugins are named in the prose below the table, not the table: no role
-    # calls them.
+    # Deprecated plugins are named in the prose below the table: no role calls them.
     assert rows_under(role_dir / "README.md", "| Plugin ") == called_by(role_dir)
 
 

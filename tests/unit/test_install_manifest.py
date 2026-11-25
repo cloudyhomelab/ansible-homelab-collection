@@ -342,8 +342,8 @@ def test_a_relative_path_is_refused(host):
 
 
 def test_a_recorded_path_that_is_a_directory_is_refused_and_nothing_is_removed(host):
-    # The old task chain would have passed this to `file: state=absent`, which removes a
-    # directory recursively - the one thing a list an attacker could edit must never do.
+    # A recorded directory is refused whole: removing one recursively is the one thing a list
+    # an attacker could edit must never do.
     os.makedirs(host.config("nested"))
     victim = host.touch(host.config("nested/keep.conf"), host.quadlet("myapp.container"))
     error = refused(host, host.config("nested"), host.quadlet("myapp.container"), state="absent")
@@ -480,7 +480,7 @@ def test_a_suffix_with_no_name_before_it_is_not_a_unit():
 
 
 def test_the_result_is_sorted_and_deduplicated():
-    # A '.container' and a plain '.service' of the same name compose one unit, not two.
+    # A '.container' and a plain '.service' of the same name compose a single unit.
     assert units([
         f"{UNIT_DIR}/zz-extra.service",
         f"{SYSTEM_DIR}/app.container",
@@ -592,7 +592,7 @@ def test_a_drop_in_shape_is_not_allowed_in_the_quadlet_directory(host):
 
 
 def test_a_drop_in_names_no_unit_of_its_own(host):
-    """Its parent is <unit>.d, not the unit directory, so it must not read as a unit."""
+    """Its parent is <unit>.d, so it must not read as a unit."""
     assert mod.units_of(
         [host.dropin("myapp.service"), host.unit("myapp.service")], host.system_dir, host.unit_dir
     ) == ["myapp.service"]

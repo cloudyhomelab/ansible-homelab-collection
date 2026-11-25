@@ -6,9 +6,9 @@
 
 The filters are public API, so `ansible-doc -t filter binarycodes.homelab.<name>` is how a
 consumer discovers them. Nothing in `ansible-lint` or `ansible-test sanity` checks a filter
-plugin's docs, so an undocumented filter ships silently -- which is exactly what happened
-before these tests existed. They fail if a filter has no DOCUMENTATION, if its declared
-name does not match the name it registers, or if ansible-doc cannot parse what it finds.
+plugin's docs, so an undocumented filter ships silently. These tests fail if a filter has
+no DOCUMENTATION, if its declared name does not match the name it registers, or if
+ansible-doc cannot parse what it finds.
 
 `ansible-doc` resolves a filter only through an `ansible_collections/<ns>/<name>/` path;
 conftest.py's `collection_path` fixture provides one.

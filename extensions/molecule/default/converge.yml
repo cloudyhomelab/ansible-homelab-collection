@@ -83,7 +83,7 @@
         MOLECULE_GREETING: hello world
       # A second AutoUpdate= behind the rendered one: Quadlet reads the last instance, which is
       # the README's promise that a raw line overrides a rendered one. verify.yml checks the
-      # resulting label, not the file.
+      # resulting label.
       systemd_app_container_options:
         - Exec=sleep 86400
         - AutoUpdate=local
@@ -97,9 +97,9 @@
           group: "10001"
           mode: "0700"
 
-    # Its own app rather than secrets on the one above: the secrets path is the most stateful
-    # thing the role does, and each step is a further deploy in side_effect.yml, which then
-    # carries two parameters instead of the eight the app above needs to stay identical.
+    # Its own app: the secrets path is the most stateful thing the role does, and each step
+    # is a further deploy in side_effect.yml, which then repeats only the two parameters this
+    # app needs to stay identical.
     - role: binarycodes.homelab.systemd_app
       systemd_app_kind: inline
       systemd_app_name: molsecret

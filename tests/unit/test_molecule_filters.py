@@ -4,7 +4,7 @@
 
 """The molecule scenario's own filters, which read the podman secret store for its asserts.
 
-They live beside the plays rather than under plugins/, so nothing else loads or checks them;
+They live beside the plays, so nothing else loads or checks them;
 a scenario that failed because of a parsing slip here would look like a role regression.
 """
 

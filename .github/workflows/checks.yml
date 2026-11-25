@@ -8,15 +8,15 @@ name: Checks
 # The one workflow a pull request triggers. It calls the three gates as reusable workflows,
 # the same way release.yml does, and ends in one job that waits on all of them — so branch
 # protection requires a single check, `All gates passed`, and keeps requiring it however the matrices
-# and the path filter below change. The gates fire on nothing else: a PR would otherwise
-# get two runs of each, and there would be no job in a position to sum them up.
+# and the path filter below change. The gates fire on this call alone, so a PR gets one
+# run of each and one job in a position to sum them up.
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
 
-# One group for the whole run, here rather than in each called workflow. A superseded PR
+# One group for the whole run, set here for every called workflow at once. A superseded PR
 # push is worth cancelling; a push to main is not, since that run is the record of whether
 # the commit passed.
 concurrency:
@@ -27,9 +27,9 @@ permissions:
   contents: read
 
 jobs:
-  # Molecule's path filter used to sit on its trigger. It cannot stay there: a workflow that
-  # does not start produces no check, and a required check that never arrives blocks the
-  # merge. So the decision is a job, and the summing-up job reads its result.
+  # Molecule's path filter is a job, so its check always arrives: a workflow that does not
+  # start produces no check, and a required check that never arrives blocks the merge. The
+  # summing-up job reads its result.
   changes:
     name: Decide what the change needs
     runs-on: ubuntu-latest
@@ -48,7 +48,7 @@ jobs:
       # The role and what converges it: the scenario, the plugins the role calls, the tool
       # pins the converge runs with, and the two workflow files that define the run. A
       # range that cannot be resolved — a dispatch, or a push whose previous tip is not in
-      # this history — converges rather than guesses.
+      # this history — always converges.
       - name: Check whether a molecule converge is needed
         id: paths
         env:
@@ -78,10 +78,9 @@ jobs:
           fi
           echo "molecule=$molecule" >> "$GITHUB_OUTPUT"
 
-      # A release pull request is one that changes galaxy.yml's version: the fact, not the
-      # label prepare-release.yml puts on it, so a release PR opened by hand is gated all
-      # the same. Pull requests only; a push to main is the record of a PR that already
-      # passed here.
+      # A release pull request is one that changes galaxy.yml's version, so a release PR
+      # opened by hand is gated the same as one prepare-release.yml labels. Pull requests
+      # only; a push to main is the record of a PR that already passed here.
       - name: Check whether this is a release
         id: release
         env:
@@ -167,9 +166,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # The branch's own tip, not the merge commit GitHub synthesises for a pull request:
-      # the brief lists the commits since the previous release, and that synthetic merge
-      # would head the list as a commit nobody made. Whole history for the tags.
+      # The branch's own tip, so the brief's list of the commits since the previous release
+      # is headed by a commit someone made. Whole history for the tags.
       - name: Checkout the pull request's head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -291,8 +289,8 @@ jobs:
             echo "merges once every other check is green; Tag release then tags the merge commit."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The one required status check. always(), because a failed gate would otherwise skip
-  # this job, and GitHub shows a skipped required check as pending, not failed. Jobs may
+  # The one required status check. always(), so this job runs and fails after a failed
+  # gate too: GitHub shows a skipped required check as pending. Jobs may
   # skip and still pass, each only for the reason `changes` decided on a successful
   # decision: molecule when no path it covers changed, fragment on anything but a pull
   # request, and the two release jobs on anything but a release — where, conversely, both

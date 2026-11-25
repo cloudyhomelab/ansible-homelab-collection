@@ -6,7 +6,7 @@
 name: Molecule
 
 # The roles' behaviour on a host: what the filters' unit tests cannot cover and
-# a syntax check never runs. Called, not triggered: checks.yml decides from the changed
+# a syntax check never runs. Called: checks.yml decides from the changed
 # paths whether a pull request needs the converge, and release.yml runs it against the
 # tagged commit. One run per PR, summed up by one required check.
 on:
@@ -38,9 +38,8 @@ jobs:
             image: docker.io/library/debian:13
 
     # converge.yml calls the role by FQCN, as a consuming play does, so the role has to be
-    # reachable as a collection and not merely as the directory it is checked out into.
-    # Laying the checkout out this way makes the working tree itself the collection, which
-    # keeps the run testing the commit rather than a copy installed beside it.
+    # reachable as a collection. Laying the checkout out this way makes the working tree
+    # itself the collection, which keeps the run testing the commit itself.
     defaults:
       run:
         working-directory: ansible_collections/binarycodes/homelab
@@ -60,9 +59,8 @@ jobs:
       # The role decrypts an app's secrets through community.sops, which shells out to the
       # sops binary; the scenario ships an age identity and fixture apps that need one, and
       # copies this binary into the target for the private files the host decrypts itself.
-      # Not from a package repository, which carries sops on no runner image: a pinned
-      # release binary, with its checksum, so a replaced asset fails here rather than
-      # running.
+      # A pinned release binary, since no runner image's package repository carries sops,
+      # with its checksum, so a replaced asset fails here before it runs.
       - name: Install sops
         run: |
           curl -fsSL -o /tmp/sops \
@@ -74,7 +72,7 @@ jobs:
 
       # The other half of the scenario's private-file fixture: age encrypts what sops does
       # not, and prepare.yml copies both binaries into the target, which is where the role's
-      # decrypt unit runs them. Unlike sops, age is packaged on the runner image's Ubuntu.
+      # decrypt unit runs them. age is packaged on the runner image's Ubuntu.
       - name: Install age
         run: |
           sudo apt-get update
@@ -85,15 +83,15 @@ jobs:
         run: sudo podman version
 
       # sudo, so the container molecule creates belongs to a rootful podman: the scenario
-      # runs a second, rootful podman inside it, and rootful-in-rootless would need
-      # concessions (/dev/fuse, subuid ranges) that rootful-in-rootful does not.
+      # runs a second, rootful podman inside it, and rootful-in-rootful needs no extra
+      # concessions (/dev/fuse, subuid ranges).
       #
-      # PATH goes through `env` rather than sudo's own flag because sudoers' secure_path
-      # would replace it, and molecule lives in the runner user's pipx venv.
+      # PATH goes through `env`, so it is set after sudoers' secure_path has applied:
+      # molecule lives in the runner user's pipx venv.
       #
       # Both collection roots are named because they hold different halves of what the
       # converge needs: the workspace holds this collection, $HOME the community.sops
-      # installed above, and root would otherwise search neither.
+      # installed above, and naming them is what makes root search both.
       - name: Test the default scenario on ${{ matrix.distro }}
         run: |
           ansible-galaxy collection install community.sops

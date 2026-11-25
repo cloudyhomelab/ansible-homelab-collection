@@ -5,7 +5,7 @@
 
 name: CI
 
-# Called, not triggered: checks.yml runs this on every pull request and push to main, and
+# Called: checks.yml runs this on every pull request and push to main, and
 # release.yml against the tagged commit. One run per PR, summed up by one required check.
 on:
   workflow_call:
@@ -43,9 +43,9 @@ jobs:
       - name: Lint
         run: ansible-lint
 
-      # CHANGELOG.md is generated from changelogs/changelog.yaml. A fragment that will not
-      # parse only fails at release time otherwise, which is the worst moment to find out,
-      # and an edit to the generated file would be silently reverted by the next release.
+      # CHANGELOG.md is generated from changelogs/changelog.yaml. Checked here, so a fragment
+      # that will not parse fails on its PR, well ahead of release time, and so does an edit
+      # to the generated file, which the next release would silently revert.
       - name: Lint the changelog
         run: |
           antsibull-changelog lint

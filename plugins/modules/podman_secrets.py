@@ -131,7 +131,7 @@ DIGEST_ALGORITHM = "sha256"
 # reason: it also has to be a filename-safe token in a Quadlet's Secret= line.
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
-# Enough stderr to diagnose a podman failure, not enough to flood a task result.
+# Enough stderr to diagnose a podman failure, short enough to keep a task result readable.
 _STDERR_LIMIT = 300
 
 # One stored secret's labels, as `podman secret inspect` reports them.

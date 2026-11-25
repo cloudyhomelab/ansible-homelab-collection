@@ -11,9 +11,9 @@ DOCUMENTATION and the one-plugin-per-file rule does not apply. `secret_state` re
 `declared_secret_state` builds the same shape from the values a play declares, so every
 secrets assertion is one dict equality.
 
-The digest comes from the `podman_secrets` module itself rather than being rebuilt here: the
-scenario checks that the store carries what the module wrote, and a module that changed
-algorithm would otherwise fail it for the wrong reason.
+The digest comes from the `podman_secrets` module itself: the scenario checks that the store
+carries what the module wrote, so an algorithm change in the module cannot fail it for the
+wrong reason.
 """
 
 from __future__ import annotations
@@ -36,8 +36,8 @@ _spec.loader.exec_module(podman_secrets)
 def secret_state(inspect_json: str | list[Any]) -> dict[str, dict[str, Any]]:
     """`{name: {owner, digest, value}}` from `podman secret inspect --showsecret` output.
 
-    A label podman does not have, or a value it was not asked to show, reads as None
-    rather than raising, so a secret created by hand without labels can be asserted on.
+    A label podman does not have, or a value it was not asked to show, reads as None,
+    so a secret created by hand without labels can be asserted on.
     """
     entries = json.loads(inspect_json) if isinstance(inspect_json, str) else inspect_json
     state: dict[str, dict[str, Any]] = {}

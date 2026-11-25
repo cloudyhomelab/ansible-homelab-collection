@@ -3,10 +3,9 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# antsibull-changelog's configuration. What it buys over editing CHANGELOG.md by hand is
-# that a fragment lands in the same commit as the change it describes, so nothing has to be
-# remembered at release time, and that `ansible-test sanity` validates the result — which a
-# hand-written file never gets. See changelogs/README.md for the workflow.
+# antsibull-changelog's configuration. With it, a fragment lands in the same commit as the
+# change it describes, so nothing has to be remembered at release time, and
+# `ansible-test sanity` validates the result. See changelogs/README.md for the workflow.
 #
 # Only the keys that differ from `antsibull-changelog init` carry a comment; the rest are
 # that command's own defaults, written out so an upgrade cannot change them under us.
@@ -14,9 +13,9 @@ title: binarycodes.homelab
 changes_file: changelog.yaml
 changes_format: combined
 
-# Markdown, not the default CHANGELOG.rst: CHANGELOG.md is what README.md links to and what
-# release.yml slices a GitHub release body out of. The path is relative to the repository
-# root, so this is the same file the repository has always published.
+# Markdown: CHANGELOG.md is what README.md links to and what release.yml slices a GitHub
+# release body out of. The path is relative to the repository root, so this is the
+# repository's own published CHANGELOG.md.
 output:
   - file: CHANGELOG.md
     format: md

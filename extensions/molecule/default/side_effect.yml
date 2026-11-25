@@ -124,7 +124,7 @@
         that:
           - not molecule_after_rename.results[0].stat.exists
           - molecule_after_rename.results[1].stat.exists
-          # The tmpfs tree was rebuilt, not left holding a file the app no longer ships.
+          # The tmpfs tree was rebuilt, so it holds only the files the app still ships.
           - not molecule_after_rename.results[2].stat.exists
           - molecule_after_rename.results[3].stat.exists
           - molecule_after_rename.results[4].stat.exists
@@ -205,8 +205,7 @@
     # Nothing so far has started molquiet, because its call names no systemd_app_enable_units.
     # Starting it by hand is what an operator does with a 'source' app, and it is the only way
     # to reach what the decrypt's try-restart is for: an instance that IS running when the next
-    # deploy changes a private file. Requires= is what pulls the decrypt in here; the role is
-    # not involved.
+    # deploy changes a private file. Requires= alone pulls the decrypt in here.
     - name: Start the app the converge left alone
       ansible.builtin.systemd:
         name: molquiet.service
@@ -240,10 +239,10 @@
         systemd_app_kind: source
         systemd_app_name: molquiet
 
-    # This restart is systemd's, not the role's: the deploy returns once the decrypt instance
+    # This restart is systemd's: the deploy returns once the decrypt instance
     # has restarted, and the app's own restart is a job PartOf= put in the same transaction.
-    # So the job exists by now and waiting for the queue to drain is a wait, not a poll for
-    # something that may never be enqueued.
+    # So the job exists by now, and waiting for the queue to drain waits on a job already
+    # enqueued.
     - name: Wait for the jobs the re-deploy propagated to drain
       ansible.builtin.command:
         argv: [systemctl, list-jobs, --no-legend]
@@ -288,7 +287,7 @@
 
     # --- the same app, converted to the other kind -------------------------------------
     # The role prunes and disables the unit file but cannot stop a unit the app no longer
-    # ships; that is the caller's job, once. Stopped only, not disabled: removing the
+    # ships; that is the caller's job, once. Stopped only: removing the
     # `.wants/` symlink is the role's job, and the assertion after the flip is that it did.
     - name: Stop the unit the converted app will no longer ship
       ansible.builtin.systemd:
@@ -350,7 +349,7 @@
           - molecule_flip_recorded == [
               '/etc/containers/systemd/molsource.container',
               '/etc/systemd/system/molsource.service.d/20-slice.conf']
-          # Now the rendered file, not the fixture's copy.
+          # Now the rendered file.
           - "'Molecule fixture source container' not in molecule_flip_rendered"
           - "'ContainerName=molsource' in molecule_flip_rendered"
           - "'AutoUpdate=registry' in molecule_flip_rendered"
@@ -398,8 +397,8 @@
     - name: Assert the changed value was re-stored and the dropped name removed
       ansible.builtin.assert:
         that:
-          # The value podman holds is the new one, so the rm-then-create ran rather than
-          # the create being refused for a name that already existed — and the dropped
+          # The value podman holds is the new one, so the rm-then-create ran: the create
+          # succeeded for a name that already existed — and the dropped
           # name is gone from the store, whose key set is what a later deploy and the
           # decommission below work from to know which secrets this app owns.
           - molecule_secret_state == molecule_secrets_rotated | declared_secret_state('molsecret')
@@ -407,8 +406,8 @@
         quiet: true
 
     # The store is the only record, so a secret removed by hand — or lost with a store
-    # reset — is simply missing on the next deploy and comes back, rather than the app
-    # referencing a name podman does not know.
+    # reset — is simply missing on the next deploy and comes back, so the app always
+    # references a name podman knows.
     - name: Remove a stored secret behind the role's back
       ansible.builtin.command:
         argv: [podman, secret, rm, molsecret-token]
@@ -515,7 +514,7 @@
     # The role sees one app at a time, so this is the one route problem it has to ask the
     # host about, and the answer has to arrive before anything is installed: a second site
     # block on molinline's domain would make Caddy refuse the whole imported config on the
-    # next reload. The unit tests cannot reach this — it is a task, not a filter.
+    # next reload. It is a task, so this scenario is what tests it.
     - name: Deploy an app on a domain another app already routes
       block:
         - name: Deploy the clashing app
@@ -722,7 +721,7 @@
       loop:
         - /etc/systemd/system/homelab-private-decrypt@.service
         - /usr/local/libexec/homelab-decrypt-private
-        # The package's, not the app's: only the drop-ins were recorded.
+        # The package's: only the drop-ins were recorded.
         - /usr/lib/systemd/system/molpackaged.service
       register: molecule_absent_shared
 

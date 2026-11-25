@@ -6,21 +6,20 @@
 name: Supported versions
 
 # What meta/runtime.yml claims, actually run. `requires_ansible: ">=2.19.0"` and the role's
-# min_ansible_version are a promise to a consumer, and CI would otherwise only ever see the
-# one ansible-core the runner image happens to ship — so the promise would be tested
-# nowhere and could rot silently.
+# min_ansible_version are a promise to a consumer, and this workflow tests it beyond the
+# one ansible-core the runner image happens to ship, so the promise cannot rot silently.
 #
 # Its own workflow because it is also the one with a layout requirement: ansible-test
 # refuses to run unless the collection sits at ansible_collections/<namespace>/<name>/, and
 # aborts with "the current working directory must be within the source tree being tested"
 # anywhere else. Keeping it separate lets CI check out normally.
-# Called, not triggered: checks.yml runs this on every pull request and push to main, and
+# Called: checks.yml runs this on every pull request and push to main, and
 # release.yml against the tagged commit. One run per PR, summed up by one required check.
 on:
   # Sunday, because this is the one workflow whose result can change without a commit: the
   # latest row is unpinned, and every row resolves community.sops and ansible-test's own
-  # requirements afresh. A release that breaks the collection would otherwise sit unnoticed
-  # until someone next pushed, and then look like their fault. Off the hour, where GitHub's
+  # requirements afresh. A release that breaks the collection shows up within the week, on
+  # a run of its own, apart from whoever pushes next. Off the hour, where GitHub's
   # scheduler is least congested and a run is least likely to be dropped.
   schedule:
     - cron: '17 5 * * 0'
@@ -42,21 +41,20 @@ jobs:
       matrix:
         include:
           # The floor meta/runtime.yml declares. This row is what makes that declaration a
-          # tested claim rather than an assertion: if it ever fails, the fix is to raise
-          # the floor to what passes, not to drop the row.
+          # tested claim: if it ever fails, the fix is to raise the floor to what passes
+          # and keep the row.
           - core: "==2.19.*"
             python: "3.11"
             label: "2.19 (declared floor)"
-          # Unpinned: a release that breaks the collection should fail here the week it
-          # lands, not whenever someone next thinks to bump a pin.
+          # Unpinned, so a release that breaks the collection fails here the week it lands.
           - core: ""
             python: "3.13"
             label: latest
 
     # ansible-test derives the collection's package name from this layout — which is the
     # point: the 'import' sanity test loads each plugin as ansible would, through
-    # binarycodes.homelab, rather than through the checkout root as the unit tests do
-    # (pytest.ini). That is the coverage tests/unit/ cannot give.
+    # binarycodes.homelab. That is the coverage this layout adds to tests/unit/, which
+    # imports through the checkout root (pytest.ini).
     defaults:
       run:
         working-directory: ansible_collections/binarycodes/homelab
@@ -67,20 +65,20 @@ jobs:
         with:
           path: ansible_collections/binarycodes/homelab
 
-      # Pinned per row, not once for the job: each ansible-core has its own controller
-      # Python floor and ceiling, and the runner image's interpreter suits only the latest.
+      # Pinned per row: each ansible-core has its own controller Python floor and ceiling, and
+      # the runner image's interpreter suits only the latest.
       - name: Install Python ${{ matrix.python }}
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
 
-      # requirements-test.txt and not requirements-dev.txt: the lint and molecule tools in the
-      # latter have ansible-core floors of their own that would drag this row's core forward
-      # and defeat the row. The unit tests' needs are kept in their own file for exactly this.
+      # requirements-test.txt alone, which leaves this row's core where the row puts it: the
+      # lint and molecule tools in requirements-dev.txt carry ansible-core floors of their
+      # own. The unit tests' needs are kept in their own file for exactly this.
       - name: Install ansible-core ${{ matrix.label }} and the unit tests' requirements
         run: pip install "ansible-core${{ matrix.core }}" -r requirements-test.txt
 
-      # Resolved rather than pinned: ansible-galaxy honours each collection's own
+      # Resolved at install time: ansible-galaxy honours each collection's own
       # requires_ansible, so this lands the newest community.sops the row's core supports.
       - name: Install the collection's dependencies
         run: ansible-galaxy collection install community.sops
@@ -91,18 +89,17 @@ jobs:
         run: pytest tests/unit -q
 
       # The role's own YAML against this core's parser and keyword set — every task, both
-      # kinds, through a play that calls the role the way a consumer does. The unit tests
-      # and ansible-test never parse a task file as a playbook, so nothing else covers a
-      # keyword that only a newer core understands. Both collection roots are named, and
-      # through the shell so $HOME expands: naming either alone replaces the search path
-      # rather than adding to it.
+      # kinds, through a play that calls the role the way a consumer does. This is the one
+      # check that parses the task files as a playbook, so it covers a keyword that only a
+      # newer core understands. Both collection roots are named, and through the shell so
+      # $HOME expands: the setting replaces the search path as a whole.
       - name: Syntax-check a play that uses the role
         run: |
           ANSIBLE_COLLECTIONS_PATH="$GITHUB_WORKSPACE:$HOME/.ansible/collections" \
             ansible-playbook --syntax-check extensions/molecule/default/converge.yml
 
-      # --local rather than --docker: ansible-test then uses the interpreter it is running
-      # under (the row's) and installs each test's own requirements into a venv, which
-      # skips pulling the multi-gigabyte test container for a collection this size.
+      # --local: ansible-test then uses the interpreter it is running under (the row's) and
+      # installs each test's own requirements into a venv, which skips pulling the
+      # multi-gigabyte test container for a collection this size.
       - name: Sanity tests
         run: ansible-test sanity --local

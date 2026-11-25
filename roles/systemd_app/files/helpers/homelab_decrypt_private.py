@@ -60,7 +60,7 @@ def collisions(relpaths: Iterable[str]) -> list[str]:
 
 
 class DecryptError(Exception):
-    """Reported on stderr with a non-zero exit, rather than as a traceback."""
+    """Reported on stderr as its message, with a non-zero exit."""
 
 
 class Runner:

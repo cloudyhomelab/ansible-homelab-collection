@@ -20,9 +20,9 @@ name: Prepare release
 # `version_added` that names a version nobody released. The origin PR gets a comment either
 # way, with the release PR's address or the refusal.
 on:
-  # `closed` rather than a push to main: the event carries the labels as they were at the
-  # merge, whether the PR merged or was merely closed, and the PR's number to comment on.
-  # The branch filter is on the base, which is the one we want.
+  # `closed`: the event carries the labels as they were at the merge, whether the PR merged or
+  # was merely closed, and the PR's number to comment on. The branch filter is on the base,
+  # which is the one we want.
   pull_request:
     types: [closed]
     branches: [main]
@@ -36,15 +36,14 @@ on:
         type: string
 
 # Two labelled PRs merged back to back are two releases asked for at once; the second
-# waits, then refuses on the branch the first pushed rather than opening a second PR for
-# the same fragments.
+# waits, then refuses on the branch the first pushed, so the fragments get one PR.
 concurrency:
   group: prepare-release
   cancel-in-progress: false
 
-# The push, the label, the PR, the comment: all made by the App's token, not the workflow's.
-# A PR opened with GITHUB_TOKEN starts no workflow (GitHub's rule against runs that trigger
-# themselves), so it would get no Checks run and could never merge.
+# The push, the label, the PR, the comment: all made by the App's token, so the PR gets a
+# Checks run and can merge. GitHub starts no workflow from a PR opened with GITHUB_TOKEN
+# (its rule against runs that trigger themselves).
 permissions:
   contents: read
 

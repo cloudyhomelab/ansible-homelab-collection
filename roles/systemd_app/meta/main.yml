@@ -20,16 +20,15 @@ galaxy_info:
   # Only what the molecule scenario converges: nothing in the role is distribution-specific
   # — it installs unit files, calls podman and drives systemd — but a platform listed here
   # is a promise, and the two below are the ones that promise is tested against, once per
-  # row of .github/workflows/molecule.yml. Debian 12 is out because its podman (4.3) predates
+  # row of .github/workflows/molecule.yml. Debian starts at trixie: 12's podman (4.3) predates
   # Quadlet (4.4) and the secret labels the role relies on (4.5); a healthcheck additionally
-  # needs podman 5.0 (see the role README). EL and
-  # Ubuntu would probably work and are not claimed until something converges them. Adding a
-  # platform means a Dockerfile in the scenario and a matrix row as well as an entry here.
-  # Rootful podman is a requirement either way.
+  # needs podman 5.0 (see the role README). Adding a platform means a Dockerfile in the
+  # scenario and a matrix row as well as an entry here. Rootful podman is a requirement either
+  # way.
   #
-  # Fedora is the release the scenario's image is pinned to, not `all`: every supported
-  # Fedora ships a podman new enough, but only this one has been converged. It moves when
-  # the image tag in the scenario and the matrix row move, and not otherwise.
+  # Fedora is the release the scenario's image is pinned to, the one that has been converged;
+  # every supported Fedora ships a podman new enough. It moves with the image tag in the
+  # scenario and the matrix row.
   platforms:
     - name: Fedora
       versions: ["43"]
@@ -43,6 +42,6 @@ galaxy_info:
     - containers
     - caddy
 
-# The collection declares community.sops in galaxy.yml, which is what installs it for a
-# consumer; a role-level dependency would install nothing here and duplicate the pin.
+# community.sops comes from the collection's galaxy.yml, which installs it for a consumer and
+# holds its one pin.
 dependencies: []

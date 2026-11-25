@@ -46,9 +46,9 @@
     - "'could not find' not in (systemd_app_stop_result.msg | default('') | lower)"
 
 # `systemctl disable` removes the `.wants/` symlinks [Install] names, and can only do so while
-# it can read the file. A separate task from the stop: the systemd module disables before it
-# stops and fails out on the first refusal, which for a Quadlet service would leave it
-# running.
+# it can read the file. A task of its own, after the stop, so a Quadlet service is stopped
+# although disabling it is refused: the systemd module disables before it stops and fails out
+# on the first refusal.
 - name: "Disable units for app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ item }}"
@@ -103,8 +103,8 @@
     app: "{{ systemd_app_name }}"
     state: absent
 
-# The one task that removes a tree, so the composed path is re-checked rather than trusted
-# from main.yml. A name with a slash or a leading dot would reach systemd_app_root itself.
+# The one task that removes a tree, so the composed path is re-checked here on top of
+# main.yml's checks. A name with a slash or a leading dot would reach systemd_app_root itself.
 - name: "Verify the home directory to remove belongs to app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
@@ -123,13 +123,13 @@
     path: "{{ systemd_app_home }}"
     state: absent
 
-# In the reverse proxy's config tree, not this app's, so it goes explicitly. The route stops
-# resolving when the deploy playbook reloads Caddy.
+# In the reverse proxy's config tree, outside this app's home, so it goes explicitly. The route
+# stops resolving when the deploy playbook reloads Caddy.
 - name: "Remove Caddy route for {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ systemd_app_caddy_confd }}/{{ systemd_app_name }}.caddy"
     state: absent
 
-# Forget the now-removed generated units, here rather than at end of play.
+# Forget the now-removed generated units here, as part of this app's teardown.
 - name: Apply unit changes (systemd daemon-reload)
   ansible.builtin.meta: flush_handlers

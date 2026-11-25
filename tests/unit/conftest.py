@@ -4,11 +4,10 @@
 
 """What the tests share: where the plugins are, and a tree `ansible-doc` can resolve them in.
 
-Plain pytest, not `ansible-test units`, so there is no `ansible_collections.` path to import
-by. Plugins are imported through the checkout root as `plugins.filter.<name>`, which pytest.ini
-puts on `sys.path` and mypy resolves to the same file, so calls are checked against the
-plugin's own signature. Filters are discovered rather than listed, so a new one is picked up
-without editing this file.
+Plain pytest runs these, so there is no `ansible_collections.` path to import by. Plugins
+are imported through the checkout root as `plugins.filter.<name>`, which pytest.ini puts on
+`sys.path` and mypy resolves to the same file, so calls are checked against the plugin's own
+signature. Filters are discovered, so a new one is picked up without editing this file.
 """
 
 import importlib
@@ -29,7 +28,7 @@ HELPER_MODULE = "roles.systemd_app.files.helpers.homelab_decrypt_private"
 
 # The one table of private-file suffix rules, as (file name, tool, decrypted name). The rules
 # are written twice, in the helper and in plugins/filter/private_tree.py; both copies run
-# against this, so a rule changed in one and not the other fails here rather than on a host.
+# against this, so a rule changed in one and not the other fails here, before a host sees it.
 ACTION_CASES = [
     ("db.env.age", "age", "db.env"),
     ("tls.key.age", "age", "tls.key"),
@@ -43,9 +42,9 @@ ACTION_CASES = [
     # The marker needs something on both sides of it to be one.
     ("x.sops", "copy", "x.sops"),
     (".sops.yaml", "copy", ".sops.yaml"),
-    # A suffix with no name before it is a name, not a suffix.
+    # A suffix with no name before it counts as a name.
     (".age", "copy", ".age"),
-    # One layer comes off, not every layer: this is age around something still SOPS-shaped.
+    # Exactly one layer comes off: this is age around something still SOPS-shaped.
     ("x.sops.yaml.age", "age", "x.sops.yaml"),
 ]
 

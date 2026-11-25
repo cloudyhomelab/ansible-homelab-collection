@@ -3,10 +3,9 @@
    SPDX-License-Identifier: GPL-3.0-or-later #}
 [Unit]
 Description=Decrypt the private files of app %i
-# No Condition*: a skipped unit still satisfies Requires=, so a host without the key would
-# start the app against an empty private directory instead of not starting it. Assert* fails
-# the start job naming the key; LoadCredential= below fails it too, but only throws error
-# code 243.
+# Assert*, so a host without the key fails the start job, naming the key, and Requires= keeps
+# the app from starting against an empty private directory. LoadCredential= below fails it
+# too, with error code 243 alone.
 AssertPathExists={{ systemd_app_private_key_file }}
 
 [Service]
@@ -20,5 +19,5 @@ RuntimeDirectory=app/%i
 RuntimeDirectoryMode=0700
 ExecStart=/usr/bin/python3 {{ systemd_app_private_helper }} %i
 
-{# No [Install]: each app's drop-in pulls its instance in with Requires=, so there is none to
-   enable and none left behind when an app stops shipping private files. #}
+{# Each app's drop-in pulls its instance in with Requires=, which is the unit's whole activation:
+   nothing to enable, and nothing left behind when an app stops shipping private files. #}

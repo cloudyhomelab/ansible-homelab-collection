@@ -5,18 +5,15 @@
 
 # The one way the workflows install the development tools, so requirements-dev.txt is the
 # only place their versions are written down. Injected into the runner image's own
-# ansible-core venv rather than pip-installed beside it, so ansible-lint and molecule run
-# against the very ansible-core a consumer would use instead of the second, collection-less
-# one pip would drag in as a dependency.
+# ansible-core venv, so ansible-lint and molecule run against the very ansible-core a
+# consumer would use, the one that sees the collection.
 #
-# Installed with the venv's own pip rather than `pipx inject`: the requirements file pulls
-# requirements-test.txt in with `-r`, which pip resolves and pipx's own reading of a
-# requirements file may not, and pipx adds nothing here beyond bookkeeping for `pipx list`.
-# The venv's bin directory then goes on PATH instead of `pipx inject --include-apps`: that
-# flag refuses a package with no entry point (PyYAML, the molecule driver), so it would need
-# the list split by hand. The path is resolved from where this action was checked out,
-# because a composite action's steps do not inherit the job's working-directory default and
-# two of the callers check the collection out under ansible_collections/.
+# Installed with the venv's own pip, which resolves the `-r` that pulls requirements-test.txt
+# in. The venv's bin directory then goes on PATH, which takes the list whole, packages with no
+# entry point (PyYAML, the molecule driver) included. The path is resolved from where this
+# action was checked out, because a composite action's steps do not inherit the job's
+# working-directory default and two of the callers check the collection out under
+# ansible_collections/.
 name: Install the development tools
 description: >-
   Inject requirements-dev.txt into the runner's ansible-core pipx venv and put that venv's

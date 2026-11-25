@@ -21,12 +21,20 @@
       - molorphan.service
       - molpackaged.service
 
+  pre_tasks:
+    - name: Install the external packages
+      binarycodes.homelab.external_package:
+        name: "{{ item.name }}"
+        version: "{{ item.version }}"
+        url: "{{ item.url }}"
+        checksum: "{{ item.checksum }}"
+      loop: "{{ molecule_external_packages[ansible_facts.os_family] }}"
+      loop_control:
+        label: "{{ item.name }}"
+
   roles:
     - role: binarycodes.homelab.systemd_slices
       systemd_slices_units: "{{ molecule_slices }}"
-
-    - role: binarycodes.homelab.external_packages
-      external_packages_list: "{{ molecule_external_packages[ansible_facts.os_family] }}"
 
     # First app, so the network unit exists before anything that might reference it.
     - role: binarycodes.homelab.systemd_app
@@ -75,7 +83,7 @@
         MOLECULE_GREETING: hello world
       # A second AutoUpdate= behind the rendered one: Quadlet reads the last instance, which is
       # the README's promise that a raw line overrides a rendered one. verify.yml checks the
-      # resulting label, not the file.
+      # resulting label.
       systemd_app_container_options:
         - Exec=sleep 86400
         - AutoUpdate=local
@@ -89,9 +97,9 @@
           group: "10001"
           mode: "0700"
 
-    # Its own app rather than secrets on the one above: the secrets path is the most stateful
-    # thing the role does, and each step is a further deploy in side_effect.yml, which then
-    # carries two parameters instead of the eight the app above needs to stay identical.
+    # Its own app: the secrets path is the most stateful thing the role does, and each step
+    # is a further deploy in side_effect.yml, which then repeats only the two parameters this
+    # app needs to stay identical.
     - role: binarycodes.homelab.systemd_app
       systemd_app_kind: inline
       systemd_app_name: molsecret

@@ -16,9 +16,9 @@ platforms:
     # Bump only to a tag that has shipped. Rawhide is on Python 3.15, which dropped
     # `dataclasses._is_type`; ansible-core patches that unconditionally on module_utils import
     # (2.19-2.21), so every module dies before it runs and reports "Module result
-    # deserialization failed" rather than a version problem. Debian's tag is in the workflow.
+    # deserialization failed", which hides the version problem. Debian's tag is in the workflow.
     image: ${MOLECULE_IMAGE:-quay.io/fedora/fedora:43}
-    # Built rather than pulled: the base images ship none of systemd, podman or python3. The
+    # Built locally: the base images ship none of systemd, podman or python3. The
     # driver tags the result molecule_local/<image>, so two families never share a build.
     dockerfile: Dockerfile.${MOLECULE_DISTRO:-fedora}.j2
     pre_build_image: false
@@ -46,15 +46,15 @@ provisioner:
         systemd_app_apps_dir: "{{ molecule_apps_dir }}"
         # No netavark in the critical path: see apps/molsource/quadlet/molsource.container.
         systemd_app_network: none
-        # Somewhere to write route snippets that is not a real reverse proxy's config tree.
+        # A scratch directory for route snippets, away from any real reverse proxy's config tree.
         systemd_app_caddy_confd: /var/app/molproxy/config/conf.d
-        # The fixture slice converge.yml installs, rather than the role's default.
+        # Overrides the role's default with the fixture slice converge.yml installs.
         systemd_app_slice: molslice
 
         # The recipient of sops/age-key.txt. Only prepare.yml and side_effect.yml use it.
         molecule_sops_recipient: age17svute832444rnpteey2lapzwac3k80efzwcxlm0ypu29c0tvcuq43g9uw
-        # Plaintext here rather than an encrypted file under version control, so what the
-        # store is asserted to hold is readable next to the assertion.
+        # Plaintext here, so what the store is asserted to hold is readable next to the
+        # assertion.
         molecule_secrets:
           molsecret-token: first-token-value
           molsecret-extra: second-value
@@ -63,9 +63,9 @@ provisioner:
         molecule_secrets_rotated:
           molsecret-token: rotated-token-value
 
-        # Same argument as the secrets above. `tool` and `out` are named rather than derived,
-        # so verify.yml asserts against the intent and not against the rule under test. The
-        # tree's plaintext member is committed instead (apps/molsource/private/ca.crt). A
+        # Same argument as the secrets above. `tool` and `out` are named explicitly, so
+        # verify.yml asserts against the stated intent, independent of the rule under test. The
+        # tree's plaintext member is a committed file (apps/molsource/private/ca.crt). A
         # sops fixture's content is a YAML document, which is what its suffix decrypts to.
         molecule_private_files:
           - app: molsource
@@ -110,7 +110,7 @@ provisioner:
               url: https://github.com/anchore/grype/releases/download/v0.121.0/grype_0.121.0_linux_amd64.rpm
               checksum: sha256:4f964e1a778a1ee43b0a75458b444ffc19aaec7958a061a1ac7c02581f9a7aab
 
-        # Deliberately not in the list above: verify.yml reads that one out of /run, and this
+        # A list of its own: verify.yml reads the one above out of /run, and this
         # app's decrypt is asserted never to have run, because the call names no units for it.
         # side_effect.yml starts it by hand and re-encrypts `rotated` over `first`.
         molecule_private_quiet:
@@ -119,13 +119,13 @@ provisioner:
 
 # sops finds the identity through its own environment variable, as a consumer supplies it.
 # Interpolated by molecule before the provisioner runs; prepare.yml asserts the result is a
-# real file, so a failed interpolation says so rather than failing later inside sops.
+# real file, so a failed interpolation is named there, ahead of any sops call.
 ansible:
   env:
     SOPS_AGE_KEY_FILE: ${MOLECULE_SCENARIO_DIRECTORY}/sops/age-key.txt
 
-# verify before side_effect, unlike the default sequence: verify asserts what a converge
-# leaves, then side_effect walks the app through the rest of its life, asserting each step.
+# verify before side_effect: verify asserts what a converge leaves, then side_effect walks
+# the app through the rest of its life, asserting each step.
 scenario:
   test_sequence:
     - destroy

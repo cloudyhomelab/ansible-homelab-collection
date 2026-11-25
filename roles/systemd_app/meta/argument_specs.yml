@@ -224,8 +224,8 @@ argument_specs:
         required: false
         default: 8080
         description: Internal upstream port for the Caddy route. 1-65535.
-      # Host layout and controller layout. Set once for a fleet rather than per app,
-      # but specced because a consumer whose hosts are laid out differently sets them.
+      # Host layout and controller layout, set once for a fleet. Specced because a consumer
+      # whose hosts are laid out differently sets them.
       systemd_app_apps_dir:
         type: str
         required: false

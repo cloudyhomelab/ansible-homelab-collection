@@ -17,9 +17,9 @@ name: Tag release
 # version Galaxy already has. release.yml checks the tag against galaxy.yml on its own
 # account, so a tag pushed by hand on the merge commit remains a valid recovery.
 on:
-  # `closed` rather than a push to main: the event carries the labels as they were at the
-  # merge, whether the PR merged or was merely closed, the merge commit's sha and the PR's
-  # number. The branch filter is on the base, which is the one we want.
+  # `closed`: the event carries the labels as they were at the merge, whether the PR merged or
+  # was merely closed, the merge commit's sha and the PR's number. The branch filter is on the
+  # base, which is the one we want.
   pull_request:
     types: [closed]
     branches: [main]
@@ -35,9 +35,9 @@ concurrency:
   group: tag-release
   cancel-in-progress: false
 
-# The push is made by the App's token, not the workflow's. A tag pushed with GITHUB_TOKEN
-# starts no workflow (GitHub's rule against runs that trigger themselves), so it would
-# never start release.yml.
+# The push is made by the App's token, so the tag starts release.yml: GitHub starts no
+# workflow from a push made with GITHUB_TOKEN (its rule against runs that trigger
+# themselves).
 permissions:
   contents: read
 
@@ -186,8 +186,7 @@ jobs:
             sed -E 's/\\(.)/\1/g; s#</?code>#`#g; /^<a id=/d' /tmp/notes.md | cat -s
           } > /tmp/tag-message.md
 
-      # --cleanup=whitespace: the notes' `##` headings are content, which git's default
-      # cleanup would strip as comments.
+      # --cleanup=whitespace keeps the notes' `##` headings, which are content, as written.
       - name: Tag and push
         env:
           VERSION: ${{ steps.version.outputs.version }}

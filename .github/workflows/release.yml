@@ -16,8 +16,8 @@ on:
   # Two uses. Dispatched from a tag: a release whose gates passed and whose upload then
   # failed, where the tag is already pushed and there is nothing to re-tag. Dispatched from
   # a branch: a rehearsal — every check and every gate runs, the collection is built, and
-  # nothing is published. Which one it is comes from the ref, not from an input, so a
-  # rehearsal cannot be turned into a release by filling in a form.
+  # nothing is published. Which one it is comes from the ref, so a rehearsal cannot be
+  # turned into a release by filling in a form.
   workflow_dispatch:
 
 # Never two uploads of the same tag at once, and never cancel one in flight: a publish
@@ -41,8 +41,8 @@ jobs:
       release: ${{ steps.version.outputs.release }}
 
     steps:
-      # Whole history and every tag, not the default single commit: the summary at the end
-      # of this job lists the commits since the previous release tag.
+      # Whole history and every tag: the summary at the end of this job lists the commits since
+      # the previous release tag.
       - name: Checkout collection
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,11 +50,11 @@ jobs:
 
       # The tag and galaxy.yml are edited at different moments, which is how a collection
       # ends up published under a number nobody meant. The version is read from the file
-      # either way, so the tag has to agree with it rather than be believed.
+      # either way, so the tag has to agree with it.
       #
       # This is also where a rehearsal is told apart from a release, and the ref is what
       # tells them apart: a branch has no version to agree with, and everything downstream
-      # keys off this rather than off anything a caller can set.
+      # keys off this, which no caller can set.
       - name: Resolve the version and check the tag against galaxy.yml
         id: version
         run: |
@@ -79,9 +79,9 @@ jobs:
           fi
           echo "version=$declared" >> "$GITHUB_OUTPUT"
 
-      # CHANGELOG.md is generated from changelogs/changelog.yaml, so the checks below ask
-      # the source of truth rather than the rendered file. antsibull-changelog arrives with
-      # the rest of the pinned tools; the version is requirements-dev.txt's.
+      # CHANGELOG.md is generated from changelogs/changelog.yaml, so the checks below ask that
+      # source of truth. antsibull-changelog arrives with the rest of the pinned tools; the
+      # version is requirements-dev.txt's.
       - name: Install the development tools
         uses: ./.github/actions/install-dev-tools
 
@@ -119,8 +119,8 @@ jobs:
             exit 1
           fi
 
-      # The publish would fail on a duplicate anyway, but only after the gates have run
-      # for half an hour. A 200 here is conclusive; anything else is not, so only 200
+      # A duplicate caught here costs seconds; the publish refuses one only after the gates
+      # have run for half an hour. A 200 here is conclusive; anything else is not, so only 200
       # stops the release — a Galaxy outage should not read as "already published". Worth
       # running in a rehearsal too: it answers whether the number in galaxy.yml is still
       # free, which is the question a rehearsal is usually asked to settle.
@@ -135,8 +135,8 @@ jobs:
             *)   echo "::warning::Galaxy answered $code; leaving it to the publish step to refuse a duplicate." ;;
           esac
 
-      # The approval is asked for on the run's page, and until this step that page said
-      # nothing about what approving would publish. This is the reviewer's brief: the tag
+      # The approval is asked for on the run's page, and this step puts on that page what
+      # approving would publish. This is the reviewer's brief: the tag
       # and commit, every commit since the previous release, and the notes as the GitHub
       # release will carry them. It comes from this job so it is on the page while publish
       # is still waiting, and a rehearsal gets it too, since an empty or wrong-looking note
@@ -155,7 +155,7 @@ jobs:
                 && format('Tag `{0}` at `{1}`.', github.ref_name, github.sha)
                 || format('From branch `{0}` at `{1}`. Nothing is published.', github.ref_name, github.sha) }}
 
-  # The same definitions main runs, against the tagged commit. Called rather than trusted:
+  # The same definitions main runs, against the tagged commit. Called again for the tag:
   # a green tick on main is a statement about whatever main was then, and a tag can point
   # anywhere.
   ci:
@@ -174,9 +174,8 @@ jobs:
     uses: ./.github/workflows/molecule.yml
 
   # Build, upload and announce in one job so the file attached to the GitHub release is
-  # byte-for-byte the file that went to Galaxy, rather than a second build of the same
-  # source that merely ought to match. On a rehearsal the build still runs and the two
-  # steps that change something outside this runner do not.
+  # byte-for-byte the file that went to Galaxy. On a rehearsal the build still runs and the
+  # two steps that change something outside this runner do not.
   publish:
     name: >-
       ${{ needs.verify.outputs.release == 'true' && 'Publish' || 'Rehearse' }}
@@ -198,19 +197,19 @@ jobs:
       - name: Checkout collection
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The filename is asserted rather than assumed: it is composed from galaxy.yml's
-      # namespace, name and version, and the publish and release steps below both name it.
-      # A mismatch here is a build that would not be found a step later, or worse, found
-      # and published under a name nobody checked.
+      # The filename is asserted: it is composed from galaxy.yml's namespace, name and version,
+      # and the publish and release steps below both name it. A mismatch here is a build that
+      # would not be found a step later, or worse, found and published under a name nobody
+      # checked.
       - name: Build the collection
         run: |
           ansible-galaxy collection build --output-path dist
           ls -l "dist/binarycodes-homelab-${{ needs.verify.outputs.version }}.tar.gz"
 
       # The token reaches the command through the environment, so the secret is never a
-      # literal in this file; GitHub masks it in the log either way. No --no-wait: Galaxy
-      # accepts the tarball and then imports it asynchronously, and the import is what
-      # actually validates the collection, so the run has to stay for the verdict.
+      # literal in this file; GitHub masks it in the log either way. Galaxy accepts the
+      # tarball and then imports it asynchronously, and the import is what actually
+      # validates the collection, so the run stays for the verdict.
       - name: Publish to Galaxy
         if: needs.verify.outputs.release == 'true'
         env:
@@ -224,10 +223,9 @@ jobs:
             "dist/binarycodes-homelab-${{ needs.verify.outputs.version }}.tar.gz" \
             --api-key "$GALAXY_API_KEY"
 
-      # Rendered from changelogs/changelog.yaml rather than sliced out of CHANGELOG.md:
-      # the same command that writes the changelog writes the release body, so the two
-      # cannot disagree about where a version's notes end. verify has already established
-      # that this version has an entry.
+      # Rendered from changelogs/changelog.yaml: the same command that writes the changelog
+      # writes the release body, so the two cannot disagree about where a version's notes end.
+      # verify has already established that this version has an entry.
       - name: Install the development tools
         if: needs.verify.outputs.release == 'true'
         uses: ./.github/actions/install-dev-tools
@@ -269,7 +267,7 @@ jobs:
   # from Galaxy, its plugins document themselves from the install, and the GitHub release
   # carries the tarball. Galaxy's index lags its import by minutes, so the install retries
   # for a while before a miss counts. Nothing here can be rolled back — the publish is done —
-  # so a failure is a note to look by hand, not a reason to redo anything.
+  # so a failure is a note to look by hand.
   verify-published:
     name: Verify ${{ needs.verify.outputs.version }} is installable
     needs: [verify, publish]
@@ -297,8 +295,8 @@ jobs:
             exit 1
           fi
 
-      # One filter and one module, named from the install rather than here, so a plugin
-      # renamed or removed in some later release does not break this job for that release.
+      # One filter and one module, named from the install, so this job keeps working for a
+      # later release that renames or removes a plugin.
       - name: Read a filter's and a module's documentation from the install
         env:
           ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/collections

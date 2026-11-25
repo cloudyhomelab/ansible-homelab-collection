@@ -151,8 +151,8 @@ def container_validation_errors(env: Mapping[Any, object] | None, description: o
                 f"systemd_app_env key {str(key)!r} is not a legal variable name (letters, "
                 "digits and underscore, no leading digit)"
             )
-        # Reported by key, not by value: a failure message is no place for either, and the
-        # key is what the caller has to go and fix.
+        # Reported by key: a failure message is no place for the value or its control character,
+        # and the key is what the caller has to go and fix.
         if isinstance(value, str) and _CONTROL_RE.search(value):
             problems.append(
                 f"the value of systemd_app_env key {str(key)!r} holds a control character"
@@ -168,8 +168,8 @@ def container_validation_errors(env: Mapping[Any, object] | None, description: o
         ("systemd_app_restart", restart),
     ]
     # The template emits the health block, and the start timeout beside it, only for a
-    # non-empty command. Checking the rest unconditionally would fail a deploy over a value
-    # that is never written.
+    # non-empty command, so the rest is checked under the same condition: only a value that
+    # is written can fail a deploy.
     if health_cmd:
         scalars += [
             ("systemd_app_health_cmd", health_cmd),

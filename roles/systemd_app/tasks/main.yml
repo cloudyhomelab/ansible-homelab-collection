@@ -6,11 +6,11 @@
 # Deploys (present) or decommissions (absent) one app, of either kind. See README,
 # defaults/main.yml for the inputs and vars/main.yml for what is derived from them.
 
-# The conditional requirements cannot go in meta/argument_specs.yml, which can only mark an
-# option required outright. A 'source' app's directory is checked here, before anything is
-# touched; source_tree refuses a missing one too, but is first read after the secrets.
-# Nothing here interpolates systemd_app_name, so an unusable name fails this task rather than
-# its title. Secret keys only, and only on present: a decommission must not need the key.
+# The conditional requirements live here: meta/argument_specs.yml marks an option required only
+# outright. A 'source' app's directory is checked here, before anything is touched; source_tree
+# refuses a missing one too, but is first read after the secrets. Nothing here interpolates
+# systemd_app_name, so an unusable name fails this task's check, with its title intact. Secret
+# keys only, and only on present: a decommission must not need the key.
 - name: Validate role input
   ansible.builtin.assert:
     that:
@@ -31,8 +31,8 @@
            slice_name=systemd_app_slice) }}
 
 # Two files decrypting to one name would leave whichever the host's decrypt unit reached last.
-# Caught here, by the filter applying the same rules the helper does, so it is a failed play
-# rather than a failed unit.
+# Caught here, by the filter applying the same rules the helper does, so it fails the play
+# before any unit runs.
 - name: "Verify the private files of app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
@@ -43,9 +43,9 @@
     quiet: true
   when: systemd_app_state == 'present'
 
-# These are interpolated into generated files, not passed to a module, so nothing fails at
-# write time: Caddy refuses a whole imported config over one bad domain, and systemd
-# mis-parses an Environment= line without complaining. See each filter's own docs.
+# These are interpolated into generated files, so nothing checks them at write time: Caddy
+# refuses a whole imported config over one bad domain, and systemd mis-parses an Environment=
+# line without complaining. See each filter's own docs.
 - name: "Verify the route inputs of app {{ systemd_app_name }}"
   ansible.builtin.assert:
     that:
@@ -97,9 +97,9 @@
     - systemd_app_domain | string | length > 0
 
 # A slice with no unit file still takes units: systemd creates it implicitly, with no limits, so
-# a missing or misspelled slice would run the app unlimited and say nothing. FragmentPath, not
-# LoadState or list-units: an implicit slice is loaded too once something runs in it. Asked of
-# systemd rather than of a list of directories, so every unit search path counts.
+# a missing or misspelled slice would run the app unlimited and say nothing. FragmentPath, since
+# an implicit slice reports as loaded too once something runs in it. Asked of systemd, so every
+# unit search path counts.
 #
 # Also the name check: the name reaches a Slice= line, and only a name systemd parses and holds a
 # file for gets past here. Hence argv, and a non-zero exit failing as an empty answer does.
@@ -141,7 +141,7 @@
       {{ systemd_app_container_validation_errors | join('; ') }}.
     quiet: true
   vars:
-    # Named rather than positional: every value inline.container.j2 interpolates is here,
+    # Named arguments: every value inline.container.j2 interpolates is here,
     # and which one is missing has to be visible at a glance when the template gains a line.
     systemd_app_container_validation_errors: >-
       {{ systemd_app_env | binarycodes.homelab.container_validation_errors(

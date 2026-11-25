@@ -123,7 +123,7 @@ def test_a_changed_value_is_removed_then_created():
 
     assert result["changed"] is True
     assert result["stored"] == ["myapp-token"]
-    # A rotation is not a drop: the name is still the app's afterwards.
+    # A rotation keeps the name: it is still the app's afterwards.
     assert result["removed"] == []
     assert podman.writes() == [("rm", "myapp-token"), ("create", "myapp-token")]
     assert podman.secrets["myapp-token"][0] == "new"
@@ -230,7 +230,7 @@ def test_check_mode_reports_the_plan_and_writes_nothing():
     assert result["stored"] == ["myapp-key", "myapp-token"]
     assert result["removed"] == ["myapp-old"]
     assert podman.writes() == []
-    # Reads still happen in check mode, or the plan could not be computed.
+    # Reads still happen in check mode, since the plan is computed from them.
     assert [argv[2] for argv, stdin in podman.calls] == ["ls", "inspect"]
 
 

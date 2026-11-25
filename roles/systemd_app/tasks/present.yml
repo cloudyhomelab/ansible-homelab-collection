@@ -25,8 +25,8 @@
   register: systemd_app_quadlet_render
   notify: systemd_app reload systemd
 
-# Included rather than guarded per task: Ansible evaluates `loop` before `when`, so a loop over
-# systemd_app_source_tree would read the tree for an 'inline' app too, and that raises.
+# Included conditionally: Ansible evaluates `loop` before `when`, so the include's condition is
+# what keeps an 'inline' app from reading systemd_app_source_tree, which raises for it.
 - name: "Install the files of source app {{ systemd_app_name }}"
   ansible.builtin.include_tasks: install-source.yml
   when: systemd_app_kind == 'source'
@@ -37,8 +37,8 @@
   ansible.builtin.include_tasks: install-private.yml
   when: systemd_app_has_private | bool
 
-# The drop-in, not the app's own unit, is where the slice is chosen: a 'source' Quadlet is
-# installed verbatim and an 'inline' one has no [Service] line for it.
+# The drop-in is where the slice is chosen: a 'source' Quadlet is installed verbatim and an
+# 'inline' one has no [Service] line for it.
 - name: "Ensure slice drop-in directories exist for the units of app {{ systemd_app_name }}"
   ansible.builtin.file:
     path: "{{ item | dirname }}"
@@ -88,7 +88,7 @@
   changed_when: false
   register: systemd_app_manifest_plan
 
-# Disable, not stop: stopping is the caller's job (see README), but a unit whose file is about
+# Disable only: stopping is the caller's job (see README), but a unit whose file is about
 # to go must not leave a `.wants/` symlink systemd cannot resolve. Tolerated failures as in the
 # enable task below.
 - name: "Disable the units no longer shipped by app {{ systemd_app_name }}"
@@ -118,7 +118,7 @@
   register: systemd_app_manifest
   notify: systemd_app reload systemd
 
-# Made with the owner the image runs as. The deploy would not notice otherwise: the mount
+# Made with the owner the image runs as, since the deploy cannot see a wrong one: the mount
 # succeeds either way and only the app hits the failure, later, when it writes. Paths were
 # checked relative and '..'-free in main.yml, since one that climbed out would be created as
 # root here and removed with the tree on absent.
@@ -153,8 +153,7 @@
     mode: "{{ systemd_app_file_mode }}"
   when: systemd_app_domain is defined and (systemd_app_domain | string | length > 0)
 
-# Handlers notified above run here, not at end of play, so the state tasks below see the
-# regenerated units.
+# Handlers notified above run here, so the state tasks below see the regenerated units.
 - name: Apply unit changes (systemd daemon-reload)
   ansible.builtin.meta: flush_handlers
 
@@ -170,8 +169,8 @@
 #
 # A changed private file is a restart: its plaintext lives in a RuntimeDirectory the decrypt
 # unit destroys and re-creates, so reloading would leave the container on a directory that is
-# gone. Its own fact rather than a `vars:` entry on the task below, which ansible-lint
-# evaluates as raw text and coerces through `bool` (an error from ansible-core 2.23).
+# gone. Its own fact, since ansible-lint evaluates a `vars:` entry on the task below as raw
+# text and coerces it through `bool` (an error from ansible-core 2.23).
 #
 # A changed slice drop-in is a restart too: systemd moves a unit to another cgroup only when it
 # starts.
@@ -207,9 +206,9 @@
   when: systemd_app_has_private | bool
 
 # A try-restart: RemainAfterExit means a running instance must be restarted to re-read what
-# this deploy installed, but an instance that is not running is left alone rather than started.
+# this deploy installed, and an instance that is not running is left alone.
 # Deploying an app is not starting it, and Requires= pulls a fresh instance in if a unit does
-# start. Before the app's own units, so a failed decrypt is reported as itself rather than as
+# start. Before the app's own units, so a failed decrypt is reported as itself, ahead of
 # every unit failing its Requires=.
 - name: "Re-decrypt the private files of app {{ systemd_app_name }}"
   ansible.builtin.systemd:
@@ -222,8 +221,8 @@
 
 # An app that stopped shipping private files: its copies and drop-ins are pruned above, but
 # the instance they pulled in keeps holding a tmpfs tree of plaintext for files that are gone.
-# Only when the manifest just pruned under private/, so this is not a systemd call per deploy
-# for every app that never had any.
+# Only when the manifest just pruned under private/, so an app that never had any costs no
+# systemd call per deploy.
 - name: "Stop the private decrypt of app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ systemd_app_private_unit }}@{{ systemd_app_name }}.service"
@@ -237,8 +236,8 @@
     - "'not loaded' not in (systemd_app_private_stop.msg | default('') | lower)"
     - "'could not find' not in (systemd_app_private_stop.msg | default('') | lower)"
 
-# Registered for the reload below: the module returns `systemctl show` properties, so no
-# separate probe is needed to learn whether a unit can reload.
+# Registered for the reload below: the module returns `systemctl show` properties, which
+# already say whether a unit can reload.
 - name: "Start units for app {{ systemd_app_name }}"
   ansible.builtin.systemd:
     name: "{{ item }}"

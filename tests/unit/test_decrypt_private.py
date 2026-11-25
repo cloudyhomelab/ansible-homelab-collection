@@ -110,7 +110,7 @@ def test_each_file_goes_to_the_tool_its_name_names(tree):
     assert runner.tools() == ["sops", "age"]
     assert (dst / "db.env").read_bytes().startswith(b"plain(")
     assert (dst / "config.yaml").read_bytes().startswith(b"plain(")
-    # Neither suffix: copied byte for byte, not run through anything.
+    # Neither suffix: copied byte for byte.
     assert (dst / "ca.crt").read_text() == "public"
 
 

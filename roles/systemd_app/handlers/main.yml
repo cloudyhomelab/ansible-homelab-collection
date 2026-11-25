@@ -3,7 +3,7 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Notified by topic (`listen`) rather than by name. Handler names are global to the play and
+# Notified by topic (`listen`): handler names are global to the play and
 # Ansible runs only one handler per duplicated name — verified on core 2.19 — so a consumer
 # play with a handler of its own called something as ordinary as "Reload systemd" would
 # silently lose one of the two: either this reload, leaving Quadlet-generated services

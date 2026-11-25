@@ -85,9 +85,9 @@ _PORT_RE = re.compile(r"[0-9]+")
 def _port_number(port: object) -> int | None:
     """The port as an int, or None when the value is not one.
 
-    Not `int()`: bool is a subclass of int, so True would pass as port 1; a float would be
-    truncated rather than refused; and a string would be accepted with surrounding
-    whitespace, so "8080\\n" would compose a Caddy site block with a newline in it.
+    A bool is refused although it subclasses int, so True cannot pass as port 1; a float is
+    refused; and a string must be ASCII digits alone, so "8080\\n" cannot compose a Caddy
+    site block with a newline in it.
     """
     if isinstance(port, bool):
         return None

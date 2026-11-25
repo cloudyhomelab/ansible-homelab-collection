@@ -129,7 +129,7 @@ EXAMPLES = r"""
 
 
 # The unit types install_manifest admits a drop-in directory for. Checked here as well, so a
-# wrong name fails before anything is copied rather than at the manifest call after it.
+# wrong name fails before anything is copied.
 _PLAIN_UNIT_SUFFIXES = (
     ".service",
     ".socket",

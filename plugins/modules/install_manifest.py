@@ -403,8 +403,8 @@ def prune_dirs(files: Files, pruned: Iterable[str], stops: Iterable[str],
                removable: Iterable[str]) -> list[str]:
     """Remove the directories a prune emptied, deepest first. A `stops` root is the host's and
     is never removed; a `removable` root is the app's own, so an emptied one goes and the walk
-    ends there rather than climbing into the app's home. `rmdir` refusing a non-empty directory
-    is what stops the walk otherwise, so no check of its own is needed."""
+    ends there, inside the app's home. Elsewhere `rmdir` refusing a non-empty directory is
+    what stops the walk, which makes it the whole check."""
     keep = set(root.rstrip("/") for root in stops)
     ends = set(root.rstrip("/") for root in removable)
     removed: list[str] = []

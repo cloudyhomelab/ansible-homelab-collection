@@ -19,7 +19,7 @@ destroy`. `verify` before `side_effect`, because it asserts what the converge le
 | Declared data directories exist with the container user's ownership before podman could create them as root | `verify` | `molinline` |
 | Secrets are decrypted by sops and stored under their own names, labelled with owner and digest, with no record file beside them; the Quadlet references them by name and the container receives them as variables | `verify` | `molsecret` |
 | Every managed unit is active, and a plain unit is enabled at boot | `verify` | all |
-| A release's deb or rpm, whichever the host's package manager installs, lands in the package database at the version its entry names, and its download directory is gone | `verify` | `grype` |
+| A release's deb or rpm, whichever the host's package manager installs, installed with the `external_package` module, lands in the package database at the version its entry names, and its download directory is gone | `verify` | `grype` |
 | A second converge changes nothing | `idempotence` | all |
 | A file dropped from the source tree is removed from the host and the manifest; the app stays up | `side_effect` | `molsource` |
 | `private/` lands on the host still encrypted, decrypts into `/run/app/<app>/private` under the name its suffix promises, mirrors subdirectories, keeps a plaintext member as it is, and is 0600 in a 0700 tree | `verify` | `molsource`, `molinline` |

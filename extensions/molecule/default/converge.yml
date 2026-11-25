@@ -21,12 +21,20 @@
       - molorphan.service
       - molpackaged.service
 
+  pre_tasks:
+    - name: Install the external packages
+      binarycodes.homelab.external_package:
+        name: "{{ item.name }}"
+        version: "{{ item.version }}"
+        url: "{{ item.url }}"
+        checksum: "{{ item.checksum }}"
+      loop: "{{ molecule_external_packages[ansible_facts.os_family] }}"
+      loop_control:
+        label: "{{ item.name }}"
+
   roles:
     - role: binarycodes.homelab.systemd_slices
       systemd_slices_units: "{{ molecule_slices }}"
-
-    - role: binarycodes.homelab.external_packages
-      external_packages_list: "{{ molecule_external_packages[ansible_facts.os_family] }}"
 
     # First app, so the network unit exists before anything that might reference it.
     - role: binarycodes.homelab.systemd_app

@@ -541,8 +541,8 @@
       changed_when: false
       register: molecule_unit_slices
 
-    # The cgroup, not the property, is what the limits apply to, and conmon and the container
-    # are separate processes podman places; the service's slice has to reach both.
+    # The limits apply to the cgroup, and conmon and the container are separate processes
+    # podman places; the service's slice has to reach both.
     - name: Ask podman for the conmon and container process of the inline app
       ansible.builtin.command:
         argv: [podman, inspect, --format, "{{ '{{' }}.State.ConmonPid{{ '}}' }} {{ '{{' }}.State.Pid{{ '}}' }}", molinline]
@@ -578,7 +578,37 @@
     - name: Read the installed packages
       ansible.builtin.package_facts:
 
-    - name: Find download directories the role left behind
+    # This play gathers no facts, so the module gathers the package manager itself. It reads
+    # the installed version over a raw command, which runs in check mode too.
+    - name: Ask in check mode for grype at its installed version and at a newer one
+      binarycodes.homelab.external_package:
+        name: grype
+        version: "{{ molecule_package_version }}"
+        url: "{{ molecule_package.url }}"
+        checksum: "{{ molecule_package.checksum }}"
+      check_mode: true
+      loop: [installed, newer]
+      loop_control:
+        loop_var: molecule_package_case
+      vars:
+        molecule_package: >-
+          {{ molecule_external_packages[{'apt': 'Debian', 'rpm': 'RedHat'}[ansible_facts.packages.grype[0].source]][0] }}
+        molecule_package_version: >-
+          {{ molecule_package.version if molecule_package_case == 'installed'
+             else molecule_package.version | regex_replace('^0\.121\.0', '0.999.0') }}
+      register: molecule_package_probe
+
+    - name: Assert check mode reported only the newer version as a change
+      ansible.builtin.assert:
+        that:
+          - not molecule_package_probe.results[0].changed
+          - molecule_package_probe.results[1].changed
+          - molecule_package_probe.results[1].previous_versions == [molecule_package_probe.results[0].version]
+          - ansible_facts.pkg_mgr is defined
+        fail_msg: "{{ molecule_package_probe.results }}"
+        quiet: true
+
+    - name: Find download directories the module left behind
       ansible.builtin.find:
         paths: /tmp
         patterns: "*.external_packages"

@@ -8,7 +8,8 @@ The plugins are public API and the READMEs are where a consumer first meets them
 gate reads a README: a filter added with full docs shipped once with no row in either table.
 The root README lists every module and filter, deprecated ones included, since a consumer may
 still be calling those. Each role's README lists exactly what that role calls, and between
-them the roles call every plugin that is not deprecated.
+them the roles call every plugin that is neither deprecated nor a task of its own: a module
+with an action plugin of the same name is called from a play.
 """
 
 import ast
@@ -22,6 +23,7 @@ from conftest import FILTER_FILES, MODULE_DIR, ROOT
 ROOT_README = ROOT / "README.md"
 ROLE_DIRS = sorted(p for p in (ROOT / "roles").iterdir() if p.is_dir())
 MODULE_FILES = sorted(p for p in MODULE_DIR.glob("*.py") if not p.name.startswith("_"))
+ACTION_DIR = ROOT / "plugins" / "action"
 
 # A table row whose first cell is a backquoted plugin name.
 _ROW_RE = re.compile(r"^\| `([a-z_]+)`\s*\|", re.MULTILINE)
@@ -56,6 +58,7 @@ def rows_under(readme, header):
 FILTERS = {p.stem for p in FILTER_FILES}
 MODULES = {p.stem for p in MODULE_FILES}
 CURRENT = {p.stem for p in FILTER_FILES + MODULE_FILES if not is_deprecated(p)}
+STANDALONE = {p.stem for p in MODULE_FILES if (ACTION_DIR / p.name).is_file()}
 
 
 def test_there_are_plugins_to_check():
@@ -88,7 +91,7 @@ def test_each_role_readme_lists_every_plugin_the_role_calls(role_dir):
 
 def test_the_roles_between_them_call_every_current_plugin():
     called = set().union(*(called_by(d) for d in ROLE_DIRS))
-    assert called == CURRENT
+    assert called == CURRENT - STANDALONE
 
 
 def test_a_deprecated_filter_is_marked_as_such_in_the_root_readme():

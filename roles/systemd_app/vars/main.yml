@@ -3,7 +3,7 @@
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Not inputs: fixed internals, and values derived from the inputs in defaults/main.yml. Role
+# Fixed internals, and values derived from the inputs in defaults/main.yml. Role
 # vars outrank inventory and play variables, so none of these is replaced by accident. A call
 # site may still read them, e.g. systemd_app_private_run_dir.
 
@@ -18,15 +18,15 @@ systemd_app_role_dropins:
 systemd_app_home: "{{ systemd_app_root }}/{{ systemd_app_name }}"
 
 # The host paths this app's last deploy installed. A later deploy and a decommission both read
-# it instead of re-deriving from apps/<name>/, which by then may name different files or be
-# gone; recorded for both kinds, so a change of kind reconciles. Inside the app's home so the
-# two share fate — a hand-removed /var/app/<app> cannot leave a stale record behind.
+# it, since apps/<name>/ may by then name different files or be gone; recorded for both kinds,
+# so a change of kind reconciles. Inside the app's home so the two share fate — a hand-removed
+# /var/app/<app> cannot leave a stale record behind.
 systemd_app_manifest_file: "{{ systemd_app_home }}/.install-manifest"
 
-# What a 'source' deploy installs, and the host path each lands at. A filter rather than globs
-# and a find, so the manifest is composed where it is tested. Lazy, so an 'inline' app never
-# reads it; a missing directory raises, though main.yml refuses one first. The reserved names
-# are the role's own drop-ins, above.
+# What a 'source' deploy installs, and the host path each lands at. A filter, so the manifest
+# is composed where it is tested. Lazy, so an 'inline' app never reads it; a missing directory
+# raises, though main.yml refuses one first. The reserved names are the role's own drop-ins,
+# above.
 systemd_app_source_tree: >-
   {{ (systemd_app_apps_dir ~ '/' ~ systemd_app_name) | binarycodes.homelab.source_tree(
        systemd_app_system_dir, systemd_app_unit_dir, systemd_app_home ~ '/config',
@@ -39,10 +39,10 @@ systemd_app_base_paths: >-
       if systemd_app_kind == 'inline' else systemd_app_source_tree.installed)
      + systemd_app_private_tree.installed }}
 
-# The units that read this app's private files, and their ordering drop-ins. Not the manifest
-# module's `units`: that is computed from what the *last* deploy recorded, and only exists
-# after the call that has to be told these paths. Split from base_paths so the unit derivation
-# does not see the drop-ins it is producing.
+# The units that read this app's private files, and their ordering drop-ins, derived from this
+# deploy's paths: the manifest module's `units` is computed from what the *last* deploy
+# recorded, and only exists after the call that has to be told these paths. Split from
+# base_paths so the unit derivation does not see the drop-ins it is producing.
 systemd_app_private_units: >-
   {{ systemd_app_base_paths | binarycodes.homelab.unit_names(
        systemd_app_system_dir, systemd_app_unit_dir)
@@ -65,17 +65,16 @@ systemd_app_installed_paths: >-
   {{ systemd_app_base_paths + systemd_app_private_dropins + systemd_app_slice_dropins }}
 
 # The environment-shaped secret channel: one SOPS file keyed by the podman secret names the
-# app's Quadlet references with Secret=. Discovered, not declared, and outside the directories
-# the role installs from, so nothing copies it to the host — a unit file is world-readable,
-# which is what makes Environment= the wrong home for a secret. Names are host-global, so
-# prefix them with the app name. An 'inline' app gets its Secret= lines rendered from these;
-# a 'source' app writes them itself. See README.
+# app's Quadlet references with Secret=. Discovered in the app's directory, outside the ones
+# the role installs from, so nothing copies it to the host — a unit file is world-readable, so
+# a secret's value stays out of it. Names are host-global, so prefix them with the app name. An
+# 'inline' app gets its Secret= lines rendered from these; a 'source' app writes them itself.
+# See README.
 systemd_app_secrets_file: "{{ systemd_app_apps_dir }}/{{ systemd_app_name }}/secrets.sops.yaml"
 
-# A lookup, not community.sops.load_vars: that result becomes a host fact, and a fact persists
-# for the play, so one app's decrypted values would be visible to every app after it. The cost
-# is that sops runs once per reference rather than once per app. Empty when the app ships no
-# file or systemd_app_apps_dir is unset.
+# A lookup, so the decrypted values never become a host fact: a fact persists for the play,
+# which would make one app's values visible to every app after it. The cost is that sops runs
+# once per reference. Empty when the app ships no file or systemd_app_apps_dir is unset.
 systemd_app_secret_values: >-
   {{ (lookup('community.sops.sops', systemd_app_secrets_file) | from_yaml)
      if (systemd_app_apps_dir is defined and (systemd_app_secrets_file is file))
@@ -88,24 +87,23 @@ systemd_app_secret_values: >-
 # Copied to the host still encrypted, so nothing readable is written below systemd_app_root;
 # plaintext exists only in tmpfs, written at unit start and gone when the unit stops. The
 # controller never holds the key — the filter only says what the host's unit will do, which is
-# what makes two files decrypting to one name a failed play rather than a failed unit.
+# what makes two files decrypting to one name fail the play before any unit runs.
 
-# Not inputs: one unit file serves every app on the host, so a per-app value would have the
-# last app deployed rewrite the key path for all of them. The role never provisions the key; a
-# host keeping it elsewhere symlinks it into place.
+# Fixed: one unit file serves every app on the host, so the key path is one value for all of
+# them. The key is provisioned outside the role; a host keeping it elsewhere symlinks it into
+# place.
 systemd_app_private_key_file: /etc/homelab/age.key
 systemd_app_private_unit: homelab-private-decrypt
 systemd_app_private_helper: /usr/local/libexec/homelab-decrypt-private
 
-# Where this app's decrypted files appear, for a call site to mount from. The role renders no
-# mount of its own for either kind: an image wants its file at a path only the app knows.
+# Where this app's decrypted files appear, for a call site to mount from. The mount is the call
+# site's, for either kind: an image wants its file at a path only the app knows.
 #   systemd_app_volumes:
 #     - "{{ systemd_app_private_run_dir }}/tls.key:/etc/myapp/tls.key:ro"
 systemd_app_private_run_dir: "/run/app/{{ systemd_app_name }}/private"
 
-# Guarded on systemd_app_apps_dir like the secrets lookup. Empty rather than raising for an app
-# with no private/, which is most of them: unlike source_tree, a missing directory here is the
-# normal case, not a deploy about to prune everything.
+# Guarded on systemd_app_apps_dir like the secrets lookup. Empty for an app with no private/,
+# which is most of them: a missing directory here is the normal case.
 systemd_app_private_dir: "{{ systemd_app_home }}/private"
 systemd_app_private_tree: >-
   {{ ((systemd_app_apps_dir ~ '/' ~ systemd_app_name)

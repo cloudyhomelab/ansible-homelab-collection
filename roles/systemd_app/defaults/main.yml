@@ -46,8 +46,8 @@ systemd_app_file_mode: "0644"
 systemd_app_dir_mode: "0755"
 
 # When systemd_app_domain is set, a per-app route snippet lands here and is imported by the
-# Caddyfile (`import /etc/caddy/conf.d/*.caddy`). Caddy is reloaded once by the deploy
-# playbook, not here. This is the reverse proxy's own config tree, the one directory this role
+# Caddyfile (`import /etc/caddy/conf.d/*.caddy`). Caddy is reloaded once, by the deploy
+# playbook. This is the reverse proxy's own config tree, the one directory this role
 # writes into that belongs to another app, so a proxy not named 'reverse_proxy' overrides it.
 systemd_app_caddy_confd: "{{ systemd_app_root }}/reverse_proxy/config/conf.d"
 
@@ -78,8 +78,8 @@ systemd_app_restart: always
 systemd_app_data_dirs: []
 
 # 'inline' healthchecks. The probe has no useful default, so it comes from the call site;
-# naming one turns on Notify=healthy, which is what makes a bad image a failed start that
-# `podman auto-update` rolls back rather than a container that is up and serving nothing.
+# naming one turns on Notify=healthy, so a bad image that is up and serving nothing is a
+# failed start that `podman auto-update` rolls back.
 # Leave systemd_app_health_cmd empty for an app that cannot be probed.
 systemd_app_health_cmd: ""                   # e.g. pg_isready -q -U postgres
 systemd_app_health_interval: 15s
@@ -108,4 +108,4 @@ systemd_app_start_timeout: 180
 # systemd_app_restart:      optional — Restart= policy (default always).
 # systemd_app_data_dirs:    optional — bind-mount directories to pre-create with a given owner.
 # systemd_app_health_cmd:   optional — probe command; enables the auto-update rollback.
-# Secrets and private files are not parameters: an app has them by shipping the files.
+# Secrets and private files come with the app: it has them by shipping the files.

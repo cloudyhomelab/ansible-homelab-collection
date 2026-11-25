@@ -27,7 +27,7 @@
     label: "{{ item.name }}"
   notify: systemd_slices reload systemd
 
-# Not started: a slice starts with the first unit placed in it. The reload is what matters,
+# A slice starts with the first unit placed in it, so the reload is what matters here,
 # both for a later role in the play starting a unit in a new slice and for an active slice,
 # which keeps its old properties until systemd re-reads its file.
 - name: Apply slice changes (systemd daemon-reload)

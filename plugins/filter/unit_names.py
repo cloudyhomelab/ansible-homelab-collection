@@ -96,7 +96,7 @@ EXAMPLES = r"""
 
 
 # Quadlet suffix -> the suffix its generated unit gets. Only the kinds that run a container;
-# see DOCUMENTATION for why the rest are left out rather than unimplemented.
+# see DOCUMENTATION for why the rest are left out.
 _QUADLET_UNIT_SUFFIXES = {
     ".container": ".service",
     ".kube": ".service",

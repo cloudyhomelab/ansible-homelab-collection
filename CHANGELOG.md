@@ -2,56 +2,79 @@
 
 **Topics**
 
-- <a href="#v2-2-0">v2\.2\.0</a>
+- <a href="#v3-0-0">v3\.0\.0</a>
     - <a href="#release-summary">Release Summary</a>
+    - <a href="#breaking-changes--porting-guide">Breaking Changes / Porting Guide</a>
+    - <a href="#new-modules">New Modules</a>
+- <a href="#v2-2-0">v2\.2\.0</a>
+    - <a href="#release-summary-1">Release Summary</a>
     - <a href="#minor-changes">Minor Changes</a>
 - <a href="#v2-1-0">v2\.1\.0</a>
-    - <a href="#release-summary-1">Release Summary</a>
+    - <a href="#release-summary-2">Release Summary</a>
     - <a href="#minor-changes-1">Minor Changes</a>
     - <a href="#new-plugins">New Plugins</a>
         - <a href="#filter">Filter</a>
 - <a href="#v2-0-0">v2\.0\.0</a>
-    - <a href="#release-summary-2">Release Summary</a>
+    - <a href="#release-summary-3">Release Summary</a>
     - <a href="#major-changes">Major Changes</a>
     - <a href="#minor-changes-2">Minor Changes</a>
-    - <a href="#breaking-changes--porting-guide">Breaking Changes / Porting Guide</a>
+    - <a href="#breaking-changes--porting-guide-1">Breaking Changes / Porting Guide</a>
     - <a href="#removed-features-previously-deprecated">Removed Features \(previously deprecated\)</a>
 - <a href="#v1-3-0">v1\.3\.0</a>
-    - <a href="#release-summary-3">Release Summary</a>
+    - <a href="#release-summary-4">Release Summary</a>
     - <a href="#minor-changes-3">Minor Changes</a>
     - <a href="#new-plugins-1">New Plugins</a>
         - <a href="#filter-1">Filter</a>
 - <a href="#v1-2-0">v1\.2\.0</a>
-    - <a href="#release-summary-4">Release Summary</a>
+    - <a href="#release-summary-5">Release Summary</a>
     - <a href="#minor-changes-4">Minor Changes</a>
     - <a href="#deprecated-features">Deprecated Features</a>
     - <a href="#new-plugins-2">New Plugins</a>
         - <a href="#filter-2">Filter</a>
 - <a href="#v1-1-2">v1\.1\.2</a>
-    - <a href="#release-summary-5">Release Summary</a>
+    - <a href="#release-summary-6">Release Summary</a>
     - <a href="#bugfixes">Bugfixes</a>
 - <a href="#v1-1-1">v1\.1\.1</a>
-    - <a href="#release-summary-6">Release Summary</a>
-- <a href="#v1-1-0">v1\.1\.0</a>
     - <a href="#release-summary-7">Release Summary</a>
+- <a href="#v1-1-0">v1\.1\.0</a>
+    - <a href="#release-summary-8">Release Summary</a>
     - <a href="#major-changes-1">Major Changes</a>
     - <a href="#minor-changes-5">Minor Changes</a>
-    - <a href="#breaking-changes--porting-guide-1">Breaking Changes / Porting Guide</a>
+    - <a href="#breaking-changes--porting-guide-2">Breaking Changes / Porting Guide</a>
     - <a href="#deprecated-features-1">Deprecated Features</a>
     - <a href="#security-fixes">Security Fixes</a>
     - <a href="#bugfixes-1">Bugfixes</a>
     - <a href="#known-issues">Known Issues</a>
     - <a href="#new-plugins-3">New Plugins</a>
         - <a href="#filter-3">Filter</a>
-    - <a href="#new-modules">New Modules</a>
+    - <a href="#new-modules-1">New Modules</a>
 - <a href="#v1-0-0">v1\.0\.0</a>
-    - <a href="#release-summary-8">Release Summary</a>
+    - <a href="#release-summary-9">Release Summary</a>
     - <a href="#minor-changes-6">Minor Changes</a>
+
+<a id="v3-0-0"></a>
+## v3\.0\.0
+
+<a id="release-summary"></a>
+### Release Summary
+
+Installing a downloaded package file is now a task of its own\: the new <code>binarycodes\.homelab\.external\_package</code> module installs one deb or rpm per call\, the way <code>ansible\.builtin\.package</code> installs from a repository\, and composes with <code>loop</code>\, <code>when</code> and <code>register</code>\. It keeps what the <code>external\_packages</code> role did\: the input checks before any download\, the pinned checksum\, the skip for a package already at its version\, check mode and the cleanup of the download\. Read the breaking changes before upgrading\: the <code>external\_packages</code> role and the <code>package\_validation\_errors</code> filter are removed\, and a play moves each <code>external\_packages\_list</code> entry to an <code>external\_package</code> task with the same four keys\. Packages the role installed stay installed and are recognised by version\.
+
+<a id="breaking-changes--porting-guide"></a>
+### Breaking Changes / Porting Guide
+
+* external\_packages \- the role is removed\. Install each package with the new <code>binarycodes\.homelab\.external\_package</code> module instead\, one task per package\, with <code>loop</code> over what was <code>external\_packages\_list</code>\; an entry\'s <code>name</code>\, <code>version</code>\, <code>url</code> and <code>checksum</code> become the module\'s options of the same names\. A package the role installed is recognised by its version and not downloaded again\.
+* package\_validation\_errors \- the filter is removed\. The <code>external\_package</code> module checks its own options with the same rules before anything is downloaded\.
+
+<a id="new-modules"></a>
+### New Modules
+
+* binarycodes\.homelab\.external\_package \- Install a deb or rpm package file downloaded from a URL\.
 
 <a id="v2-2-0"></a>
 ## v2\.2\.0
 
-<a id="release-summary"></a>
+<a id="release-summary-1"></a>
 ### Release Summary
 
 The <code>systemd\_app</code> role installs a <code>source</code> app\'s <code>unit/\<unit\>\.d/\*\.conf</code> drop\-ins\, so an app can configure a unit it does not ship\, such as one a distribution package installs\. The drop\-ins are recorded in the app\'s install manifest\, and the unit gets the role\'s slice and private\-file drop\-ins like the app\'s own units\. The role\'s internal variables move from <code>defaults/</code> to <code>vars/</code>\, so an inventory or play value for one of them\, such as the decrypt key path\, is now ignored\.
@@ -67,7 +90,7 @@ The <code>systemd\_app</code> role installs a <code>source</code> app\'s <code>u
 <a id="v2-1-0"></a>
 ## v2\.1\.0
 
-<a id="release-summary-1"></a>
+<a id="release-summary-2"></a>
 ### Release Summary
 
 Adds a third role\, <code>external\_packages</code>\, which installs deb or rpm package files that no repository carries\, such as a project\'s release downloads\, through the host\'s own package manager\. Each download is verified against a pinned checksum and deleted after the install\, and a package already at its version is not downloaded at all\. Every entry is checked by the new <code>package\_validation\_errors</code> filter before anything is downloaded\. The role installs only\: a package dropped from its list stays on the host until a task of the caller\'s removes it\.
@@ -88,7 +111,7 @@ Adds a third role\, <code>external\_packages</code>\, which installs deb or rpm 
 <a id="v2-0-0"></a>
 ## v2\.0\.0
 
-<a id="release-summary-2"></a>
+<a id="release-summary-3"></a>
 ### Release Summary
 
 Every app now runs in a systemd slice\. The <code>systemd\_app</code> role places each service an app installs or Quadlet generates in the slice <code>systemd\_app\_slice</code> names\, <code>homelab</code> by default\, so the apps share one resource budget and the host\'s own services stay outside it\. Read the breaking changes before upgrading\: a deploy fails until the host has a unit file for that slice\, normally from the <code>systemd\_slices</code> role\, and the first deploy restarts each app\'s managed units to move them\; <code>system</code> opts an app out\. The filters deprecated in 1\.x are removed\, as is the <code>podman\_secrets</code> module\'s <code>adopt\_file</code> option for records kept before 1\.1\.0\, and <code>unit\_names</code> gains a <code>types</code> option\.
@@ -103,7 +126,7 @@ Every app now runs in a systemd slice\. The <code>systemd\_app</code> role place
 
 * The <code>unit\_names</code> filter takes an optional <code>types</code> list\, such as <code>\[\'service\'\]</code>\, and returns only the units of those types\.
 
-<a id="breaking-changes--porting-guide"></a>
+<a id="breaking-changes--porting-guide-1"></a>
 ### Breaking Changes / Porting Guide
 
 * A <code>source</code> app without <code>systemd\_app\_enable\_units</code> is not restarted by the role\, so it moves into its slice only when restarted by hand or when the host reboots\.
@@ -122,7 +145,7 @@ Every app now runs in a systemd slice\. The <code>systemd\_app</code> role place
 <a id="v1-3-0"></a>
 ## v1\.3\.0
 
-<a id="release-summary-3"></a>
+<a id="release-summary-4"></a>
 ### Release Summary
 
 Adds a second role\, <code>systemd\_slices</code>\, which installs systemd slice units with resource\-control settings such as <code>MemoryMax</code> and <code>CPUWeight</code>\, so a group of apps can share one budget by naming the slice in <code>Slice\=</code>\. Every entry is checked by the new <code>slice\_validation\_errors</code> filter before anything is written\, and systemd is reloaded when a slice changes\, so an active slice takes its new settings at once\. The role installs only\: a slice dropped from its list stays on the host until a task of the caller\'s removes it\.
@@ -143,7 +166,7 @@ Adds a second role\, <code>systemd\_slices</code>\, which installs systemd slice
 <a id="v1-2-0"></a>
 ## v1\.2\.0
 
-<a id="release-summary-4"></a>
+<a id="release-summary-5"></a>
 ### Release Summary
 
 Apps can now ship encrypted configuration and data\. The <code>systemd\_app</code> role installs an app\'s <code>private/</code> directory to the host still encrypted\, and a companion unit decrypts the <code>\*\.age</code> and <code>\*\.sops\.\<ext\></code> files into a tmpfs directory at unit start\, so no plaintext is written below <code>systemd\_app\_root</code>\. Deploying such an app needs <code>age</code> and <code>sops</code> on the target host\. The new <code>private\_tree</code> filter describes that tree\, the <code>install\_manifest</code> module records and prunes it and now removes directories a prune leaves empty\, and the <code>manifest\_units</code> filter is renamed <code>unit\_names</code>\, with the old name deprecated until 2\.0\.0\.
@@ -174,7 +197,7 @@ Apps can now ship encrypted configuration and data\. The <code>systemd\_app</cod
 <a id="v1-1-2"></a>
 ## v1\.1\.2
 
-<a id="release-summary-5"></a>
+<a id="release-summary-6"></a>
 ### Release Summary
 
 A durability fix for the install manifest\: the record is flushed to disk before it is renamed into place\, so a host that loses power part\-way through a deploy cannot come back with an empty record\. The <code>systemd\_app</code> role\'s README now describes check mode as the modules actually behave\, and contributor documentation is consolidated into <code>CONTRIBUTING\.md</code>\.
@@ -188,7 +211,7 @@ A durability fix for the install manifest\: the record is flushed to disk before
 <a id="v1-1-1"></a>
 ## v1\.1\.1
 
-<a id="release-summary-6"></a>
+<a id="release-summary-7"></a>
 ### Release Summary
 
 Nothing in the collection changes\: the role\, filters and modules are those of 1\.1\.0\. This release exercises the release procedure itself\, which is now driven from a pull\-request label and two approvals rather than scripts run by hand\.
@@ -196,7 +219,7 @@ Nothing in the collection changes\: the role\, filters and modules are those of 
 <a id="v1-1-0"></a>
 ## v1\.1\.0
 
-<a id="release-summary-7"></a>
+<a id="release-summary-8"></a>
 ### Release Summary
 
 The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code> reconciles an app\'s secrets from ownership and digest labels on the secrets themselves\, and <code>install\_manifest</code> reconciles the install record on the host\; both support check and diff mode\. Read the major change before upgrading\: the first deploy re\-creates every app\'s secrets to label them and restarts each app with secrets once\. The controller floor rises to ansible\-core 2\.19 and the host floor to podman 4\.5\. New <code>inline</code> parameters set the <code>AutoUpdate\=</code> and <code>Restart\=</code> policy\, the role refuses a domain another app\'s route already claims\, and the filters the modules replace are deprecated ahead of 2\.0\.0\.
@@ -220,7 +243,7 @@ The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code
 * The <code>systemd\_app</code> role now refuses to deploy an app whose <code>systemd\_app\_domain</code> is already the address of a site block in another app\'s route snippet under <code>systemd\_app\_caddy\_confd</code>\, naming that file\. Two site blocks with one address make Caddy refuse the whole imported config\, taking every app\'s route down\; the refusal happens before anything is installed on the host\.
 * The <code>systemd\_app</code> role reconciles an app\'s podman secrets before installing any of its files\, so a value the store refuses fails the deploy with nothing on the host\, as a refused name already did\.
 
-<a id="breaking-changes--porting-guide-1"></a>
+<a id="breaking-changes--porting-guide-2"></a>
 ### Breaking Changes / Porting Guide
 
 * The <code>systemd\_app</code> role now needs podman 4\.5 or newer on the host\, where <code>podman secret create</code> learned <code>\-\-label</code>\; the previous floor was 4\.4\. Every platform the role claims ships podman 5\.x\.
@@ -264,7 +287,7 @@ The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code
 * binarycodes\.homelab\.route\_validation\_errors \- Why an app cannot be routed\, one string per problem\.
 * binarycodes\.homelab\.source\_tree \- What a <code>source</code> app ships\, and the host paths it installs to\.
 
-<a id="new-modules"></a>
+<a id="new-modules-1"></a>
 ### New Modules
 
 * binarycodes\.homelab\.install\_manifest \- Reconcile the files an app installed against the record of its last deploy\.
@@ -273,7 +296,7 @@ The role\'s host\-side work moves into two modules\. <code>podman\_secrets</code
 <a id="v1-0-0"></a>
 ## v1\.0\.0
 
-<a id="release-summary-8"></a>
+<a id="release-summary-9"></a>
 ### Release Summary
 
 First release\. Extracted from the playbook repository it grew up in\, with the repository\-specific parts removed\.

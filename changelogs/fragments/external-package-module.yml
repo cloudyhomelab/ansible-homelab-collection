@@ -1,9 +1,0 @@
----
-breaking_changes:
-  - external_packages - the role is removed. Install each package with the new
-    ``binarycodes.homelab.external_package`` module instead, one task per package, with
-    ``loop`` over what was ``external_packages_list``; an entry's ``name``, ``version``, ``url``
-    and ``checksum`` become the module's options of the same names. A package the role
-    installed is recognised by its version and not downloaded again.
-  - package_validation_errors - the filter is removed. The ``external_package`` module checks
-    its own options with the same rules before anything is downloaded.

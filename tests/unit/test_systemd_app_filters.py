@@ -912,7 +912,7 @@ def test_a_reserved_dropin_name_is_refused(tmp_path):
 
 def test_the_molecule_fixture_records_what_the_scenario_expects():
     """The scenario's oracle for the source app's manifest, against the fixture tree it is
-    written for. Composed the way defaults/main.yml composes it, so it stays an independent
+    written for. Composed the way vars/main.yml composes it, so it stays an independent
     check; the encrypted private files come from molecule.yml, since prepare.yml writes those
     rather than the tree carrying them."""
     scenario = pathlib.Path(__file__).resolve().parents[2] / "extensions" / "molecule" / "default"

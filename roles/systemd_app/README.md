@@ -216,6 +216,11 @@ line per list entry, which is why an entry may not contain a newline of its own.
 | `systemd_app_root`        | `/var/app`                   | Every app's home → `<root>/<app>`.       |
 | `systemd_app_caddy_confd` | `{{ systemd_app_root }}/reverse_proxy/config/conf.d` | Dir for generated route snippets. |
 
+The role's other variables are internals in `vars/main.yml`: fixed values such as the decrypt
+unit's name and key path, and values derived from the inputs such as `systemd_app_home`.
+Role vars outrank inventory and play variables, so setting one there has no effect; read
+them, don't set them.
+
 `systemd_app_apps_dir` has no default — where a fleet keeps its app definitions is a
 property of that repository, not of this role — and deploying a `source` app fails the run
 without it. Set it once as a play variable, since every app in a play reads the same tree:

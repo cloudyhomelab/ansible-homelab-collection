@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # What a 'source' app installs from its directory on the controller, as systemd_app_source_tree
-# read it (see defaults/main.yml): quadlet/ and unit/ flat by basename, unit/<unit>.d/ drop-ins
+# read it (see vars/main.yml): quadlet/ and unit/ flat by basename, unit/<unit>.d/ drop-ins
 # beside their unit, config/ as a tree.
 # Only ever included for a 'source' app, which is what lets every task here read the tree
 # without a kind condition of its own.

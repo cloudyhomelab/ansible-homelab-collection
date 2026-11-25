@@ -64,6 +64,7 @@ apps/
   <app>/
     quadlet/            # *.container, *.pod, *.network, *.volume, *.kube, ... (optional)
     unit/               # plain *.service, *.timer, *.socket, ...              (optional)
+      <unit>.d/         # *.conf drop-ins for <unit>, the app's or a package's (optional)
     config/             # arbitrary tree, copied recursively to the host       (optional)
     private/            # encrypted files, copied to the host as they are      (optional)
     secrets.sops.yaml   # SOPS-encrypted podman secrets                        (optional)
@@ -73,6 +74,37 @@ An `inline` app has no such directory, except when it needs secrets or private f
 it holds only those.
 
 Each subdirectory is optional — an app may ship only a Quadlet, only config, etc.
+
+### Unit drop-ins
+
+`unit/<unit>.d/*.conf` is installed to `/etc/systemd/system/<unit>.d/`. The unit can be one the
+app ships, one Quadlet generates, or one a distribution package installs — the usual case being
+a packaged service the app configures:
+
+```
+apps/myapp/unit/myapp-server.service.d/50-myapp.conf
+```
+
+```ini
+[Service]
+EnvironmentFile=/run/app/myapp/private/server.env
+ExecStart=
+ExecStart=/usr/bin/myapp-server --config /var/app/myapp/config/server.toml
+```
+
+- Only the drop-ins are recorded in the [install manifest](#install-manifest): a deploy that
+  stops shipping one prunes it, `absent` removes them all, and the packaged unit file is never
+  touched.
+- A unit with a drop-in counts as one the app installs, so it also gets the role's
+  [slice](#slice) drop-in and, when the app has [private files](#private-files), the drop-in
+  ordering it after their decrypt.
+- `10-private.conf` and `20-slice.conf` are the role's own names; an app drop-in named either
+  fails the deploy before anything is installed.
+- `<unit>` must end in `.service`, `.socket`, `.timer`, `.path`, `.mount` or `.automount`, and
+  the directory may hold only `*.conf` files (hidden ones are skipped); anything else fails the
+  deploy. Other directories under `unit/` are ignored.
+- To start, restart and enable a packaged unit, list it in `systemd_app_enable_units`; see
+  [unit names](#unit-names-and-boot-persistence) for what `absent` then does with it.
 
 ### `inline` — render a single container
 
@@ -88,7 +120,7 @@ it an image (and usually a domain). The container is named
 ### `present` (default)
 
 1. **`inline`**: renders `<name>.container` to `/etc/containers/systemd/`.
-   **`source`**: copies `<app>/quadlet/*` there and `<app>/unit/*` to
+   **`source`**: copies `<app>/quadlet/*` there and `<app>/unit/*`, drop-ins included, to
    `/etc/systemd/system/`, then copies `<app>/config/` to `/var/app/<app>/config/`.
    Either way, every host path installed is recorded in an
    [install manifest](#install-manifest); anything the previous deploy recorded and
@@ -205,7 +237,7 @@ decommission of either kind never reads it: it works from the host alone.
 ## Install manifest
 
 A deploy records the host paths it installed to `/var/app/<app>/.install-manifest`, one per
-line: a `source` app's Quadlet files, units and config tree, an `inline` app's one rendered
+line: a `source` app's Quadlet files, units, [unit drop-ins](#unit-drop-ins) and config tree, an `inline` app's one rendered
 `<name>.container`, and for either kind its encrypted [private files](#private-files), the
 drop-ins written for them and its [slice](#slice) drop-ins. It lives in the app's home so the two share fate — a hand-removed
 or restored `/var/app/<app>` cannot leave a stale record behind. A later deploy and a
@@ -302,7 +334,8 @@ Three consequences worth knowing:
   `:latest` is not, and needs `podman auto-update` or `Pull=newer`.
 - **Removed files are treated by kind.** A pruned config file is a config change, since the app
   is still reading what is gone. A pruned unit file is not — it leaves nothing to act on, and
-  the unit keeps running until stopped by hand.
+  the unit keeps running until stopped by hand. A pruned drop-in is not either: the unit keeps
+  the settings it started with until it is next restarted.
 - **A changed slice is a restart.** systemd moves a unit to another cgroup only when it
   starts. Like every restart here, it reaches the managed units only: a `source` app that names
   no `systemd_app_enable_units` gets its drop-ins but stays where it runs until it is restarted
@@ -642,6 +675,11 @@ At teardown the role does not depend on this list. `absent` stops the managed un
 `source` app deployed with `systemd_app_enable_units` is stopped by an `absent` call that
 omits it — otherwise its unit files would be deleted while its containers kept running,
 the generated service gone from systemd's view and its `ExecStopPost` never fired.
+
+A unit the app only ships [drop-ins](#unit-drop-ins) for is not implied by the manifest, since
+its file is not the app's. `absent` stops and disables it only when the call lists it in
+`systemd_app_enable_units`; otherwise it keeps running with the settings it started with, and
+picks up the loss of the app's drop-ins at its next restart.
 
 `.network` and `.volume` units are deliberately not stopped: they create a resource rather
 than run a container, and the role leaves those resources behind on purpose (see the note

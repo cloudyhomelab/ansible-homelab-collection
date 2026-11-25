@@ -15,6 +15,7 @@ systemd_app_state: present
 # Layout:  {{ systemd_app_apps_dir }}/<systemd_app_name>/
 #   quadlet/            -> Podman Quadlet files (*.container, *.pod, *.network, ...)
 #   unit/               -> plain systemd unit files (*.service, *.timer, *.socket, ...)
+#   unit/<unit>.d/      -> drop-ins (*.conf) for <unit>, shipped by the app or by a package
 #   config/             -> arbitrary config tree, copied recursively to the host
 #   private/            -> encrypted files, copied to the host as they are (see below)
 #   secrets.sops.yaml   -> SOPS-encrypted podman secrets (see below)
@@ -41,10 +42,12 @@ systemd_app_manifest_file: "{{ systemd_app_home }}/.install-manifest"
 
 # What a 'source' deploy installs, and the host path each lands at. A filter rather than globs
 # and a find, so the manifest is composed where it is tested. Lazy, so an 'inline' app never
-# reads it; a missing directory raises, though main.yml refuses one first.
+# reads it; a missing directory raises, though main.yml refuses one first. The reserved names
+# are the role's own drop-ins (vars/main.yml).
 systemd_app_source_tree: >-
   {{ (systemd_app_apps_dir ~ '/' ~ systemd_app_name) | binarycodes.homelab.source_tree(
-       systemd_app_system_dir, systemd_app_unit_dir, systemd_app_home ~ '/config') }}
+       systemd_app_system_dir, systemd_app_unit_dir, systemd_app_home ~ '/config',
+       reserved_dropins=systemd_app_role_dropins.values() | list) }}
 
 # What this deploy installs, as the manifest records it. Read by both manifest calls in
 # present.yml, so the check-mode one and the one that prunes cannot be given different lists.
@@ -63,7 +66,7 @@ systemd_app_private_units: >-
      if systemd_app_has_private | bool else [] }}
 systemd_app_private_dropins: >-
   {{ systemd_app_private_units
-     | map('regex_replace', '^(.+)$', systemd_app_unit_dir ~ '/\1.d/10-private.conf')
+     | map('regex_replace', '^(.+)$', systemd_app_unit_dir ~ '/\1.d/' ~ systemd_app_role_dropins.private)
      | list }}
 
 # Every service the app runs goes in systemd_app_slice, the Quadlet-generated ones included, so
@@ -72,7 +75,7 @@ systemd_app_private_dropins: >-
 systemd_app_slice_dropins: >-
   {{ systemd_app_base_paths
      | binarycodes.homelab.unit_names(systemd_app_system_dir, systemd_app_unit_dir, types=['service'])
-     | map('regex_replace', '^(.+)$', systemd_app_unit_dir ~ '/\1.d/20-slice.conf')
+     | map('regex_replace', '^(.+)$', systemd_app_unit_dir ~ '/\1.d/' ~ systemd_app_role_dropins.slice)
      | list }}
 
 systemd_app_installed_paths: >-

@@ -250,7 +250,7 @@ argument_specs:
         default: /etc/systemd/system
         description: >-
           Host directory plain systemd units from a source app's unit/ are
-          installed to.
+          installed to, and its unit/<unit>.d/*.conf drop-ins below it.
       systemd_app_root:
         type: str
         required: false

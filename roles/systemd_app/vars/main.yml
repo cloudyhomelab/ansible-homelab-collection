@@ -1,0 +1,11 @@
+---
+# Copyright (c) 2026 binarycodes
+# GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The drop-ins the role writes into every unit's <unit>.d/, by purpose. Every value is also
+# refused as the name of an app's own drop-in, which would overwrite the role's or be
+# overwritten by it; a new entry is reserved by being here.
+systemd_app_role_dropins:
+  private: 10-private.conf
+  slice: 20-slice.conf

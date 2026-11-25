@@ -1,0 +1,13 @@
+---
+minor_changes:
+  - systemd_app - a ``source`` app's ``unit/<unit>.d/*.conf`` drop-ins are installed to
+    ``systemd_app_unit_dir``, including for a unit the app does not ship, such as one a
+    distribution package installs. They are recorded in the install manifest, so a deploy
+    prunes one the app stops shipping and a decommission removes them, never the unit file.
+    A unit with a drop-in also gets the role's slice drop-in and, for an app with private
+    files, the one ordering it after their decrypt. An app drop-in named ``10-private.conf``
+    or ``20-slice.conf`` fails the deploy.
+  - source_tree filter - returns ``dropin_files``, lists them in ``installed``, and takes
+    ``reserved_dropins``, drop-in names it refuses.
+  - unit_names filter - a ``<unit>.d/<name>.conf`` path in the plain-unit directory implies
+    ``<unit>``.

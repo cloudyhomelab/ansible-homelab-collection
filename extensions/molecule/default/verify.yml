@@ -47,6 +47,10 @@
       - /etc/systemd/system/molquiet.service.d/10-private.conf
       - /etc/systemd/system/molquiet.service.d/20-slice.conf
       - /var/app/molquiet/.install-manifest
+      # The drop-in app's own and the role's, beside a unit file neither installed.
+      - /etc/systemd/system/molpackaged.service.d/50-env.conf
+      - /etc/systemd/system/molpackaged.service.d/20-slice.conf
+      - /var/app/moldropin/.install-manifest
     # What a later deploy reconciles against: an entry missing here is a file that would
     # survive forever, an extra one a file deleted from under another app.
     molecule_expected_source_manifest:
@@ -67,6 +71,7 @@
       - molinline.service
       - molsecret.service
       - molorphan.service
+      - molpackaged.service
 
   tasks:
     - name: Stat every path the converge should have installed
@@ -111,6 +116,34 @@
       vars:
         molecule_source_recorded: "{{ (molecule_manifests.results[0].content | b64decode).splitlines() }}"
         molecule_inline_recorded: "{{ (molecule_manifests.results[1].content | b64decode).splitlines() }}"
+
+    - name: Read the manifest of the app that ships only a drop-in
+      ansible.builtin.slurp:
+        src: /var/app/moldropin/.install-manifest
+      register: molecule_dropin_manifest
+
+    # From systemd, so a drop-in written but never reloaded fails here.
+    - name: Ask systemd what the packaged unit runs with
+      ansible.builtin.command:
+        argv: [systemctl, show, --property, "Environment,Slice,FragmentPath,DropInPaths", molpackaged.service]
+      changed_when: false
+      register: molecule_packaged_show
+
+    - name: Assert the drop-in reached the packaged unit, and only drop-ins were recorded
+      ansible.builtin.assert:
+        that:
+          - molecule_dropin_recorded == [
+              '/etc/systemd/system/molpackaged.service.d/20-slice.conf',
+              '/etc/systemd/system/molpackaged.service.d/50-env.conf']
+          - "'FragmentPath=/usr/lib/systemd/system/molpackaged.service' in molecule_packaged_show.stdout_lines"
+          - "'Environment=MOLDROPIN_GREETING=from-dropin' in molecule_packaged_show.stdout_lines"
+          - "'Slice=molslice.slice' in molecule_packaged_show.stdout_lines"
+        fail_msg: >-
+          Recorded {{ molecule_dropin_recorded }}; systemd reports
+          {{ molecule_packaged_show.stdout_lines }}.
+        quiet: true
+      vars:
+        molecule_dropin_recorded: "{{ (molecule_dropin_manifest.content | b64decode).splitlines() | sort }}"
 
     - name: Read the rendered Quadlet of the inline app
       ansible.builtin.slurp:

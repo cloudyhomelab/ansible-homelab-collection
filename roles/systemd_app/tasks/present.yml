@@ -191,6 +191,7 @@
          or (systemd_app_quadlet_render.changed | default(false))
          or (systemd_app_quadlet_install.changed | default(false))
          or (systemd_app_unit_install.changed | default(false))
+         or (systemd_app_unit_dropin_install.changed | default(false))
          or (systemd_app_slice_dropin_deploy.changed | default(false))
          or (systemd_app_private_changed | bool) }}
     systemd_app_config_changed: >-

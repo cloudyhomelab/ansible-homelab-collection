@@ -4,7 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # What a 'source' app installs from its directory on the controller, as systemd_app_source_tree
-# read it (see defaults/main.yml): quadlet/ and unit/ flat by basename, config/ as a tree.
+# read it (see defaults/main.yml): quadlet/ and unit/ flat by basename, unit/<unit>.d/ drop-ins
+# beside their unit, config/ as a tree.
 # Only ever included for a 'source' app, which is what lets every task here read the tree
 # without a kind condition of its own.
 - name: "Install Quadlet files for app {{ systemd_app_name }}"
@@ -27,6 +28,30 @@
     mode: "{{ systemd_app_file_mode }}"
   loop: "{{ systemd_app_source_tree.unit_files }}"
   register: systemd_app_unit_install
+  notify: systemd_app reload systemd
+
+# A drop-in may be for a unit a package installs, whose file the role never touches: the
+# manifest records only the drop-ins, so a decommission takes them and leaves the unit.
+- name: "Ensure unit drop-in directories exist for app {{ systemd_app_name }}"
+  ansible.builtin.file:
+    path: "{{ systemd_app_unit_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "{{ systemd_app_dir_mode }}"
+  loop: "{{ systemd_app_source_tree.dropin_files | map(attribute='path') | map('dirname') | unique | list }}"
+
+- name: "Install unit drop-ins for app {{ systemd_app_name }}"
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ systemd_app_unit_dir }}/{{ item.path }}"
+    owner: "{{ systemd_app_owner }}"
+    group: "{{ systemd_app_group }}"
+    mode: "{{ systemd_app_file_mode }}"
+  loop: "{{ systemd_app_source_tree.dropin_files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: systemd_app_unit_dropin_install
   notify: systemd_app reload systemd
 
 # The tree is copied whole, layout preserved; what it holds is recorded file by file in the

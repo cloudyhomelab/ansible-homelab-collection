@@ -29,6 +29,7 @@ destroy`. `verify` before `side_effect`, because it asserts what the converge le
 | A private file changed under an app started by hand reaches its container: the role restarts only the decrypt, and `PartOf=` carries that to a unit the role never names | `side_effect` | `molquiet` |
 | A renamed private file leaves both the host copy and the old decrypted name; dropping `private/` prunes the copies, the drop-ins and the directories they emptied, and stops the app's decrypt instance without disturbing another app's | `side_effect` | `molsource`, `molinline` |
 | The shared decrypt unit and its helper survive every app being decommissioned | `side_effect` | all |
+| An app's drop-in for a unit a package installed reaches that unit with the role's slice drop-in beside it; only the drop-ins are recorded, and `absent` removes them and leaves the unit file | `verify`, `side_effect` | `moldropin` |
 | Converting `source` → `inline` prunes what the other kind installed, disables the pruned plain unit before its file goes, and restarts from the rendered Quadlet | `side_effect` | `molsource` |
 | A changed secret is removed and re-created; a dropped one leaves the store; one removed behind the role's back comes back | `side_effect` | `molsecret` |
 | A secret another app owns is refused by name and owner, and left untouched | `side_effect` | `molclaim` |
@@ -40,7 +41,9 @@ so the run needs network access to github.com as well as to the registry.
 Fixtures under `apps/` are `molnet` (a network unit, installed but never joined:
 `Network=none` throughout keeps netavark out of every run), `molsource`, `molorphan`
 (deployed with `systemd_app_enable_units`, decommissioned without) and `molquiet` (deployed
-with none, so the role starts nothing for it and `side_effect.yml` starts it by hand).
+with none, so the role starts nothing for it and `side_effect.yml` starts it by hand) and
+`moldropin` (only a drop-in, for the `molpackaged.service` that `prepare.yml` installs under
+`/usr/lib/systemd/system` as a package would).
 `molinline`, `molsecret`, `molclaim` and `molclash` exist only as role calls; `molsecret`'s
 single encrypted file and every app's encrypted `private/` files are written by `prepare.yml`.
 The one committed member of a `private/` tree is `molsource/private/ca.crt`, which is

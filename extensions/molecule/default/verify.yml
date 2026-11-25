@@ -611,7 +611,7 @@
     - name: Find download directories the module left behind
       ansible.builtin.find:
         paths: /tmp
-        patterns: "*.external_packages"
+        patterns: "*.external_package"
         file_type: directory
       register: molecule_package_downloads
 
